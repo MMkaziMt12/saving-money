@@ -20,17 +20,21 @@ export type Database = {
       profiles: {
         Row: {
           id: string
+          created_at: string | null // Added created_at
           updated_at: string | null
           full_name: string | null
-          email: string | null
+          email: string | null // email might be redundant if auth.users.email is primary source
           phone: string | null
           avatar_url: string | null
           role: "user" | "admin"
           is_approved: boolean
+          is_active: boolean // Added is_active
           joined_at: string | null
+          last_login: string | null // Added last_login
         }
         Insert: {
           id: string
+          created_at?: string | null
           updated_at?: string | null
           full_name?: string | null
           email?: string | null
@@ -38,10 +42,13 @@ export type Database = {
           avatar_url?: string | null
           role?: "user" | "admin"
           is_approved?: boolean
+          is_active?: boolean
           joined_at?: string | null
+          last_login?: string | null
         }
         Update: {
           id?: string
+          created_at?: string | null
           updated_at?: string | null
           full_name?: string | null
           email?: string | null
@@ -49,7 +56,9 @@ export type Database = {
           avatar_url?: string | null
           role?: "user" | "admin"
           is_approved?: boolean
+          is_active?: boolean
           joined_at?: string | null
+          last_login?: string | null
         }
         Relationships: [
           {
@@ -75,10 +84,10 @@ export type Database = {
         Insert: {
           id?: string
           user_id: string
-          amount: number
-          payment_date: string
-          month: number
-          year: number
+          amount: number // Made non-nullable
+          payment_date: string // Made non-nullable
+          month: number // Made non-nullable
+          year: number // Made non-nullable
           recorded_by_admin_id?: string | null
           created_at?: string
           updated_at?: string
@@ -121,18 +130,20 @@ export type Database = {
           reviewed_at: string | null
           created_at: string
           updated_at: string
+          admin_notes: string | null // Added admin_notes
         }
         Insert: {
           id?: string
           user_id: string
-          amount_requested: number
-          reason: string
+          amount_requested: number // Made non-nullable
+          reason: string // Made non-nullable
           status?: "pending" | "approved" | "rejected"
           requested_at?: string
           reviewed_by_admin_id?: string | null
           reviewed_at?: string | null
           created_at?: string
           updated_at?: string
+          admin_notes?: string | null
         }
         Update: {
           id?: string
@@ -145,6 +156,7 @@ export type Database = {
           reviewed_at?: string | null
           created_at?: string
           updated_at?: string
+          admin_notes?: string | null
         }
         Relationships: [
           {
@@ -161,12 +173,49 @@ export type Database = {
           }
         ]
       }
+      notifications: { // Added notifications table definition
+        Row: {
+          id: string
+          user_id: string
+          message: string | null
+          type: string | null
+          sent_at: string
+          channel: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          message?: string | null
+          type?: string | null
+          sent_at?: string
+          channel?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          message?: string | null
+          type?: string | null
+          sent_at?: string
+          channel?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      handle_new_user: { // Placeholder for the function, actual SQL needed in Supabase
+        Args: Record<string, unknown> 
+        Returns: unknown
+      }
     }
     Enums: {
       [_ in never]: never
