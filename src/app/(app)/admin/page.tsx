@@ -1,9 +1,8 @@
-
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UserManagementTable } from "@/components/admin/UserManagementTable";
+import { UserManagementTable, type AddUserFormValues } from "@/components/admin/UserManagementTable";
 import { ContributionManagement } from "@/components/admin/ContributionManagement";
 import { EmergencyRequestManagementTable } from "@/components/admin/EmergencyRequestManagementTable";
 import { NotificationSender } from "@/components/admin/NotificationSender";
@@ -12,6 +11,7 @@ import { useState, useEffect } from "react";
 import { Users, ListChecks, ShieldAlert, BellRing, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMockAuth } from "@/hooks/use-mock-auth";
+import { useToast } from "@/hooks/use-toast";
 
 // Mock data - in a real app, this would be fetched
 const MOCK_USERS: Profile[] = [
@@ -35,6 +35,7 @@ const MOCK_EMERGENCY_REQUESTS: EmergencyRequest[] = [
 
 export default function AdminPage() {
   const { user } = useMockAuth();
+  const { toast } = useToast();
   const router = useRouter();
   const [users, setUsers] = useState<Profile[]>([]);
   const [contributions, setContributions] = useState<MonthlyContribution[]>([]);
@@ -73,6 +74,24 @@ export default function AdminPage() {
     // Also remove their contributions and requests for mock consistency
     setContributions(prev => prev.filter(c => c.user_id !== userId));
     setEmergencyRequests(prev => prev.filter(er => er.user_id !== userId));
+  };
+
+  const handleAddNewUser = (data: AddUserFormValues) => {
+    const newUser: Profile = {
+      id: `user-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+      full_name: data.full_name,
+      email: data.email,
+      phone: data.phone,
+      role: data.role,
+      is_approved: data.is_approved,
+      joined_at: new Date().toISOString(),
+      avatar_url: `https://picsum.photos/seed/${data.full_name.split(" ")[0]}/100/100`, // Simple avatar based on name
+    };
+    setUsers(prev => [newUser, ...prev]);
+    toast({
+      title: "User Added",
+      description: `${newUser.full_name} has been successfully added.`,
+    });
   };
 
 
@@ -131,6 +150,7 @@ export default function AdminPage() {
                 onMakeAdmin={handleMakeAdmin}
                 onRevokeAdmin={handleRevokeAdmin}
                 onDeleteUser={handleDeleteUser}
+                onAddNewUser={handleAddNewUser}
               />
             </TabsContent>
             <TabsContent value="contributions">
