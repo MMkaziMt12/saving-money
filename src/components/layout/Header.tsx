@@ -1,0 +1,139 @@
+
+"use client";
+
+import Link from "next/link";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { APP_NAME } from "@/lib/constants";
+import { useMockAuth } from "@/hooks/use-mock-auth";
+import { useRouter } from "next/navigation";
+import { Building2, LayoutDashboard, LogOut, Menu, Settings, UserCircle, Users } from "lucide-react";
+import type { SheetTriggerProps } from "@radix-ui/react-dialog"; // For SheetTrigger type
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { SidebarNav } from "./SidebarNav"; // Import SidebarNav for mobile sheet
+
+interface HeaderProps {
+  onMenuClick?: React.MouseEventHandler<HTMLButtonElement>; // For desktop sidebar toggle
+  isMobile?: boolean; // To conditionally render mobile menu trigger
+}
+
+
+export function Header({ onMenuClick, isMobile }: HeaderProps) {
+  const { user, logout, isAdmin } = useMockAuth();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
+  const getInitials = (name: string) => {
+    const names = name.split(" ");
+    if (names.length === 1) return names[0][0].toUpperCase();
+    return names[0][0].toUpperCase() + names[names.length - 1][0].toUpperCase();
+  };
+
+  return (
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6">
+      {isMobile ? (
+         <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="icon" className="shrink-0 md:hidden">
+              <Menu className="h-5 w-5" />
+              <span className="sr-only">Toggle navigation menu</span>
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="flex flex-col p-0 pt-4 bg-sidebar text-sidebar-foreground">
+            <Link href="/" className="mb-4 flex items-center gap-2 px-4 text-lg font-semibold text-sidebar-primary-foreground">
+              <Building2 className="h-6 w-6 text-sidebar-primary" />
+              <span>{APP_NAME}</span>
+            </Link>
+            <SidebarNav onLinkClick={() => {
+              // Close sheet on link click - Radix Sheet doesn't have a direct prop,
+              // This might need more complex state management or a ref if not working.
+              // For now, this is a placeholder.
+              const closeButton = document.querySelector('[data-radix-dialog-default-close][type="button"]') as HTMLElement | null;
+              closeButton?.click();
+            }} />
+          </SheetContent>
+        </Sheet>
+      ) : (
+        onMenuClick && ( // Only show desktop menu toggle if onMenuClick is provided
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden md:flex"
+            onClick={onMenuClick}
+            aria-label="Toggle sidebar"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+        )
+      )}
+      
+      {!isMobile && (
+        <Link href="/" className="flex items-center gap-2 text-lg font-semibold md:text-base mr-auto">
+           <Building2 className="h-6 w-6 text-primary" />
+           <span className="hidden md:block">{APP_NAME}</span>
+        </Link>
+      )}
+
+
+      <div className="ml-auto flex items-center gap-4">
+        {/* Theme Toggle can be added here later if needed */}
+        {user ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                <Avatar className="h-10 w-10 border border-primary/50">
+                  <AvatarImage src={user.avatar_url} alt={user.full_name} data-ai-hint="person portrait" />
+                  <AvatarFallback>{getInitials(user.full_name)}</AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{user.full_name}</p>
+                  <p className="text-xs leading-none text-muted-foreground">
+                    {user.email}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => router.push("/")}>
+                <LayoutDashboard className="mr-2 h-4 w-4" />
+                <span>Dashboard</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/profile")}>
+                <UserCircle className="mr-2 h-4 w-4" />
+                <span>Profile</span>
+              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem onClick={() => router.push("/admin")}>
+                  <Users className="mr-2 h-4 w-4" />
+                  <span>Admin Panel</span>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Logout</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button onClick={() => router.push("/login")}>Login</Button>
+        )}
+      </div>
+    </header>
+  );
+}
