@@ -14,13 +14,14 @@ import { format, parseISO } from "date-fns";
 
 // Mock Data
 const MOCK_CONTRIBUTIONS: MonthlyContribution[] = [
-  { id: "c1", user_id: "user-approved-id", amount: 200, payment_date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(), month: new Date().getMonth(), year: new Date().getFullYear() },
-  { id: "c2", user_id: "user-approved-id", amount: 200, payment_date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 35).toISOString(), month: new Date().getMonth() -1, year: new Date().getFullYear() },
+  { id: "c1", user_id: "user-approved-id", user_name: "Sonia Sharma", amount: 200, payment_date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(), month: new Date().getMonth(), year: new Date().getFullYear() },
+  { id: "c2", user_id: "user-approved-id", user_name: "Sonia Sharma", amount: 200, payment_date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 35).toISOString(), month: new Date().getMonth() -1, year: new Date().getFullYear() },
 ];
 
 const MOCK_EMERGENCY_REQUESTS: EmergencyRequest[] = [
-  { id: "e1", user_id: "user-approved-id", amount_requested: 5000, reason: "Urgent medical expense", status: "pending", requested_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString() },
-  { id: "e2", user_id: "user-approved-id", amount_requested: 1000, reason: "Bike repair", status: "approved", requested_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(), reviewed_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(), reviewed_by_admin_id: "admin-id" },
+  { id: "e1", user_id: "user-approved-id", user_name: "Sonia Sharma", amount_requested: 5000, reason: "Urgent medical expense", status: "pending", requested_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString() },
+  { id: "e2", user_id: "user-approved-id", user_name: "Sonia Sharma", amount_requested: 1000, reason: "Bike repair", status: "approved", requested_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(), reviewed_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(), reviewed_by_admin_id: "admin-id", reviewed_by_admin_name: "Admin Manager" },
+  { id: "e3", user_id: "user1", user_name: "Amit Patel", amount_requested: 3000, reason: "Unexpected home repair", status: "pending", requested_at: new Date(Date.now() - 1000*60*60*24*1).toISOString()},
 ];
 
 const MOCK_TOTAL_FAMILY_SAVINGS = 15200; // Example total
@@ -43,7 +44,7 @@ function StatCard({ title, value, icon: Icon, description, actionLink, actionTex
         <Icon className={`h-5 w-5 ${color}`} />
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-bold">{typeof value === 'number' && title.toLowerCase().includes('amount') ? `${CURRENCY_SYMBOL}${value.toLocaleString()}` : value}</div>
+        <div className="text-3xl font-bold">{typeof value === 'number' && (title.toLowerCase().includes('amount') || title.toLowerCase().includes('savings') || title.toLowerCase().includes('balance')) ? `${CURRENCY_SYMBOL}${value.toLocaleString()}` : value}</div>
         {description && <p className="text-xs text-muted-foreground pt-1">{description}</p>}
         {actionLink && actionText && (
           <Button asChild variant="link" className="px-0 pt-2 text-sm">
@@ -89,11 +90,17 @@ function PaymentHistoryTable({ contributions }: { contributions: MonthlyContribu
   );
 }
 
+interface EmergencyRequestHistoryTableProps {
+  requests: EmergencyRequest[];
+  title: string;
+  description: string;
+  showUserName?: boolean;
+}
 
-function EmergencyRequestHistoryTable({ requests }: { requests: EmergencyRequest[] }) {
+function EmergencyRequestHistoryTable({ requests, title, description, showUserName = false }: EmergencyRequestHistoryTableProps) {
     const getStatusBadgeVariant = (status: EmergencyRequest["status"]) => {
     switch (status) {
-      case "approved": return "success"; // Define this variant in Badge if needed, or use default with green bg
+      case "approved": return "success"; 
       case "rejected": return "destructive";
       case "pending": return "secondary";
       default: return "outline";
@@ -112,13 +119,14 @@ function EmergencyRequestHistoryTable({ requests }: { requests: EmergencyRequest
   return (
     <Card className="shadow-lg">
       <CardHeader>
-        <CardTitle>My Emergency Requests</CardTitle>
-        <CardDescription>Track the status of your emergency fund requests.</CardDescription>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
+              {showUserName && <TableHead>Requested By</TableHead>}
               <TableHead>Requested At</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Reason</TableHead>
@@ -127,10 +135,11 @@ function EmergencyRequestHistoryTable({ requests }: { requests: EmergencyRequest
           </TableHeader>
           <TableBody>
              {requests.length === 0 ? (
-              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No emergency requests made yet.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center text-muted-foreground">No emergency requests found.</TableCell></TableRow>
             ) : (
             requests.map(req => (
               <TableRow key={req.id}>
+                {showUserName && <TableCell>{req.user_name || "Unknown User"}</TableCell>}
                 <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy HH:mm")}</TableCell>
                 <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
                 <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
@@ -154,15 +163,17 @@ export default function DashboardPage() {
   console.log("DashboardPage rendered");
   const { user, isAdmin } = useMockAuth();
   console.log(user,"user ")
-  // User specific data (mocked)
+  
   const userContributions = MOCK_CONTRIBUTIONS.filter(c => c.user_id === user?.id);
   const totalPaidByUser = userContributions.reduce((sum, c) => sum + c.amount, 0);
-  // Assuming 12 months of contributions expected for the current year for simplicity
+  
   const monthsJoined = user ? Math.max(1, Math.floor((Date.now() - parseISO(user.joined_at).getTime()) / (1000 * 60 * 60 * 24 * 30.44))) : 1;
   const totalExpected = monthsJoined * MONTHLY_CONTRIBUTION_AMOUNT;
   const pendingAmount = Math.max(0, totalExpected - totalPaidByUser);
 
-  const userEmergencyRequests = MOCK_EMERGENCY_REQUESTS.filter(req => req.user_id === user?.id);
+  // All users can see all emergency requests.
+  const allEmergencyRequests = MOCK_EMERGENCY_REQUESTS.sort((a,b) => parseISO(b.requested_at).getTime() - parseISO(a.requested_at).getTime());
+
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0">
@@ -194,25 +205,37 @@ export default function DashboardPage() {
         />
       </div>
       
-      <div className="mb-8">
-         <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-md">
-          <Link href="/emergency-request">
-            <ShieldAlert className="mr-2 h-5 w-5" /> Request Emergency Fund
-          </Link>
-        </Button>
-        {isAdmin && (
-          <Button asChild size="lg" className="ml-4 shadow-md">
+      {!isAdmin && (
+        <div className="mb-8">
+          <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-md">
+            <Link href="/emergency-request">
+              <ShieldAlert className="mr-2 h-5 w-5" /> Request Emergency Fund
+            </Link>
+          </Button>
+        </div>
+      )}
+      
+      {isAdmin && (
+        <div className="mb-8">
+           <Button asChild size="lg" className="ml-0 shadow-md">
             <Link href="/admin">
               <Users className="mr-2 h-5 w-5" /> Go to Admin Panel
             </Link>
           </Button>
-        )}
-      </div>
+        </div>
+      )}
+
 
       <div className="grid gap-8 lg:grid-cols-1">
-        <PaymentHistoryTable contributions={userContributions} />
-        <EmergencyRequestHistoryTable requests={userEmergencyRequests} />
+        {!isAdmin && <PaymentHistoryTable contributions={userContributions} />}
+        <EmergencyRequestHistoryTable 
+          requests={allEmergencyRequests} 
+          title={isAdmin ? "All Family Emergency Requests" : "Family Emergency Request History"}
+          description={isAdmin ? "Track the status of all emergency fund requests." : "Overview of all submitted emergency fund requests in the family."}
+          showUserName={true} 
+        />
       </div>
     </div>
   );
 }
+
