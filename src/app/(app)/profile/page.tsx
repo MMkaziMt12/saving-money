@@ -78,9 +78,9 @@ export default function ProfilePage() {
 
     if (avatarFile) {
       const fileExt = avatarFile.name.split('.').pop();
-      const filePath = `${user.id}/${Math.random()}.${fileExt}`;
+      const filePath = `${user.id}/${Date.now()}.${fileExt}`; // Added Date.now() for uniqueness
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('avatars')
+        .from('avatars') // Using 'avatars' bucket as per existing setup
         .upload(filePath, avatarFile, { upsert: true });
 
       if (uploadError) {
@@ -89,7 +89,6 @@ export default function ProfilePage() {
         return;
       }
       
-      // Get public URL if uploadData exists and has path
       if(uploadData?.path) {
         const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(uploadData.path);
         newAvatarUrl = urlData.publicUrl;
@@ -114,16 +113,16 @@ export default function ProfilePage() {
     if (error) {
       toast({ title: "Update Failed", description: error.message, variant: "destructive" });
     } else if (data) {
-      setAuthProfile(data); // Update context with new profile
+      setAuthProfile(data); 
       toast({ title: "Profile Updated", description: "Your profile information has been saved." });
       setIsEditing(false);
-      setAvatarFile(null); // Reset avatar file
+      setAvatarFile(null); 
     }
     setIsSaving(false);
   };
   
   const joinedAtDate = profile.joined_at ? parseISO(profile.joined_at) : new Date();
-
+  const currentAvatarSrc = avatarPreview || formData.avatar_url;
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0 max-w-3xl">
@@ -132,7 +131,11 @@ export default function ProfilePage() {
           <div className="flex flex-col md:flex-row items-center gap-6">
             <div className="relative">
               <Avatar className="h-32 w-32 border-4 border-primary/50 shadow-md">
-                <AvatarImage src={avatarPreview || formData.avatar_url || undefined} alt={profile.full_name || "User"} data-ai-hint="person profile" />
+                <AvatarImage 
+                  src={currentAvatarSrc || undefined} 
+                  alt={profile.full_name || "User"} 
+                  data-ai-hint={currentAvatarSrc ? "person profile" : "profile placeholder"} 
+                />
                 <AvatarFallback className="text-4xl">{getInitials(profile.full_name)}</AvatarFallback>
               </Avatar>
               {isEditing && (
@@ -185,6 +188,12 @@ export default function ProfilePage() {
               <InfoItem icon={Phone} label="Phone" value={profile.phone || "N/A"} />
               <InfoItem icon={Shield} label="Account Status" value={profile.is_approved ? "Approved" : "Pending Approval"} valueClass={profile.is_approved ? "text-green-600 font-semibold" : "text-orange-500 font-semibold"} />
               <InfoItem icon={CalendarDays} label="Joined At" value={format(joinedAtDate, "MMMM dd, yyyy")} />
+              {!currentAvatarSrc && (
+                <div className="flex items-center p-3 bg-muted/50 rounded-md">
+                    <Camera className="h-5 w-5 text-muted-foreground mr-3" />
+                    <span className="text-muted-foreground">You can add a profile picture by editing your profile.</span>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -210,11 +219,13 @@ function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
   );
 }
 
-function Badge({ children, variant = "default", className }: { children: React.ReactNode, variant?: string, className?: string }) {
-  const baseStyle = "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors";
-  let variantStyle = "bg-secondary text-secondary-foreground";
-  if (variant === "destructive") variantStyle = "bg-destructive text-destructive-foreground";
-  if (variant === "primary") variantStyle = "bg-primary text-primary-foreground";
+// This Badge component is defined locally, ensure it doesn't conflict if you have a global ui/badge
+// function Badge({ children, variant = "default", className }: { children: React.ReactNode, variant?: string, className?: string }) {
+//   const baseStyle = "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors";
+//   let variantStyle = "bg-secondary text-secondary-foreground";
+//   if (variant === "destructive") variantStyle = "bg-destructive text-destructive-foreground";
+//   if (variant === "primary") variantStyle = "bg-primary text-primary-foreground";
   
-  return <span className={cn(baseStyle, variantStyle, className)}>{children}</span>;
-}
+//   return <span className={cn(baseStyle, variantStyle, className)}>{children}</span>;
+// }
+// Using the global Badge from ui/badge, so removing local definition.
