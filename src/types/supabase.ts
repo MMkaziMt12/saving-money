@@ -20,17 +20,17 @@ export type Database = {
       profiles: {
         Row: {
           id: string
-          created_at: string | null // Added created_at
+          created_at: string | null
           updated_at: string | null
           full_name: string | null
-          email: string | null // email might be redundant if auth.users.email is primary source
+          email: string | null
           phone: string | null
           avatar_url: string | null
           role: "user" | "admin"
           is_approved: boolean
-          is_active: boolean // Added is_active
+          is_active: boolean
           joined_at: string | null
-          last_login: string | null // Added last_login
+          last_login: string | null
         }
         Insert: {
           id: string
@@ -84,10 +84,10 @@ export type Database = {
         Insert: {
           id?: string
           user_id: string
-          amount: number // Made non-nullable
-          payment_date: string // Made non-nullable
-          month: number // Made non-nullable
-          year: number // Made non-nullable
+          amount: number
+          payment_date: string
+          month: number
+          year: number
           recorded_by_admin_id?: string | null
           created_at?: string
           updated_at?: string
@@ -130,13 +130,13 @@ export type Database = {
           reviewed_at: string | null
           created_at: string
           updated_at: string
-          admin_notes: string | null // Added admin_notes
+          admin_notes: string | null
         }
         Insert: {
           id?: string
           user_id: string
-          amount_requested: number // Made non-nullable
-          reason: string // Made non-nullable
+          amount_requested: number
+          reason: string
           status?: "pending" | "approved" | "rejected"
           requested_at?: string
           reviewed_by_admin_id?: string | null
@@ -173,7 +173,7 @@ export type Database = {
           }
         ]
       }
-      notifications: { // Added notifications table definition
+      notifications: { 
         Row: {
           id: string
           user_id: string
@@ -212,9 +212,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      handle_new_user: { // Placeholder for the function, actual SQL needed in Supabase
-        Args: Record<string, unknown> 
-        Returns: unknown
+      handle_new_user: { 
+        Args: Record<string, unknown> // Or more specific if known, for triggers it's often related to NEW/OLD
+        Returns: "trigger" // Trigger functions return 'trigger'
       }
     }
     Enums: {
