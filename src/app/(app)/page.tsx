@@ -151,6 +151,7 @@ function EmergencyRequestHistoryTable({ requests }: { requests: EmergencyRequest
 
 
 export default function DashboardPage() {
+  console.log("DashboardPage rendered");
   const { user, isAdmin } = useMockAuth();
   console.log(user,"user ")
   // User specific data (mocked)
