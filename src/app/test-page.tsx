@@ -18,6 +18,8 @@ export default function HomePage() {
       } else if (!isApproved) {
         router.replace('/awaiting-approval');
       } else {
+        router.replace('/');
+        // router.replace('/dashboard');
         // User is authenticated and approved.
         // If we are on the root path ('/'), and the (app) layout hasn't taken over,
         // explicitly navigate to a path that will be handled by the (app) layout.

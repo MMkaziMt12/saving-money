@@ -68,7 +68,7 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
                   onClick={onLinkClick}
                   className={cn(
                     buttonVariants({ 
-                      variant: isActive ? "default" : "ghost", 
+                      variant: isActive ? "default" : "s", 
                       size: isCollapsed ? "icon" : "default" 
                     }),
                     "justify-start gap-2 group",
@@ -84,7 +84,7 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
                 </Link>
               </TooltipTrigger>
               {isCollapsed && (
-                <TooltipContent side="right" className="bg-sidebar-accent text-sidebar-accent-foreground">
+                <TooltipContent side="right" className="bg-sidebar text-sidebar-accent-foreground">
                   {item.label}
                 </TooltipContent>
               )}

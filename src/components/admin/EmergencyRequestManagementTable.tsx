@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, XCircle, MoreHorizontal, Eye } from "lucide-react";
-import { formatDistanceToNow, parseISO } from "date-fns";
+import { format, formatDistanceToNow, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import {
@@ -28,6 +28,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 
 interface EmergencyRequestManagementTableProps {
   requests: EmergencyRequest[];

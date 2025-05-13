@@ -10,6 +10,8 @@ import { NotificationSender } from "@/components/admin/NotificationSender";
 import type { Profile, MonthlyContribution, EmergencyRequest } from "@/types";
 import { useState, useEffect } from "react";
 import { Users, ListChecks, ShieldAlert, BellRing, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMockAuth } from "@/hooks/use-mock-auth";
 
 // Mock data - in a real app, this would be fetched
 const MOCK_USERS: Profile[] = [
@@ -32,10 +34,17 @@ const MOCK_EMERGENCY_REQUESTS: EmergencyRequest[] = [
 
 
 export default function AdminPage() {
+  const { user } = useMockAuth();
+  const router = useRouter();
   const [users, setUsers] = useState<Profile[]>([]);
   const [contributions, setContributions] = useState<MonthlyContribution[]>([]);
   const [emergencyRequests, setEmergencyRequests] = useState<EmergencyRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  if (!isLoading) {
+    if (user && user.role !== 'admin') {
+      router.replace('/');
+    } }
 
   useEffect(() => {
     // Simulate data fetching

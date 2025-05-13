@@ -28,6 +28,7 @@ function useIsMobile() {
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, isLoading, isApproved } = useMockAuth();
+  console.log(user,"is user there")
   const router = useRouter();
   const isMobile = useIsMobile();
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
@@ -70,13 +71,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // If user is null but we are past loading and conditions, it means redirection is happening or something is wrong.
   // This check is to prevent rendering layout for unauthenticated/unapproved users briefly.
   if (!user || !isApproved) {
-   
+  
     return null; // Or specific loading for redirection
   }
 
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-muted/40">
+    <div className="flex min-h-screen w-full flex-row bg-muted/40">
       {!isMobile && <AppSidebar />} 
       <div className={cn("flex flex-col sm:gap-4 sm:py-4 flex-1", isMobile ? "sm:pl-0" : "sm:pl-14")}>
          {/* The sm:pl-14 is for when sidebar is collapsed. This needs to be dynamic based on AppSidebar's state */}
