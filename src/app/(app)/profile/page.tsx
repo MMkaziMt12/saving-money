@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,7 +13,7 @@ import { useState, type FormEvent, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import type { Profile } from "@/types"; // Ensure Profile type is correctly defined
+import type { Profile } from "@/types"; 
 
 export default function ProfilePage() {
   const { user, profile, isLoading: authLoading, fetchProfile, setProfile: setAuthProfile } = useAuth();
@@ -75,12 +76,13 @@ export default function ProfilePage() {
     setIsSaving(true);
 
     let newAvatarUrl = profile.avatar_url;
+    const isGoogleLogin = user?.app_metadata?.provider === 'google';
 
-    if (avatarFile) {
+    if (avatarFile && !isGoogleLogin) { // Only upload if file selected and not Google login
       const fileExt = avatarFile.name.split('.').pop();
-      const filePath = `${user.id}/${Date.now()}.${fileExt}`; // Added Date.now() for uniqueness
+      const filePath = `${user.id}/${Date.now()}.${fileExt}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('avatars') // Using 'avatars' bucket as per existing setup
+        .from('profile-pic') 
         .upload(filePath, avatarFile, { upsert: true });
 
       if (uploadError) {
@@ -90,7 +92,7 @@ export default function ProfilePage() {
       }
       
       if(uploadData?.path) {
-        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(uploadData.path);
+        const { data: urlData } = supabase.storage.from('profile-pic').getPublicUrl(uploadData.path);
         newAvatarUrl = urlData.publicUrl;
       }
     }
@@ -99,9 +101,16 @@ export default function ProfilePage() {
       id: user.id,
       full_name: formData.full_name,
       phone: formData.phone,
-      avatar_url: newAvatarUrl,
       updated_at: new Date().toISOString(),
     };
+    
+    // Only update avatar_url if it changed (and not Google login, or if it was initially null for Google login and now has a value)
+    // For Google login, avatar_url is typically set at signup from Google's data.
+    // We generally don't want to overwrite Google's avatar with an upload unless it was never set.
+    if (newAvatarUrl !== profile.avatar_url && (!isGoogleLogin || !profile.avatar_url)) {
+        updates.avatar_url = newAvatarUrl;
+    }
+
 
     const { data, error } = await supabase
       .from('profiles')
@@ -123,6 +132,7 @@ export default function ProfilePage() {
   
   const joinedAtDate = profile.joined_at ? parseISO(profile.joined_at) : new Date();
   const currentAvatarSrc = avatarPreview || formData.avatar_url;
+  const isGoogleLogin = user?.app_metadata?.provider === 'google';
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0 max-w-3xl">
@@ -138,7 +148,7 @@ export default function ProfilePage() {
                 />
                 <AvatarFallback className="text-4xl">{getInitials(profile.full_name)}</AvatarFallback>
               </Avatar>
-              {isEditing && (
+              {isEditing && !isGoogleLogin && ( // Conditionally show Camera icon
                 <Button asChild variant="outline" size="icon" className="absolute bottom-2 right-2 rounded-full bg-background hover:bg-muted h-8 w-8 cursor-pointer">
                   <Label htmlFor="avatar-upload" className="cursor-pointer">
                     <Camera className="h-4 w-4" />
@@ -188,7 +198,7 @@ export default function ProfilePage() {
               <InfoItem icon={Phone} label="Phone" value={profile.phone || "N/A"} />
               <InfoItem icon={Shield} label="Account Status" value={profile.is_approved ? "Approved" : "Pending Approval"} valueClass={profile.is_approved ? "text-green-600 font-semibold" : "text-orange-500 font-semibold"} />
               <InfoItem icon={CalendarDays} label="Joined At" value={format(joinedAtDate, "MMMM dd, yyyy")} />
-              {!currentAvatarSrc && (
+              {!currentAvatarSrc && !isGoogleLogin && ( // Only show prompt if not Google login and no avatar
                 <div className="flex items-center p-3 bg-muted/50 rounded-md">
                     <Camera className="h-5 w-5 text-muted-foreground mr-3" />
                     <span className="text-muted-foreground">You can add a profile picture by editing your profile.</span>
@@ -219,13 +229,5 @@ function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
   );
 }
 
-// This Badge component is defined locally, ensure it doesn't conflict if you have a global ui/badge
-// function Badge({ children, variant = "default", className }: { children: React.ReactNode, variant?: string, className?: string }) {
-//   const baseStyle = "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors";
-//   let variantStyle = "bg-secondary text-secondary-foreground";
-//   if (variant === "destructive") variantStyle = "bg-destructive text-destructive-foreground";
-//   if (variant === "primary") variantStyle = "bg-primary text-primary-foreground";
-  
-//   return <span className={cn(baseStyle, variantStyle, className)}>{children}</span>;
-// }
-// Using the global Badge from ui/badge, so removing local definition.
+
+    
