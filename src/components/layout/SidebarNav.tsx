@@ -19,13 +19,13 @@ interface NavItem {
   icon: React.ElementType;
   adminOnly?: boolean;
   userOnly?: boolean;
-  requiresApproval?: boolean; // New flag
+  requiresApproval?: boolean; 
 }
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, requiresApproval: true },
-  { href: "/emergency-request", label: "Emergency Fund", icon: ShieldAlert, userOnly: true, requiresApproval: true },
-  { href: "/profile", label: "My Profile", icon: UserCircle }, // Profile always visible if logged in
+  { href: "/emergency-request", label: "Emergency Fund", icon: ShieldAlert, userOnly: false, requiresApproval: true }, // Set userOnly to false or remove it if admins can also use it
+  { href: "/profile", label: "My Profile", icon: UserCircle }, 
   { href: "/admin", label: "Admin Panel", icon: Users, adminOnly: true, requiresApproval: true },
 ];
 
@@ -48,7 +48,8 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
     if (!user) return false; // Must be logged in for any nav items
     if (item.requiresApproval && !isApproved) return false; // Needs approval but not approved
     if (item.adminOnly && !isAdmin) return false;
-    if (item.userOnly && isAdmin) return false; 
+    // Removed: if (item.userOnly && isAdmin) return false; 
+    // This allows admins to also see userOnly items if not explicitly adminOnly
     return true;
   });
   
@@ -72,7 +73,7 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
                   onClick={onLinkClick}
                   className={cn(
                     buttonVariants({ 
-                      variant: isActive ? "default" : "ghost", // Use ghost for sidebar items
+                      variant: isActive ? "default" : "ghost", 
                       size: isCollapsed ? "icon" : "default" 
                     }),
                     "justify-start gap-2 group",
