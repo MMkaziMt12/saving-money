@@ -70,6 +70,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // If user is null but we are past loading and conditions, it means redirection is happening or something is wrong.
   // This check is to prevent rendering layout for unauthenticated/unapproved users briefly.
   if (!user || !isApproved) {
+   
     return null; // Or specific loading for redirection
   }
 

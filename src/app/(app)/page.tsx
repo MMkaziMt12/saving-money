@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useMockAuth } from "@/hooks/use-mock-auth";
 import Link from "next/link";
-import { ArrowRight, DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { ArrowRight, DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { APP_NAME, CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -152,7 +152,7 @@ function EmergencyRequestHistoryTable({ requests }: { requests: EmergencyRequest
 
 export default function DashboardPage() {
   const { user, isAdmin } = useMockAuth();
-
+  console.log(user,"user ")
   // User specific data (mocked)
   const userContributions = MOCK_CONTRIBUTIONS.filter(c => c.user_id === user?.id);
   const totalPaidByUser = userContributions.reduce((sum, c) => sum + c.amount, 0);

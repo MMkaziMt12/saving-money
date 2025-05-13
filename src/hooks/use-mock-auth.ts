@@ -26,7 +26,7 @@ const mockUsers: Record<string, AuthenticatedUser> = {
     avatar_url: "https://picsum.photos/seed/pendingUser/100/100",
   },
   approvedUser: {
-    id: "user-approved-id",
+    id: "z-approved-id",
     full_name: "Sonia Sharma",
     email: "sonia.sharma@example.com",
     phone: "0987654321",

@@ -11,6 +11,7 @@ import { format, parseISO } from 'date-fns';
 import { Camera, Edit3, Mail, Phone, User, Shield, CalendarDays } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 export default function ProfilePage() {
   const { user } = useMockAuth();

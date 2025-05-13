@@ -2,14 +2,14 @@
 "use client";
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter,usePathname } from 'next/navigation';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { Loader2 } from 'lucide-react';
 
 export default function HomePage() {
   const { user, isLoading, isApproved } = useMockAuth();
   const router = useRouter();
-
+  const pathname = usePathname();
   useEffect(() => {
     if (!isLoading) {
       if (!user) {
@@ -26,7 +26,7 @@ export default function HomePage() {
         // This root page acts as a guard.
         // If the current path is already inside (app) due to layout guards, this logic might be redundant.
         // Let's assume this page is hit first if not deep-linked.
-        if(router.pathname === '/') { // Or a more specific check if needed
+        if(pathname === '/') { // Or a more specific check if needed
              router.replace('/'); // This will effectively render the (app)/page.tsx due to layout logic
         }
       }
