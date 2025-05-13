@@ -1,30 +1,20 @@
-
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useMockAuth } from "@/hooks/use-mock-auth";
+import { useAuth } from "@/contexts/AuthContext"; // Use new AuthContext
 import Link from "next/link";
-import { ArrowRight, DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowRight, DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { APP_NAME, CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { format, parseISO } from "date-fns";
+import { useState, useEffect } from "react";
+// TODO: Import Supabase client and React Query for data fetching
 
-// Mock Data
-const MOCK_CONTRIBUTIONS: MonthlyContribution[] = [
-  { id: "c1", user_id: "user-approved-id", user_name: "Sonia Sharma", amount: 200, payment_date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(), month: new Date().getMonth(), year: new Date().getFullYear() },
-  { id: "c2", user_id: "user-approved-id", user_name: "Sonia Sharma", amount: 200, payment_date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 35).toISOString(), month: new Date().getMonth() -1, year: new Date().getFullYear() },
-];
-
-const MOCK_EMERGENCY_REQUESTS: EmergencyRequest[] = [
-  { id: "e1", user_id: "user-approved-id", user_name: "Sonia Sharma", amount_requested: 5000, reason: "Urgent medical expense", status: "pending", requested_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString() },
-  { id: "e2", user_id: "user-approved-id", user_name: "Sonia Sharma", amount_requested: 1000, reason: "Bike repair", status: "approved", requested_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(), reviewed_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(), reviewed_by_admin_id: "admin-id", reviewed_by_admin_name: "Admin Manager" },
-  { id: "e3", user_id: "user1", user_name: "Amit Patel", amount_requested: 3000, reason: "Unexpected home repair", status: "pending", requested_at: new Date(Date.now() - 1000*60*60*24*1).toISOString()},
-];
-
-const MOCK_TOTAL_FAMILY_SAVINGS = 15200; // Example total
+// Placeholder: Data will be fetched from Supabase
+const MOCK_TOTAL_FAMILY_SAVINGS = 0; // Example total, to be replaced
 
 interface StatCardProps {
   title: string;
@@ -61,7 +51,7 @@ function PaymentHistoryTable({ contributions }: { contributions: MonthlyContribu
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle>My Payment History</CardTitle>
-        <CardDescription>Overview of your monthly contributions.</CardDescription>
+        <CardDescription>Overview of your monthly contributions. (Data from Supabase)</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -74,7 +64,7 @@ function PaymentHistoryTable({ contributions }: { contributions: MonthlyContribu
           </TableHeader>
           <TableBody>
             {contributions.length === 0 ? (
-              <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">No payments made yet.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground h-24">No payments made yet. Fetching...</TableCell></TableRow>
             ) : (
               contributions.map(c => (
                 <TableRow key={c.id}>
@@ -120,7 +110,7 @@ function EmergencyRequestHistoryTable({ requests, title, description, showUserNa
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardDescription>{description} (Data from Supabase)</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -135,11 +125,11 @@ function EmergencyRequestHistoryTable({ requests, title, description, showUserNa
           </TableHeader>
           <TableBody>
              {requests.length === 0 ? (
-              <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center text-muted-foreground">No emergency requests found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center text-muted-foreground h-24">No emergency requests found. Fetching...</TableCell></TableRow>
             ) : (
             requests.map(req => (
               <TableRow key={req.id}>
-                {showUserName && <TableCell>{req.user_name || "Unknown User"}</TableCell>}
+                {showUserName && <TableCell>{req.user_name || req.user_id /* Fallback to ID if name not populated */}</TableCell>}
                 <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy HH:mm")}</TableCell>
                 <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
                 <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
@@ -160,25 +150,49 @@ function EmergencyRequestHistoryTable({ requests, title, description, showUserNa
 
 
 export default function DashboardPage() {
-  console.log("DashboardPage rendered");
-  const { user, isAdmin } = useMockAuth();
-  console.log(user,"user ")
+  const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
+  const [userContributions, setUserContributions] = useState<MonthlyContribution[]>([]);
+  const [allEmergencyRequests, setAllEmergencyRequests] = useState<EmergencyRequest[]>([]);
+  const [totalFamilySavings, setTotalFamilySavings] = useState<number>(MOCK_TOTAL_FAMILY_SAVINGS);
+  const [isDataLoading, setIsDataLoading] = useState(true);
+
+  // TODO: Implement actual data fetching from Supabase using React Query
+  useEffect(() => {
+    if (!authLoading && user && profile) {
+      // Simulate data fetching
+      setTimeout(() => {
+        // Replace with actual Supabase calls
+        // e.g., fetchUserContributions(user.id).then(setUserContributions);
+        // fetchAllEmergencyRequests().then(setAllEmergencyRequests);
+        // fetchTotalFamilySavings().then(setTotalFamilySavings);
+        setIsDataLoading(false);
+      }, 1000);
+    }
+  }, [authLoading, user, profile]);
   
-  const userContributions = MOCK_CONTRIBUTIONS.filter(c => c.user_id === user?.id);
+  if (authLoading || isDataLoading) {
+    return (
+      <div className="flex items-center justify-center h-full py-10">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-4 text-lg text-muted-foreground">Loading Dashboard...</p>
+      </div>
+    );
+  }
+
+  if (!user || !profile) {
+     return <p>Error: User or profile data not available.</p>; // Should be handled by layout
+  }
+  
   const totalPaidByUser = userContributions.reduce((sum, c) => sum + c.amount, 0);
-  
-  const monthsJoined = user ? Math.max(1, Math.floor((Date.now() - parseISO(user.joined_at).getTime()) / (1000 * 60 * 60 * 24 * 30.44))) : 1;
+  const joinedAtDate = profile.joined_at ? parseISO(profile.joined_at) : new Date();
+  const monthsJoined = Math.max(1, Math.floor((Date.now() - joinedAtDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
   const totalExpected = monthsJoined * MONTHLY_CONTRIBUTION_AMOUNT;
   const pendingAmount = Math.max(0, totalExpected - totalPaidByUser);
-
-  // All users can see all emergency requests.
-  const allEmergencyRequests = MOCK_EMERGENCY_REQUESTS.sort((a,b) => parseISO(b.requested_at).getTime() - parseISO(a.requested_at).getTime());
-
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Welcome to {APP_NAME}, {user?.full_name}!</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Welcome to {APP_NAME}, {profile.full_name || user.email}!</h1>
         <p className="text-muted-foreground">Here&apos;s your family savings overview.</p>
       </div>
 
@@ -199,7 +213,7 @@ export default function DashboardPage() {
         />
          <StatCard 
           title="Total Family Savings" 
-          value={MOCK_TOTAL_FAMILY_SAVINGS}
+          value={totalFamilySavings}
           icon={BarChart3}
           description="Combined savings of all family members."
         />
@@ -225,7 +239,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-
       <div className="grid gap-8 lg:grid-cols-1">
         {!isAdmin && <PaymentHistoryTable contributions={userContributions} />}
         <EmergencyRequestHistoryTable 
@@ -238,4 +251,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

@@ -1,20 +1,41 @@
-
 "use client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_NAME } from "@/lib/constants";
 import { Hourglass, LogOut } from "lucide-react";
-import { useMockAuth } from "@/hooks/use-mock-auth";
+import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function AwaitingApprovalPage() {
-  const { logout, user } = useMockAuth();
+  const { user, profile, signOut, isLoading, isApproved } = useAuth();
   const router = useRouter();
 
-  const handleLogout = () => {
-    logout();
+  useEffect(() => {
+    if (!isLoading && user && isApproved) {
+      router.replace("/"); // Already approved, redirect to dashboard
+    }
+    if (!isLoading && !user) {
+      router.replace("/login"); // Not logged in, redirect to login
+    }
+  }, [isLoading, user, isApproved, router]);
+
+
+  const handleLogout = async () => {
+    await signOut();
     router.push("/login");
   };
+
+  // Display loading or a minimal message if still loading or redirecting
+  if (isLoading || (!user && typeof window !== 'undefined')) {
+     return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
+        <Hourglass className="h-12 w-12 animate-spin text-primary mb-4" />
+        <p className="text-muted-foreground">Loading user status...</p>
+      </div>
+    );
+  }
+
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
@@ -25,7 +46,7 @@ export default function AwaitingApprovalPage() {
           </div>
           <CardTitle className="text-2xl">Account Pending Approval</CardTitle>
           <CardDescription className="text-md">
-            Welcome to {APP_NAME}, {user?.full_name || "User"}!
+            Welcome to {APP_NAME}, {profile?.full_name || user?.email || "User"}!
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

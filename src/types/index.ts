@@ -1,41 +1,26 @@
+import type { User as SupabaseUser } from '@supabase/supabase-js';
+import type { Database, Tables } from './supabase';
 
-export type UserRole = "admin" | "user";
+export type UserRole = Tables<'profiles'>['role']; // "admin" | "user"
 
-export interface Profile {
-  id: string; // maps to auth.users.id
-  full_name: string;
-  phone: string;
-  email: string;
-  role: UserRole;
-  is_approved: boolean;
-  joined_at: string; // ISO date string
-  avatar_url?: string; 
+// This is our application's Profile type, derived from Supabase table
+export type Profile = Tables<'profiles'>;
+
+// This combines Supabase's User object with our application's Profile
+export interface AuthenticatedUser extends SupabaseUser {
+  profile: Profile | null; // Profile can be null if not yet fetched or doesn't exist
 }
 
-export interface MonthlyContribution {
-  id: string;
-  user_id: string;
+export interface MonthlyContribution extends Tables<'monthly_contributions'> {
   user_name?: string; // For display purposes in admin views
-  amount: number;
-  payment_date: string; // ISO date string
-  month: number; // 1-12
-  year: number;
-  recorded_by_admin_id?: string; // if admin added it
   recorded_by_admin_name?: string; // For display
 }
 
-export interface EmergencyRequest {
-  id: string;
-  user_id: string;
-  user_name?: string; // For display
-  amount_requested: number;
-  reason: string;
-  status: "pending" | "approved" | "rejected";
-  requested_at: string; // ISO date string
-  reviewed_by_admin_id?: string;
-  reviewed_by_admin_name?: string; // For display
-  reviewed_at?: string; // ISO date string
+export interface EmergencyRequest extends Tables<'emergency_requests'> {
+   user_name?: string; // For display
+   reviewed_by_admin_name?: string; // For display
 }
+
 
 export interface Notification {
   id: string;
@@ -45,6 +30,3 @@ export interface Notification {
   sent_at: string; // ISO date string
   channel: "email" | "whatsapp" | "app"; 
 }
-
-// Mock authenticated user type
-export interface AuthenticatedUser extends Profile {}

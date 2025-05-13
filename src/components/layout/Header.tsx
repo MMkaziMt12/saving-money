@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -13,32 +12,31 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { APP_NAME } from "@/lib/constants";
-import { useMockAuth } from "@/hooks/use-mock-auth";
+import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { Building2, LayoutDashboard, LogOut, Menu, Settings, UserCircle, Users } from "lucide-react";
-import type { SheetTriggerProps } from "@radix-ui/react-dialog"; // For SheetTrigger type
+import { Building2, LayoutDashboard, LogOut, Menu, UserCircle, Users } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { SidebarNav } from "./SidebarNav"; // Import SidebarNav for mobile sheet
+import { SidebarNav } from "./SidebarNav"; 
 
 interface HeaderProps {
-  onMenuClick?: React.MouseEventHandler<HTMLButtonElement>; // For desktop sidebar toggle
-  isMobile?: boolean; // To conditionally render mobile menu trigger
+  onMenuClick?: React.MouseEventHandler<HTMLButtonElement>; 
+  isMobile?: boolean; 
 }
 
-
 export function Header({ onMenuClick, isMobile }: HeaderProps) {
-  const { user, logout, isAdmin } = useMockAuth();
+  const { user, profile, signOut, isAdmin } = useAuth();
   const router = useRouter();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await signOut();
     router.push("/login");
   };
 
-  const getInitials = (name: string) => {
+  const getInitials = (name: string | undefined | null): string => {
+    if (!name) return "U";
     const names = name.split(" ");
-    if (names.length === 1) return names[0][0].toUpperCase();
-    return names[0][0].toUpperCase() + names[names.length - 1][0].toUpperCase();
+    if (names.length === 1) return names[0][0]?.toUpperCase() || "U";
+    return (names[0][0]?.toUpperCase() || "") + (names[names.length - 1][0]?.toUpperCase() || "");
   };
 
   return (
@@ -57,16 +55,13 @@ export function Header({ onMenuClick, isMobile }: HeaderProps) {
               <span>{APP_NAME}</span>
             </Link>
             <SidebarNav onLinkClick={() => {
-              // Close sheet on link click - Radix Sheet doesn't have a direct prop,
-              // This might need more complex state management or a ref if not working.
-              // For now, this is a placeholder.
               const closeButton = document.querySelector('[data-radix-dialog-default-close][type="button"]') as HTMLElement | null;
               closeButton?.click();
             }} />
           </SheetContent>
         </Sheet>
       ) : (
-        onMenuClick && ( // Only show desktop menu toggle if onMenuClick is provided
+        onMenuClick && ( 
           <Button
             variant="ghost"
             size="icon"
@@ -86,23 +81,21 @@ export function Header({ onMenuClick, isMobile }: HeaderProps) {
         </Link>
       )}
 
-
       <div className="ml-auto flex items-center gap-4">
-        {/* Theme Toggle can be added here later if needed */}
-        {user ? (
+        {user && profile ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-10 w-10 border border-primary/50">
-                  <AvatarImage src={user.avatar_url} alt={user.full_name} data-ai-hint="person portrait" />
-                  <AvatarFallback>{getInitials(user.full_name)}</AvatarFallback>
+                  <AvatarImage src={profile.avatar_url || undefined} alt={profile.full_name || "User"} data-ai-hint="person portrait" />
+                  <AvatarFallback>{getInitials(profile.full_name)}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{user.full_name}</p>
+                  <p className="text-sm font-medium leading-none">{profile.full_name || "User"}</p>
                   <p className="text-xs leading-none text-muted-foreground">
                     {user.email}
                   </p>

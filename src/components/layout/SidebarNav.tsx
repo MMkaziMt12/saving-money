@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -7,14 +6,11 @@ import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   LayoutDashboard,
-  HandCoins,
   ShieldAlert,
   Users,
-  BellRing,
-  Settings,
   UserCircle,
 } from "lucide-react";
-import { useMockAuth } from "@/hooks/use-mock-auth";
+import { useAuth } from "@/contexts/AuthContext";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 
 interface NavItem {
@@ -23,35 +19,43 @@ interface NavItem {
   icon: React.ElementType;
   adminOnly?: boolean;
   userOnly?: boolean;
+  requiresApproval?: boolean; // New flag
 }
 
 const navItems: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/emergency-request", label: "Emergency Fund", icon: ShieldAlert, userOnly: true },
-  { href: "/profile", label: "My Profile", icon: UserCircle },
-  { href: "/admin", label: "Admin Panel", icon: Users, adminOnly: true },
-  // { href: "/notifications", label: "Notifications", icon: BellRing }, // Example for future
-  // { href: "/settings", label: "Settings", icon: Settings }, // Example for future
+  { href: "/", label: "Dashboard", icon: LayoutDashboard, requiresApproval: true },
+  { href: "/emergency-request", label: "Emergency Fund", icon: ShieldAlert, userOnly: true, requiresApproval: true },
+  { href: "/profile", label: "My Profile", icon: UserCircle }, // Profile always visible if logged in
+  { href: "/admin", label: "Admin Panel", icon: Users, adminOnly: true, requiresApproval: true },
 ];
 
 interface SidebarNavProps {
   isCollapsed?: boolean;
-  onLinkClick?: () => void; // Optional: callback for when a link is clicked (e.g., to close mobile sidebar)
+  onLinkClick?: () => void; 
 }
 
 export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps) {
   const pathname = usePathname();
-  const { isAdmin, isApproved } = useMockAuth();
+  const { user, isAdmin, isApproved, isLoading } = useAuth();
 
+  // Wait for auth state to be loaded
+  if (isLoading) {
+    // Optionally return a loading skeleton for nav items
+    return null; 
+  }
+  
   const filteredNavItems = navItems.filter(item => {
-    if (!isApproved && (item.href !== "/profile")) return false; // Unapproved users only see profile or nothing relevant
+    if (!user) return false; // Must be logged in for any nav items
+    if (item.requiresApproval && !isApproved) return false; // Needs approval but not approved
     if (item.adminOnly && !isAdmin) return false;
-    if (item.userOnly && isAdmin) return false; // Admins might have a different view or access through admin panel
+    if (item.userOnly && isAdmin) return false; 
     return true;
   });
-
-  if (!isApproved && filteredNavItems.length === 0) { // If unapproved and no relevant links, show nothing or a message
-      return null; 
+  
+  if (filteredNavItems.length === 0 && !isApproved && user) { 
+      // If user is logged in, not approved, and no items are visible (e.g. only profile might be)
+      // It's often better to let the (app)/layout handle redirection to /awaiting-approval
+      // So, an empty nav here is fine. Profile link should still be evaluated by the filter.
   }
 
 
@@ -68,7 +72,7 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
                   onClick={onLinkClick}
                   className={cn(
                     buttonVariants({ 
-                      variant: isActive ? "default" : "s", 
+                      variant: isActive ? "default" : "ghost", // Use ghost for sidebar items
                       size: isCollapsed ? "icon" : "default" 
                     }),
                     "justify-start gap-2 group",
@@ -84,7 +88,7 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
                 </Link>
               </TooltipTrigger>
               {isCollapsed && (
-                <TooltipContent side="right" className="bg-sidebar text-sidebar-accent-foreground">
+                <TooltipContent side="right" className="bg-sidebar text-sidebar-accent-foreground border-sidebar-border">
                   {item.label}
                 </TooltipContent>
               )}
