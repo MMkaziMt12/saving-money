@@ -4,14 +4,14 @@
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
-import { DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, Gift } from "lucide-react";
+import { DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, Gift, TrendingDown, TrendingUp, Coins } from "lucide-react";
 import { APP_NAME, CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
 import { format, parseISO, differenceInCalendarMonths, getMonth, getYear } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { StatCard } from "@/components/shared/StatCard";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { PaymentHistoryTable } from "@/components/dashboard/PaymentHistoryTable";
 import { EmergencyRequestHistoryTable } from "@/components/dashboard/EmergencyRequestHistoryTable";
@@ -121,6 +121,7 @@ export default function DashboardPage() {
   const [searchTermEmergencyRequests, setSearchTermEmergencyRequests] = useState("");
   const debouncedSearchTermEmergencyRequests = useDebounce(searchTermEmergencyRequests, 500);
 
+  // Fetch contributions for the logged-in user (for their payment history table)
   const { data: userContributionsData, isLoading: isLoadingContributions } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["userContributions", user?.id, currentPageContributions, debouncedSearchTermContributions],
     queryFn: () => fetchUserContributions(user!.id, currentPageContributions, ITEMS_PER_PAGE, debouncedSearchTermContributions),
@@ -128,15 +129,16 @@ export default function DashboardPage() {
     keepPreviousData: true, 
   });
 
-  const { data: allEmergencyRequestsData, isLoading: isLoadingEmergencyRequests } = useQuery<PaginatedData<EmergencyRequest>, Error>({
-    queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
+  // Fetch ALL emergency requests for dashboard summary cards and the global history table
+  const { data: allEmergencyRequestsData, isLoading: isLoadingAllEmergencyRequests } = useQuery<PaginatedData<EmergencyRequest>, Error>({
+    queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests], // This queryKey will be used for the global table
     queryFn: () => fetchAllFamilyEmergencyRequests(currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
-    enabled: !!user,
+    enabled: !!user, // Fetch if user is logged in
     keepPreviousData: true,
   });
 
   const { data: totalFamilySavings, isLoading: isLoadingTotalSavings } = useQuery<number, Error>({
-    queryKey: ["totalFamilySavings"],
+    queryKey: ["totalFamilySavings"], // This now fetches the NET balance
     queryFn: fetchTotalFamilySavings,
   });
   
@@ -150,6 +152,7 @@ export default function DashboardPage() {
     setCurrentPageEmergencyRequests(1); 
   };
 
+  // Prefetching for user contributions table
   useEffect(() => {
     if (userContributionsData && currentPageContributions < Math.ceil((userContributionsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
@@ -159,6 +162,7 @@ export default function DashboardPage() {
     }
   }, [userContributionsData, currentPageContributions, debouncedSearchTermContributions, user?.id, queryClient]);
 
+  // Prefetching for all family emergency requests table
   useEffect(() => {
     if (allEmergencyRequestsData && currentPageEmergencyRequests < Math.ceil((allEmergencyRequestsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
@@ -168,11 +172,32 @@ export default function DashboardPage() {
     }
   }, [allEmergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, queryClient]);
 
+  // Fetch all contributions for current user (unpaginated) for accurate total calculation for their StatCards
   const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["allUserContributionsForTotal", user?.id],
-    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), 
+    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), // Fetch up to 10000 records, effectively "all" for this purpose
     enabled: !!user,
   });
+
+  const {
+    totalDisbursedForEmergency,
+    totalOutstandingEmergency,
+    isLoadingEmergencyStats,
+  } = useMemo(() => {
+    if (isLoadingAllEmergencyRequests || !allEmergencyRequestsData?.data) {
+      return { totalDisbursedForEmergency: 0, totalOutstandingEmergency: 0, isLoadingEmergencyStats: true };
+    }
+    const approvedRequests = allEmergencyRequestsData.data.filter(req => req.status === 'approved');
+    
+    const disbursed = approvedRequests.reduce((sum, req) => sum + (req.amount_requested || 0), 0);
+    
+    const outstanding = approvedRequests
+      .filter(req => !req.is_fully_repaid)
+      .reduce((sum, req) => sum + ((req.amount_requested || 0) - (req.amount_returned || 0)), 0);
+      
+    return { totalDisbursedForEmergency: disbursed, totalOutstandingEmergency: outstanding, isLoadingEmergencyStats: false };
+  }, [allEmergencyRequestsData, isLoadingAllEmergencyRequests]);
+
 
   if (authLoading || (!profile && !authLoading) || isLoadingAllContributionsForTotal ) {
     return (
@@ -251,7 +276,7 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">Here&apos;s your family savings overview.</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard
           title="My Total Contributions"
           value={isLoadingAllContributionsForTotal ? "Loading..." : totalPaidByUser }
@@ -266,7 +291,7 @@ export default function DashboardPage() {
           description={isLoadingAllContributionsForTotal ? "Fetching..." : (paymentDifferenceMonths > 0 ? `You are ${paymentDifferenceMonths} month${paymentDifferenceMonths > 1 ? 's' : ''} ahead!` : (userGeneralContributionStatusText === "Payment Due" ? `Please settle your outstanding balance.` : `You're all set!`)) }
           iconClassName={userContributionValueColorClass}
           valueClassName={userContributionValueColorClass}
-          valuePrefix="" // No currency symbol for general status text
+          valuePrefix="" 
         />
         <StatCard
           title="My Dues / Advance"
@@ -278,10 +303,25 @@ export default function DashboardPage() {
           valueClassName={userContributionValueColorClass}
         />
          <StatCard
-          title="Total Family Savings"
+          title="Current Fund Balance"
           value={isLoadingTotalSavings ? "Loading..." : (totalFamilySavings ?? 0)}
           icon={BarChart3}
-          description="Combined savings of all family members."
+          description="Net balance of the family fund."
+          iconClassName="text-blue-500"
+        />
+        <StatCard
+          title="Total Emergency Funds Disbursed"
+          value={isLoadingEmergencyStats ? "Loading..." : totalDisbursedForEmergency}
+          icon={TrendingDown}
+          description="Total amount paid out for approved emergency requests."
+          iconClassName="text-red-500"
+        />
+        <StatCard
+          title="Total Outstanding Emergency Funds"
+          value={isLoadingEmergencyStats ? "Loading..." : totalOutstandingEmergency}
+          icon={Coins}
+          description="Total amount currently owed back to the fund from approved requests."
+          iconClassName="text-yellow-500"
         />
       </div>
 
@@ -318,9 +358,9 @@ export default function DashboardPage() {
         />
         <EmergencyRequestHistoryTable
           requests={allEmergencyRequestsData?.data} 
-          isLoading={isLoadingEmergencyRequests} 
+          isLoading={isLoadingAllEmergencyRequests} 
           title="All Family Emergency Requests" 
-          description="Track the status of all emergency fund requests across the family. Search by user, reason, or status (e.g. pending, approved, overdue, repaid)." 
+          description="Track the status of all emergency fund requests across the family." 
           showUserName={true} 
           totalCount={allEmergencyRequestsData?.count || 0}
           currentPage={currentPageEmergencyRequests}
