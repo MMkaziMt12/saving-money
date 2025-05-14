@@ -5,9 +5,10 @@ import type { Profile } from "@/types";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle, Trash2, ShieldCheck, ShieldX, MoreHorizontal } from "lucide-react";
+import { CheckCircle2, XCircle, Trash2, ShieldCheck, ShieldX, MoreHorizontal, Eye } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import Link from "next/link"; // Import Link
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -125,12 +126,17 @@ export function UserManagementTable({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                       <DropdownMenuItem asChild>
+                        <Link href={`/admin/users/${user.id}`} className="cursor-pointer">
+                          <Eye className="mr-2 h-4 w-4" /> View Details
+                        </Link>
+                      </DropdownMenuItem>
                       {!user.is_approved && (
                         <DropdownMenuItem onClick={() => handleApprove(user.id, user.full_name || user.email || user.id)}>
                           <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" /> Approve User
                         </DropdownMenuItem>
                       )}
-                      {user.is_approved && user.role !== 'admin' && ( // Admins generally shouldn't be "unapproved" this way
+                      {user.is_approved && user.role !== 'admin' && ( 
                         <DropdownMenuItem onClick={() => handleReject(user.id, user.full_name || user.email || user.id)}>
                           <XCircle className="mr-2 h-4 w-4 text-orange-500" /> Unapprove User
                         </DropdownMenuItem>
@@ -141,12 +147,12 @@ export function UserManagementTable({
                           <ShieldCheck className="mr-2 h-4 w-4 text-blue-500" /> Make Admin
                         </DropdownMenuItem>
                       )}
-                      {user.role === 'admin' && onRevokeAdmin && ( 
+                      {user.role === 'admin' && onRevokeAdmin && users.filter(u => u.role === 'admin').length > 1 && ( 
                         <DropdownMenuItem onClick={() => handleRevokeAdmin(user.id, user.full_name || user.email || user.id)} className="text-orange-600 focus:text-orange-600 focus:bg-orange-50">
                           <ShieldX className="mr-2 h-4 w-4" /> Revoke Admin
                         </DropdownMenuItem>
                       )}
-                      {onDeleteUser && user.role !== 'admin' && ( // Prevent easy deletion of admin accounts from this menu
+                      {onDeleteUser && user.role !== 'admin' && ( 
                         <>
                           <DropdownMenuSeparator />
                           <AlertDialog>
