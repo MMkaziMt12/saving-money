@@ -14,22 +14,25 @@ import { z } from "zod";
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, DollarSign, Loader2, Layers } from "lucide-react";
+import { CalendarIcon, DollarSign, Loader2, Layers, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const addContributionSchema = z.object({
   userId: z.string().min(1, "User selection is required."),
   totalAmountReceived: z.coerce.number().min(MONTHLY_CONTRIBUTION_AMOUNT, `Total amount must be at least ${CURRENCY_SYMBOL}${MONTHLY_CONTRIBUTION_AMOUNT}`),
   paymentDate: z.date({ required_error: "Payment date is required." }),
-  month: z.coerce.number().min(1).max(12), // Starting month
+  month: z.coerce.number().min(1).max(12), 
   year: z.coerce.number().min(new Date().getFullYear() - 10).max(new Date().getFullYear() + 10),
   numberOfMonths: z.coerce.number().min(1, "Number of months must be at least 1").max(60, "Cannot record more than 60 months at once."),
+}).refine(data => data.totalAmountReceived % MONTHLY_CONTRIBUTION_AMOUNT === 0, {
+  message: `Total amount received must be a multiple of ${CURRENCY_SYMBOL}${MONTHLY_CONTRIBUTION_AMOUNT}.`,
+  path: ["totalAmountReceived"],
 }).refine(data => data.totalAmountReceived === data.numberOfMonths * MONTHLY_CONTRIBUTION_AMOUNT, {
   message: `Total amount received must be exactly ${CURRENCY_SYMBOL}${MONTHLY_CONTRIBUTION_AMOUNT} multiplied by the number of months.`,
-  path: ["totalAmountReceived"], // You can also set this to ["numberOfMonths"] or a general form error
+  path: ["totalAmountReceived"],
 });
 
 
@@ -45,10 +48,13 @@ const currentYear = new Date().getFullYear();
 const years = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i).reverse();
 const months = Array.from({length: 12}, (_, i) => ({ value: i + 1, label: format(new Date(currentYear, i), "MMMM")}));
 
+const ITEMS_PER_PAGE_CONTRIBUTIONS = 10;
 
 export function ContributionManagement({ users, contributions, onAddContribution }: ContributionManagementProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [contributionSearchTerm, setContributionSearchTerm] = useState("");
+  const [currentContributionPage, setCurrentContributionPage] = useState(1);
 
   const form = useForm<AddContributionFormValues>({
     resolver: zodResolver(addContributionSchema),
@@ -68,11 +74,14 @@ export function ContributionManagement({ users, contributions, onAddContribution
     if (watchedTotalAmount && MONTHLY_CONTRIBUTION_AMOUNT > 0) {
       if (watchedTotalAmount % MONTHLY_CONTRIBUTION_AMOUNT === 0) {
         const calculatedMonths = watchedTotalAmount / MONTHLY_CONTRIBUTION_AMOUNT;
-        if (calculatedMonths >= 1 && calculatedMonths <= 60) { // Max 60 months
+        if (calculatedMonths >= 1 && calculatedMonths <= 60) { 
             if (form.getValues("numberOfMonths") !== calculatedMonths) {
                 form.setValue("numberOfMonths", calculatedMonths, { shouldValidate: true });
             }
         }
+      } else if (form.getValues("numberOfMonths") !== 1 && form.formState.dirtyFields.totalAmountReceived) {
+        // If total amount is not a multiple, and it was manually changed, reset months to 1 or clear it
+        // This part might need refinement based on desired UX. For now, let's just let validation handle it.
       }
     }
   }, [watchedTotalAmount, form]);
@@ -91,19 +100,42 @@ export function ContributionManagement({ users, contributions, onAddContribution
         numberOfMonths: 1,
       });
     } catch (error) {
-      // Error is typically handled by the mutation's onError in the parent tab
       console.error("Submission error in ContributionManagement form:", error);
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  const filteredContributions = useMemo(() => {
+    if (!contributions) return [];
+    return contributions
+      .filter(c => {
+        const userName = c.user_name || users.find(u => u.id === c.user_id)?.full_name || "";
+        const searchTermLower = contributionSearchTerm.toLowerCase();
+        return (
+          userName.toLowerCase().includes(searchTermLower) ||
+          String(c.year).includes(searchTermLower) ||
+          format(new Date(c.year, c.month -1), "MMMM").toLowerCase().includes(searchTermLower) ||
+          String(c.amount).includes(searchTermLower)
+        );
+      })
+      .sort((a,b) => parseISO(b.payment_date).getTime() - parseISO(a.payment_date).getTime());
+  }, [contributions, contributionSearchTerm, users]);
+
+  const paginatedContributions = useMemo(() => {
+    const startIndex = (currentContributionPage - 1) * ITEMS_PER_PAGE_CONTRIBUTIONS;
+    return filteredContributions.slice(startIndex, startIndex + ITEMS_PER_PAGE_CONTRIBUTIONS);
+  }, [filteredContributions, currentContributionPage]);
+
+  const totalContributionPages = Math.ceil(filteredContributions.length / ITEMS_PER_PAGE_CONTRIBUTIONS);
+
+
   return (
     <div className="grid md:grid-cols-3 gap-6">
       <Card className="md:col-span-1 shadow-lg">
         <CardHeader>
           <CardTitle>Add Contribution</CardTitle>
-          <CardDescription>Manually record contribution(s) for a family member. Individual contributions are {CURRENCY_SYMBOL}{MONTHLY_CONTRIBUTION_AMOUNT}.</CardDescription>
+          <CardDescription>Manually record contribution(s) for a family member. Standard per month is {CURRENCY_SYMBOL}{MONTHLY_CONTRIBUTION_AMOUNT}.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -228,32 +260,72 @@ export function ContributionManagement({ users, contributions, onAddContribution
           <CardTitle>All Contributions</CardTitle>
           <CardDescription>List of all recorded contributions.</CardDescription>
         </CardHeader>
-        <CardContent className="max-h-[600px] overflow-y-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Payment Date</TableHead>
-                <TableHead>Contribution For (Month/Year)</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Recorded By</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {contributions.sort((a,b) => parseISO(b.payment_date).getTime() - parseISO(a.payment_date).getTime()).map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell>{c.user_name || users.find(u => u.id === c.user_id)?.full_name || 'Unknown User'}</TableCell>
-                  <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
-                  <TableCell>{format(new Date(c.year, c.month -1), "MMMM yyyy")}</TableCell>
-                  <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                  <TableCell>{c.recorded_by_admin_name || 'Admin'}</TableCell>
+        <CardContent className="space-y-4">
+           <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input 
+              type="search"
+              placeholder="Search contributions..."
+              value={contributionSearchTerm}
+              onChange={(e) => {
+                setContributionSearchTerm(e.target.value);
+                setCurrentContributionPage(1);
+              }}
+              className="pl-10 w-full"
+            />
+          </div>
+          <div className="max-h-[500px] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>User</TableHead>
+                  <TableHead>Payment Date</TableHead>
+                  <TableHead>Contribution For (Month/Year)</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Recorded By</TableHead>
                 </TableRow>
-              ))}
-              {contributions.length === 0 && (
-                 <TableRow><TableCell colSpan={5} className="text-center h-24">No contributions recorded yet.</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {paginatedContributions.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell>{c.user_name || users.find(u => u.id === c.user_id)?.full_name || 'Unknown User'}</TableCell>
+                    <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
+                    <TableCell>{format(new Date(c.year, c.month -1), "MMMM yyyy")}</TableCell>
+                    <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
+                    <TableCell>{c.recorded_by_admin_name || 'Admin'}</TableCell>
+                  </TableRow>
+                ))}
+                {paginatedContributions.length === 0 && (
+                  <TableRow><TableCell colSpan={5} className="text-center h-24">
+                    {contributions.length > 0 ? 'No contributions match your search.' : 'No contributions recorded yet.'}
+                  </TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          {totalContributionPages > 1 && (
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentContributionPage(prev => Math.max(1, prev - 1))}
+                disabled={currentContributionPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {currentContributionPage} of {totalContributionPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentContributionPage(prev => Math.min(totalContributionPages, prev + 1))}
+                disabled={currentContributionPage === totalContributionPages}
+              >
+                Next
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

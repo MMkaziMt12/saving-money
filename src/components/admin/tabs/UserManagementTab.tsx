@@ -1,16 +1,19 @@
 
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Profile } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { UserManagementTable } from "@/components/admin/UserManagementTable";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 const supabase = createClient();
+const ITEMS_PER_PAGE = 10;
 
 async function fetchUsers(): Promise<Profile[]> {
   const { data, error } = await supabase
@@ -43,6 +46,9 @@ export function UserManagementTab() {
   const { user: authUser } = useAuth();
   const queryClient = useQueryClient();
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
   const { data: users, isLoading, error: usersError } = useQuery<Profile[], Error>({
     queryKey: ['adminUsers'],
     queryFn: fetchUsers,
@@ -51,10 +57,9 @@ export function UserManagementTab() {
   const mutationOptions = {
     onSuccess: (data: Profile | void, variables: string | { userId: string; updates?: Partial<Profile> }) => {
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
-      // For delete, variables is userId (string). For update, it's an object.
       const userName = users?.find(u => u.id === (typeof variables === 'string' ? variables : variables.userId))?.full_name || "User";
       
-      if (typeof variables === 'string') { // Delete operation
+      if (typeof variables === 'string') { 
          toast({ title: "Success", description: `${userName} profile deleted.` });
       } else if (variables.updates?.is_approved === true) {
          toast({ title: "Success", description: `${userName} approved.` });
@@ -111,10 +116,22 @@ export function UserManagementTab() {
     onSuccess: (_, userId) => mutationOptions.onSuccess(undefined, userId)
   });
   
-  const sortedUsers = useMemo(() => {
-    return users ? [...users].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()) : [];
-  }, [users]);
+  const filteredUsers = useMemo(() => {
+    if (!users) return [];
+    return users
+      .filter(user => 
+        (user.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (user.email?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+      )
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  }, [users, searchTerm]);
 
+  const paginatedUsers = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredUsers.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredUsers, currentPage]);
+
+  const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
 
   if (isLoading) {
     return (
@@ -129,19 +146,57 @@ export function UserManagementTab() {
     return (
       <div className="flex flex-col items-center justify-center py-10">
         <p className="text-destructive">Error fetching users: {usersError.message}</p>
-        <button onClick={() => queryClient.invalidateQueries({ queryKey: ['adminUsers'] })} className="mt-2 text-blue-500">Try again</button>
+        <button onClick={() => queryClient.invalidateQueries({ queryKey: ['adminUsers'] })} className="mt-2 text-primary hover:underline">Try again</button>
       </div>
     );
   }
 
   return (
-    <UserManagementTable 
-      users={sortedUsers} 
-      onApproveUser={(userId) => approveUserMutation.mutate(userId)}
-      onRejectUser={(userId) => rejectUserMutation.mutate(userId)}
-      onMakeAdmin={(userId) => makeAdminMutation.mutate(userId)}
-      onRevokeAdmin={(userId) => revokeAdminMutation.mutate(userId)}
-      onDeleteUser={(userId) => deleteUserMutation.mutate(userId)}
-    />
+    <div className="space-y-4">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+        <Input 
+          type="search"
+          placeholder="Search users by name or email..."
+          value={searchTerm}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setCurrentPage(1); // Reset to first page on search
+          }}
+          className="pl-10 w-full md:w-1/2 lg:w-1/3"
+        />
+      </div>
+      <UserManagementTable 
+        users={paginatedUsers} 
+        onApproveUser={(userId) => approveUserMutation.mutate(userId)}
+        onRejectUser={(userId) => rejectUserMutation.mutate(userId)}
+        onMakeAdmin={(userId) => makeAdminMutation.mutate(userId)}
+        onRevokeAdmin={(userId) => revokeAdminMutation.mutate(userId)}
+        onDeleteUser={(userId) => deleteUserMutation.mutate(userId)}
+      />
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end space-x-2 pt-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Page {currentPage} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

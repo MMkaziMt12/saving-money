@@ -1,15 +1,19 @@
 
 "use client";
 
+import { useMemo, useState } from "react";
 import type { EmergencyRequest, Profile } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { EmergencyRequestManagementTable } from "@/components/admin/EmergencyRequestManagementTable";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 const supabase = createClient();
+const ITEMS_PER_PAGE_REQUESTS = 10;
 
 async function fetchAdminProfilesForEmergency(): Promise<Profile[]> {
   const { data, error } = await supabase
@@ -66,6 +70,9 @@ export function EmergencyRequestManagementTab() {
   const { profile: adminProfile } = useAuth();
   const queryClient = useQueryClient();
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
   const { data: users, isLoading: isLoadingUsers, error: usersError } = useQuery<Profile[], Error>({
     queryKey: ['adminProfilesForEmergency'],
     queryFn: fetchAdminProfilesForEmergency,
@@ -95,6 +102,26 @@ export function EmergencyRequestManagementTab() {
     updateRequestMutation.mutate({ requestId, status, adminProfileId: adminProfile.id });
   };
 
+  const filteredRequests = useMemo(() => {
+    if (!requests || !users) return [];
+    return requests.filter(req => {
+      const userName = users.find(u => u.id === req.user_id)?.full_name || "";
+      const searchTermLower = searchTerm.toLowerCase();
+      return (
+        userName.toLowerCase().includes(searchTermLower) ||
+        req.reason.toLowerCase().includes(searchTermLower) ||
+        req.status.toLowerCase().includes(searchTermLower)
+      );
+    });
+  }, [requests, users, searchTerm]);
+
+  const paginatedRequests = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE_REQUESTS;
+    return filteredRequests.slice(startIndex, startIndex + ITEMS_PER_PAGE_REQUESTS);
+  }, [filteredRequests, currentPage]);
+
+  const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE_REQUESTS);
+
   const isLoading = isLoadingUsers || isLoadingRequests;
   const queryError = usersError || requestsError;
 
@@ -117,11 +144,49 @@ export function EmergencyRequestManagementTab() {
   }
 
   return (
-    <EmergencyRequestManagementTable 
-      requests={requests || []} 
-      users={users || []} 
-      onApproveRequest={(requestId) => handleUpdateRequest(requestId, 'approved')} 
-      onRejectRequest={(requestId) => handleUpdateRequest(requestId, 'rejected')} 
-    />
+    <div className="space-y-4">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+        <Input 
+          type="search"
+          placeholder="Search requests by user, reason, or status..."
+          value={searchTerm}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setCurrentPage(1);
+          }}
+          className="pl-10 w-full md:w-1/2 lg:w-1/3"
+        />
+      </div>
+      <EmergencyRequestManagementTable 
+        requests={paginatedRequests} 
+        users={users || []} 
+        onApproveRequest={(requestId) => handleUpdateRequest(requestId, 'approved')} 
+        onRejectRequest={(requestId) => handleUpdateRequest(requestId, 'rejected')} 
+      />
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end space-x-2 pt-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Page {currentPage} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
