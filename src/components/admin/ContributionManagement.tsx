@@ -17,7 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useState } from "react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, DollarSign } from "lucide-react";
+import { CalendarIcon, DollarSign, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const addContributionSchema = z.object({
@@ -25,24 +25,26 @@ const addContributionSchema = z.object({
   amount: z.coerce.number().min(1, "Amount must be greater than 0"),
   paymentDate: z.date({ required_error: "Payment date is required." }),
   month: z.coerce.number().min(1).max(12),
-  year: z.coerce.number().min(new Date().getFullYear() - 5).max(new Date().getFullYear() + 1),
+  year: z.coerce.number().min(new Date().getFullYear() - 10).max(new Date().getFullYear() + 1), // Expanded year range
 });
 
-type AddContributionFormValues = z.infer<typeof addContributionSchema>;
+export type AddContributionFormValues = z.infer<typeof addContributionSchema>;
 
 interface ContributionManagementProps {
-  users: Profile[]; // To select user for whom contribution is added
-  contributions: MonthlyContribution[]; // To display all contributions
-  onAddContribution: (data: AddContributionFormValues) => void;
+  users: Profile[]; 
+  contributions: MonthlyContribution[]; 
+  onAddContribution: (data: AddContributionFormValues) => Promise<void>; // Changed to Promise for async handling
 }
 
 const currentYear = new Date().getFullYear();
-const years = Array.from({ length: 6 }, (_, i) => currentYear - 5 + i + 1).reverse(); // Last 5 years + current + next
+const years = Array.from({ length: 12 }, (_, i) => currentYear - 10 + i + 1).reverse(); // Last 10 years + current + next
 const months = Array.from({length: 12}, (_, i) => ({ value: i + 1, label: format(new Date(currentYear, i), "MMMM")}));
 
 
 export function ContributionManagement({ users, contributions, onAddContribution }: ContributionManagementProps) {
-  const { toast } = useToast();
+  const { toast } = useToast(); // Toast will be shown by parent tab component after Supabase call
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const form = useForm<AddContributionFormValues>({
     resolver: zodResolver(addContributionSchema),
     defaultValues: {
@@ -50,23 +52,28 @@ export function ContributionManagement({ users, contributions, onAddContribution
       month: new Date().getMonth() + 1,
       year: new Date().getFullYear(),
       paymentDate: new Date(),
+      userId: "",
     },
   });
 
-  function onSubmit(data: AddContributionFormValues) {
-    onAddContribution(data);
-    const selectedUser = users.find(u => u.id === data.userId);
-    toast({
-      title: "Contribution Added!",
-      description: `Contribution of ${CURRENCY_SYMBOL}${data.amount} for ${selectedUser?.full_name || 'user'} recorded.`,
-    });
-    form.reset({
-      amount: MONTHLY_CONTRIBUTION_AMOUNT,
-      month: new Date().getMonth() + 1,
-      year: new Date().getFullYear(),
-      paymentDate: new Date(),
-      userId: "",
-    });
+  async function onSubmit(data: AddContributionFormValues) {
+    setIsSubmitting(true);
+    try {
+      await onAddContribution(data); // This now calls the async handler from the parent tab
+      // Toast is handled by parent
+      form.reset({
+        amount: MONTHLY_CONTRIBUTION_AMOUNT,
+        month: new Date().getMonth() + 1,
+        year: new Date().getFullYear(),
+        paymentDate: new Date(),
+        userId: "",
+      });
+    } catch (error) {
+      // Error toast is handled by parent or onAddContribution implementation
+      console.error("Submission error in ContributionManagement form:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -84,14 +91,14 @@ export function ContributionManagement({ users, contributions, onAddContribution
                 name="userId"
                 control={form.control}
                 render={({ field }) => (
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value || ""} disabled={isSubmitting}>
                     <SelectTrigger id="userId">
                       <SelectValue placeholder="Select a user" />
                     </SelectTrigger>
                     <SelectContent>
                       {users.filter(u => u.is_approved).map(user => (
                         <SelectItem key={user.id} value={user.id}>
-                          {user.full_name}
+                          {user.full_name} ({user.email})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -103,7 +110,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
             
             <div>
               <Label htmlFor="amount">Amount ({CURRENCY_SYMBOL})</Label>
-              <Input id="amount" type="number" {...form.register("amount")} />
+              <Input id="amount" type="number" {...form.register("amount")} disabled={isSubmitting} />
               {form.formState.errors.amount && <p className="text-sm font-medium text-destructive">{form.formState.errors.amount.message}</p>}
             </div>
 
@@ -121,6 +128,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
                           "w-full justify-start text-left font-normal",
                           !field.value && "text-muted-foreground"
                         )}
+                        disabled={isSubmitting}
                       >
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
@@ -148,7 +156,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
                   name="month"
                   control={form.control}
                   render={({ field }) => (
-                    <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={String(field.value)}>
+                    <Select onValueChange={(value) => field.onChange(parseInt(value))} value={String(field.value)} disabled={isSubmitting}>
                       <SelectTrigger id="month"><SelectValue placeholder="Month" /></SelectTrigger>
                       <SelectContent>
                         {months.map(m => <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>)}
@@ -164,7 +172,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
                   name="year"
                   control={form.control}
                   render={({ field }) => (
-                    <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={String(field.value)}>
+                    <Select onValueChange={(value) => field.onChange(parseInt(value))} value={String(field.value)} disabled={isSubmitting}>
                       <SelectTrigger id="year"><SelectValue placeholder="Year" /></SelectTrigger>
                       <SelectContent>
                         {years.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
@@ -176,9 +184,9 @@ export function ContributionManagement({ users, contributions, onAddContribution
               </div>
             </div>
             
-            <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-              <DollarSign className="mr-2 h-4 w-4" />
-              {form.formState.isSubmitting ? "Recording..." : "Record Contribution"}
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DollarSign className="mr-2 h-4 w-4" />}
+              {isSubmitting ? "Recording..." : "Record Contribution"}
             </Button>
           </form>
         </CardContent>
@@ -203,11 +211,11 @@ export function ContributionManagement({ users, contributions, onAddContribution
             <TableBody>
               {contributions.sort((a,b) => parseISO(b.payment_date).getTime() - parseISO(a.payment_date).getTime()).map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell>{users.find(u => u.id === c.user_id)?.full_name || 'Unknown User'}</TableCell>
+                  <TableCell>{c.user_name || users.find(u => u.id === c.user_id)?.full_name || 'Unknown User'}</TableCell>
                   <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
                   <TableCell>{format(new Date(c.year, c.month -1), "MMMM yyyy")}</TableCell>
                   <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                  <TableCell>{c.recorded_by_admin_name || (c.recorded_by_admin_id ? 'Admin' : 'User')}</TableCell>
+                  <TableCell>{c.recorded_by_admin_name || 'Admin'}</TableCell>
                 </TableRow>
               ))}
               {contributions.length === 0 && (
@@ -220,3 +228,4 @@ export function ContributionManagement({ users, contributions, onAddContribution
     </div>
   );
 }
+

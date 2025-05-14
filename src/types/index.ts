@@ -1,3 +1,4 @@
+
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import type { Database, Tables } from './supabase';
 
@@ -12,13 +13,13 @@ export interface AuthenticatedUser extends SupabaseUser {
 }
 
 export interface MonthlyContribution extends Tables<'monthly_contributions'> {
-  user_name?: string; // For display purposes in admin views
-  recorded_by_admin_name?: string; // For display
+  user_name?: string; // For display purposes, populated by joining/mapping
+  recorded_by_admin_name?: string; // For display, populated by joining/mapping
 }
 
 export interface EmergencyRequest extends Tables<'emergency_requests'> {
-   user_name?: string; // For display
-   reviewed_by_admin_name?: string; // For display
+   user_name?: string; // For display, populated by joining/mapping
+   reviewed_by_admin_name?: string; // For display, populated by joining/mapping
 }
 
 
@@ -30,3 +31,4 @@ export interface Notification {
   sent_at: string; // ISO date string
   channel: "email" | "whatsapp" | "app"; 
 }
+
