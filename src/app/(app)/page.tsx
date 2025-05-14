@@ -16,6 +16,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { StatCard } from "@/components/shared/StatCard";
 import { useState, useEffect, useMemo } from "react";
+import { useDebounce } from "@/hooks/use-debounce"; // Import useDebounce
 
 const supabase = createClient();
 const ITEMS_PER_PAGE = 5; // For dashboard tables
@@ -30,7 +31,7 @@ async function fetchUserContributions(
   userId: string,
   page: number,
   itemsPerPage: number,
-  searchTerm: string
+  searchTerm: string // This will be the debounced term
 ): Promise<PaginatedData<MonthlyContribution>> {
   if (!userId) return { data: [], count: 0 };
 
@@ -43,14 +44,9 @@ async function fetchUserContributions(
     .eq("user_id", userId);
 
   if (searchTerm) {
-    // Simple search on year for now, can be expanded
     const numericSearchTerm = parseInt(searchTerm);
     if (!isNaN(numericSearchTerm)) {
       query = query.eq("year", numericSearchTerm);
-    } else {
-        // If search term is not a number, maybe search by month name (more complex)
-        // For simplicity, we'll skip non-numeric search for contributions for now
-        // or you can implement a text search on a formatted month/year column if available
     }
   }
   
@@ -68,7 +64,7 @@ async function fetchEmergencyRequests(
   isAdmin: boolean,
   page: number,
   itemsPerPage: number,
-  searchTerm: string
+  searchTerm: string // This will be the debounced term
 ): Promise<PaginatedData<EmergencyRequest>> {
   const from = (page - 1) * itemsPerPage;
   const to = from + itemsPerPage - 1;
@@ -83,11 +79,16 @@ async function fetchEmergencyRequests(
   if (!isAdmin && userId) {
     query = query.eq("user_id", userId);
   } else if (!isAdmin && !userId) {
+    // If not admin and no userId, return empty. This case should ideally be prevented by UI logic.
     return { data: [], count: 0 };
   }
   
   if (searchTerm) {
-    query = query.or(`reason.ilike.%${searchTerm}%,status.ilike.%${searchTerm}%${isAdmin ? `,profiles!emergency_requests_user_id_fkey(full_name).ilike.%${searchTerm}%` : '' }`);
+    const orConditions = [`reason.ilike.%${searchTerm}%`, `status.ilike.%${searchTerm}%`];
+    if (isAdmin) { // Only search by user name if admin is viewing all requests
+        orConditions.push(`profile_user:full_name.ilike.%${searchTerm}%`);
+    }
+    query = query.or(orConditions.join(','));
   }
   
   query = query.order("requested_at", { ascending: false }).range(from, to);
@@ -143,7 +144,7 @@ function PaymentHistoryTable({
 }) {
   const totalPages = Math.ceil(totalCount / itemsPerPage);
 
-  if (isLoading && (!contributions || contributions.length === 0)) {
+  if (isLoading && (!contributions || contributions.length === 0) && totalCount === 0) { // Show loader only if no data yet AND total is 0 (initial load)
     return (
       <Card className="shadow-lg">
         <CardHeader>
@@ -272,7 +273,7 @@ function EmergencyRequestHistoryTable({
     }
   }
 
-  if (isLoading && (!requests || requests.length === 0)) {
+  if (isLoading && (!requests || requests.length === 0) && totalCount === 0) {
     return (
       <Card className="shadow-lg">
         <CardHeader>
@@ -290,7 +291,7 @@ function EmergencyRequestHistoryTable({
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}. Search by reason, status {showUserName ? ', or user' : ''}.</CardDescription>
+        <CardDescription>{description}. Search by reason, status {showUserName ? ', or user name' : ''}.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
          <div className="relative">
@@ -367,26 +368,29 @@ function EmergencyRequestHistoryTable({
 
 export default function DashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
-  const queryClient = useQueryClient(); // Get query client
+  const queryClient = useQueryClient(); 
 
   // State for Contributions Table
   const [currentPageContributions, setCurrentPageContributions] = useState(1);
   const [searchTermContributions, setSearchTermContributions] = useState("");
+  const debouncedSearchTermContributions = useDebounce(searchTermContributions, 500);
   
   // State for Emergency Requests Table
   const [currentPageEmergencyRequests, setCurrentPageEmergencyRequests] = useState(1);
   const [searchTermEmergencyRequests, setSearchTermEmergencyRequests] = useState("");
+  const debouncedSearchTermEmergencyRequests = useDebounce(searchTermEmergencyRequests, 500);
+
 
   const { data: userContributionsData, isLoading: isLoadingContributions } = useQuery<PaginatedData<MonthlyContribution>, Error>({
-    queryKey: ["userContributions", user?.id, currentPageContributions, searchTermContributions],
-    queryFn: () => fetchUserContributions(user!.id, currentPageContributions, ITEMS_PER_PAGE, searchTermContributions),
+    queryKey: ["userContributions", user?.id, currentPageContributions, debouncedSearchTermContributions],
+    queryFn: () => fetchUserContributions(user!.id, currentPageContributions, ITEMS_PER_PAGE, debouncedSearchTermContributions),
     enabled: !!user,
-    keepPreviousData: true, // Important for smoother pagination
+    keepPreviousData: true, 
   });
 
   const { data: emergencyRequestsData, isLoading: isLoadingEmergencyRequests } = useQuery<PaginatedData<EmergencyRequest>, Error>({
-    queryKey: ["emergencyRequests", user?.id, isAdmin, currentPageEmergencyRequests, searchTermEmergencyRequests],
-    queryFn: () => fetchEmergencyRequests(user?.id || null, isAdmin, currentPageEmergencyRequests, ITEMS_PER_PAGE, searchTermEmergencyRequests),
+    queryKey: ["emergencyRequests", user?.id, isAdmin, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
+    queryFn: () => fetchEmergencyRequests(user?.id || null, isAdmin, currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
     enabled: !!user,
     keepPreviousData: true,
   });
@@ -396,49 +400,35 @@ export default function DashboardPage() {
     queryFn: fetchTotalFamilySavings,
   });
   
-  // Debounce search term changes
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      // This will trigger useQuery to refetch if debouncedSearchTerm changes
-      // Actual refetch query logic is based on queryKey changing, 
-      // so we just need to ensure the state passed to queryKey is updated after debounce.
-      // For simplicity here, we'll set page to 1 on new search
-      // For a true debounce effect on query, one might wrap fetch functions or use a debounced state for queryKey.
-      // Let's reset page to 1 when search term changes.
-    }, 500);
-    return () => clearTimeout(handler);
-  }, [searchTermContributions, searchTermEmergencyRequests]);
-
-
   const handleContributionSearchChange = (term: string) => {
     setSearchTermContributions(term);
-    setCurrentPageContributions(1); // Reset to first page on new search
+    setCurrentPageContributions(1); 
   };
 
   const handleEmergencyRequestSearchChange = (term: string) => {
     setSearchTermEmergencyRequests(term);
-    setCurrentPageEmergencyRequests(1); // Reset to first page on new search
+    setCurrentPageEmergencyRequests(1); 
   };
 
   // Effect to prefetch next page data for contributions
   useEffect(() => {
     if (userContributionsData && currentPageContributions < Math.ceil((userContributionsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
-        queryKey: ["userContributions", user?.id, currentPageContributions + 1, searchTermContributions],
-        queryFn: () => fetchUserContributions(user!.id, currentPageContributions + 1, ITEMS_PER_PAGE, searchTermContributions),
+        queryKey: ["userContributions", user?.id, currentPageContributions + 1, debouncedSearchTermContributions],
+        queryFn: () => fetchUserContributions(user!.id, currentPageContributions + 1, ITEMS_PER_PAGE, debouncedSearchTermContributions),
       });
     }
-  }, [userContributionsData, currentPageContributions, searchTermContributions, user?.id, queryClient]);
+  }, [userContributionsData, currentPageContributions, debouncedSearchTermContributions, user?.id, queryClient]);
 
   // Effect to prefetch next page data for emergency requests
   useEffect(() => {
     if (emergencyRequestsData && currentPageEmergencyRequests < Math.ceil((emergencyRequestsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
-        queryKey: ["emergencyRequests", user?.id, isAdmin, currentPageEmergencyRequests + 1, searchTermEmergencyRequests],
-        queryFn: () => fetchEmergencyRequests(user!.id || null, isAdmin, currentPageEmergencyRequests + 1, ITEMS_PER_PAGE, searchTermEmergencyRequests),
+        queryKey: ["emergencyRequests", user?.id, isAdmin, currentPageEmergencyRequests + 1, debouncedSearchTermEmergencyRequests],
+        queryFn: () => fetchEmergencyRequests(user?.id || null, isAdmin, currentPageEmergencyRequests + 1, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
       });
     }
-  }, [emergencyRequestsData, currentPageEmergencyRequests, searchTermEmergencyRequests, user?.id, isAdmin, queryClient]);
+  }, [emergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, user?.id, isAdmin, queryClient]);
 
 
   if (authLoading || (!profile && !authLoading) ) {
@@ -458,18 +448,9 @@ export default function DashboardPage() {
      );
   }
 
-  // Calculate total paid by user from ALL contributions, not just paginated ones.
-  // This requires a separate query or careful handling if we want to avoid fetching all contributions for this summary.
-  // For simplicity, this example will use the 'count' from the *first page load* of contributions for some calcs, which is not ideal for dynamic total paid.
-  // A better way for "total paid" would be a separate RPC or specific query.
-  // For now, let's assume userContributionsData.data if available on first load contains enough for an approximate "total paid" or we need another query for total paid.
-
-  // For "totalPaidByUser", we should ideally get all contributions.
-  // Let's fetch all user contributions once for this calculation, without pagination.
-  // This is a simplification. For very large datasets, this should be an aggregate query.
   const { data: allUserContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
-    queryKey: ["allUserContributionsForTotal", user?.id],
-    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), // Fetch a large number, effectively all for summary
+    queryKey: ["allUserContributionsForTotal", user?.id], // This query doesn't use pagination/search for its specific purpose
+    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), 
     enabled: !!user,
   });
   const totalPaidByUser = allUserContributionsForTotal?.data?.reduce((sum, c) => sum + c.amount, 0) || 0;
@@ -536,7 +517,7 @@ export default function DashboardPage() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard
           title="My Total Contributions"
-          value={isLoadingContributions ? "Loading..." : totalPaidByUser }
+          value={isLoadingContributions ? "Loading..." : totalPaidByUser } // Using totalPaidByUser from specific query
           icon={DollarSign}
           description={isLoadingContributions ? "Fetching..." : "Total amount you've contributed."}
           iconClassName="text-green-500"
@@ -585,7 +566,7 @@ export default function DashboardPage() {
           totalCount={userContributionsData?.count || 0}
           currentPage={currentPageContributions}
           onPageChange={setCurrentPageContributions}
-          searchTerm={searchTermContributions}
+          searchTerm={searchTermContributions} // Pass the immediate search term to the input
           onSearchChange={handleContributionSearchChange}
           itemsPerPage={ITEMS_PER_PAGE}
         />
@@ -598,7 +579,7 @@ export default function DashboardPage() {
           totalCount={emergencyRequestsData?.count || 0}
           currentPage={currentPageEmergencyRequests}
           onPageChange={setCurrentPageEmergencyRequests}
-          searchTerm={searchTermEmergencyRequests}
+          searchTerm={searchTermEmergencyRequests} // Pass the immediate search term to the input
           onSearchChange={handleEmergencyRequestSearchChange}
           itemsPerPage={ITEMS_PER_PAGE}
         />
