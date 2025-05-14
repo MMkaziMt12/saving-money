@@ -5,7 +5,7 @@ import type { EmergencyRequest, Profile } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle, MoreHorizontal, Eye, CalendarDays, TrendingUp, History, HandCoins } from "lucide-react";
+import { CheckCircle2, XCircle, MoreHorizontal, Eye, CalendarDays, TrendingUp, History, HandCoins, CalendarIcon } from "lucide-react";
 import { format, formatDistanceToNow, parseISO, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
