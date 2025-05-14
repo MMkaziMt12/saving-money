@@ -20,14 +20,15 @@ export interface MonthlyContribution extends Tables<'monthly_contributions'> {
 export interface EmergencyRequest extends Tables<'emergency_requests'> {
    user_name?: string; // For display, populated by joining/mapping
    reviewed_by_admin_name?: string; // For display, populated by joining/mapping
-   return_date?: string | null; 
+   return_date?: string | null;
    amount_returned?: number | null;
    last_return_date?: string | null;
    is_fully_repaid?: boolean | null;
 }
 
 
-export interface Notification extends Tables<'notifications'> { 
-  // id, user_id, message, type, sent_at, channel are from Tables<'notifications'>
-  // You can add additional client-side properties here if needed.
+// Updated Notification interface to match schema.sql
+export interface Notification extends Tables<'notifications'> {
+  // id, user_id, message, type, link, created_at, read_at are from Tables<'notifications'>
+  // Add any client-side specific properties if needed, though typically derived from Supabase types.
 }

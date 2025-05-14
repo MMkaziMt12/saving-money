@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -17,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { Building2, LayoutDashboard, LogOut, Menu, UserCircle, Users } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SidebarNav } from "./SidebarNav"; 
+import { NotificationsDisplay } from "./NotificationsDisplay"; // Import NotificationsDisplay
 
 interface HeaderProps {
   onMenuClick?: React.MouseEventHandler<HTMLButtonElement>; 
@@ -81,7 +83,8 @@ export function Header({ onMenuClick, isMobile }: HeaderProps) {
         </Link>
       )}
 
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-2 md:gap-4">
+        {user && <NotificationsDisplay />} 
         {user && profile ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

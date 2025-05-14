@@ -10,52 +10,64 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { MessageSquarePlus, Send, Sparkles, Loader2 } from "lucide-react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { generateNotificationMessage, type GenerateNotificationMessageInput } from "@/ai/flows/generate-notification-message";
 import type { Profile } from "@/types";
 import { useState } from "react";
-import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
+import { MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 
+// This schema should match what NotificationSenderTab expects for its handleSendNotification
 const notificationSchema = z.object({
   messageType: z.enum(["contributionReminder", "emergencyRequestUpdate", "general"]),
   targetUser: z.string().optional(), // User ID or "all_pending_contribution", "all_users"
-  customSubject: z.string().optional(), // For general messages
-  customMessage: z.string().optional(), // For general messages, or to override AI
-  // Fields for AI generation context
+  customSubject: z.string().optional(), // For general messages, might not be used if message is main content
+  customMessage: z.string().min(1, "Message content cannot be empty."), // Make message required
+  // Fields for AI generation context (if AI button is used *before* final send)
   userName: z.string().optional(),
   amount: z.coerce.number().optional(),
   emergencyRequestDescription: z.string().optional(),
   status: z.string().optional(), // e.g. approved, rejected for emergency requests
+  // link: z.string().url().optional(), // Optional: if you want to add a link directly from the form
 });
 
-type NotificationFormValues = z.infer<typeof notificationSchema>;
+export type NotificationFormValues = z.infer<typeof notificationSchema>;
 
 interface NotificationSenderProps {
-  users: Profile[]; // For selecting specific users or getting context
+  users: Profile[];
+  onSend: (data: NotificationFormValues) => Promise<void>; // Prop to handle the actual sending
+  isSending: boolean; // Prop to disable form while sending
 }
 
-export function NotificationSender({ users }: NotificationSenderProps) {
+export function NotificationSender({ users, onSend, isSending }: NotificationSenderProps) {
   const { toast } = useToast();
-  const [generatedMessage, setGeneratedMessage] = useState("");
+  const [generatedMessage, setGeneratedMessage] = useState(""); // For AI generated message preview
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isSending, setIsSending] = useState(false);
 
   const form = useForm<NotificationFormValues>({
     resolver: zodResolver(notificationSchema),
     defaultValues: {
       messageType: "contributionReminder",
+      customMessage: ""
     },
   });
 
   const selectedMessageType = form.watch("messageType");
-  const selectedTargetUser = form.watch("targetUser");
 
   const handleGenerateMessage = async () => {
     const values = form.getValues();
+    if (values.messageType === "general") {
+      toast({ title: "Info", description: "AI generation is not applicable for general announcements. Please write your message directly." });
+      setGeneratedMessage(values.customMessage || "");
+      return;
+    }
+    if (values.messageType !== "contributionReminder" && values.messageType !== "emergencyRequestUpdate") {
+      toast({ title: "Error", description: "Invalid message type for AI generation.", variant: "destructive" });
+      return;
+    }
+
     let aiInput: GenerateNotificationMessageInput = {
-      messageType: values.messageType as "contributionReminder" | "emergencyRequestUpdate", 
-      // Cast because 'general' is not for AI flow, but we ensure it's not passed.
+      messageType: values.messageType,
     };
 
     if (values.targetUser && values.targetUser !== "all_pending_contribution" && values.targetUser !== "all_users") {
@@ -64,60 +76,32 @@ export function NotificationSender({ users }: NotificationSenderProps) {
     }
     
     if (values.messageType === "contributionReminder") {
-        aiInput.amount = MONTHLY_CONTRIBUTION_AMOUNT; // Assuming fixed amount for reminder
+        aiInput.amount = MONTHLY_CONTRIBUTION_AMOUNT;
     } else if (values.messageType === "emergencyRequestUpdate") {
-        // For emergency updates, these would typically come from a selected request
         aiInput.emergencyRequestDescription = values.emergencyRequestDescription || "an emergency fund request";
         aiInput.status = values.status || "updated";
-    }
-
-
-    if (values.messageType === "general") {
-        setGeneratedMessage(values.customMessage || "Please write a custom message for general notifications.");
-        return;
     }
     
     setIsGenerating(true);
     try {
       const result = await generateNotificationMessage(aiInput);
       setGeneratedMessage(result.notificationMessage);
-      form.setValue("customMessage", result.notificationMessage); // Populate textarea
+      form.setValue("customMessage", result.notificationMessage, { shouldValidate: true });
       toast({ title: "Message Generated", description: "AI has drafted a notification message." });
     } catch (error) {
       console.error("Error generating message:", error);
-      toast({ title: "Generation Failed", description: "Could not generate message.", variant: "destructive" });
+      toast({ title: "Generation Failed", description: (error as Error).message || "Could not generate message.", variant: "destructive" });
     } finally {
       setIsGenerating(false);
     }
   };
 
-  async function onSubmit(data: NotificationFormValues) {
-    setIsSending(true);
-    const messageToSend = data.customMessage || generatedMessage;
-    if (!messageToSend) {
-        toast({title: "Error", description: "Message cannot be empty.", variant: "destructive"});
-        setIsSending(false);
-        return;
-    }
-
-    console.log("Sending Notification:", {
-      type: data.messageType,
-      target: data.targetUser || "Default Target",
-      subject: data.customSubject,
-      message: messageToSend,
-    });
-    // TODO: Implement actual notification sending logic (e.g., via Supabase Edge Functions, email service)
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    toast({
-      title: "Notification Sent!",
-      description: `Message has been dispatched.`,
-    });
-    form.reset();
-    setGeneratedMessage("");
-    setIsSending(false);
+  // This internal submit now calls the onSend prop
+  async function internalFormSubmit(data: NotificationFormValues) {
+    await onSend(data); 
+    // Resetting the form should be handled by the parent if mutation is successful, or not at all.
+    // form.reset();
+    // setGeneratedMessage("");
   }
 
   return (
@@ -132,7 +116,7 @@ export function NotificationSender({ users }: NotificationSenderProps) {
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(internalFormSubmit)} className="space-y-6">
             <div className="grid md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -140,7 +124,7 @@ export function NotificationSender({ users }: NotificationSenderProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Message Type</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isGenerating || isSending}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                       </FormControl>
@@ -160,23 +144,27 @@ export function NotificationSender({ users }: NotificationSenderProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Target Audience</FormLabel>
-                    <Select onValueChange={(value) => {
-                        field.onChange(value);
-                        if (value && value !== "all_pending_contribution" && value !== "all_users") {
-                            const user = users.find(u => u.id === value);
-                            form.setValue("userName", user?.full_name);
-                        } else {
-                            form.setValue("userName", "");
-                        }
-                    }} defaultValue={field.value}>
+                    <Select 
+                      onValueChange={(value) => {
+                          field.onChange(value);
+                          if (value && value !== "all_pending_contribution" && value !== "all_users") {
+                              const user = users.find(u => u.id === value);
+                              form.setValue("userName", user?.full_name);
+                          } else {
+                              form.setValue("userName", "");
+                          }
+                      }} 
+                      defaultValue={field.value}
+                      disabled={isGenerating || isSending}
+                    >
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="Select target" /></SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="all_users">All Users</SelectItem>
-                        <SelectItem value="all_pending_contribution">Users with Pending Contributions</SelectItem>
+                        <SelectItem value="all_users">All Approved Users</SelectItem>
+                        <SelectItem value="all_pending_contribution" disabled>Users with Pending Contributions (Soon)</SelectItem>
                         {users.filter(u=>u.is_approved).map(user => (
-                          <SelectItem key={user.id} value={user.id}>{user.full_name}</SelectItem>
+                          <SelectItem key={user.id} value={user.id}>{user.full_name} ({user.email})</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -194,7 +182,7 @@ export function NotificationSender({ users }: NotificationSenderProps) {
                         render={({ field }) => (
                         <FormItem>
                             <FormLabel>Emergency Request Summary (for AI)</FormLabel>
-                            <FormControl><Input placeholder="e.g., John Doe's request for medical bills" {...field} /></FormControl>
+                            <FormControl><Input placeholder="e.g., John Doe's request for medical bills" {...field} disabled={isGenerating || isSending} /></FormControl>
                             <FormMessage />
                         </FormItem>
                         )}
@@ -205,7 +193,7 @@ export function NotificationSender({ users }: NotificationSenderProps) {
                         render={({ field }) => (
                         <FormItem>
                             <FormLabel>Request Status (for AI)</FormLabel>
-                             <Select onValueChange={field.onChange} defaultValue={field.value}>
+                             <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isGenerating || isSending}>
                                 <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                                 <SelectContent>
                                     <SelectItem value="approved">Approved</SelectItem>
@@ -227,7 +215,7 @@ export function NotificationSender({ users }: NotificationSenderProps) {
                     render={({ field }) => (
                     <FormItem>
                         <FormLabel>Subject (Optional)</FormLabel>
-                        <FormControl><Input placeholder="e.g., Important Family Meeting" {...field} /></FormControl>
+                        <FormControl><Input placeholder="e.g., Important Family Meeting" {...field} disabled={isGenerating || isSending} /></FormControl>
                         <FormMessage />
                     </FormItem>
                     )}
@@ -235,7 +223,7 @@ export function NotificationSender({ users }: NotificationSenderProps) {
             )}
 
             {selectedMessageType !== 'general' && (
-                <Button type="button" variant="outline" onClick={handleGenerateMessage} disabled={isGenerating} className="w-full md:w-auto">
+                <Button type="button" variant="outline" onClick={handleGenerateMessage} disabled={isGenerating || isSending} className="w-full md:w-auto">
                 {isGenerating ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -256,11 +244,9 @@ export function NotificationSender({ users }: NotificationSenderProps) {
                       placeholder={ selectedMessageType === 'general' ? "Write your announcement here..." : "AI-generated message will appear here, or write your own."}
                       className="min-h-[150px]"
                       {...field}
-                      value={generatedMessage || field.value || ""}
-                      onChange={(e) => {
-                          field.onChange(e);
-                          setGeneratedMessage(e.target.value);
-                      }}
+                      // Value is controlled by react-hook-form
+                      // setGeneratedMessage will update the form value for customMessage
+                      disabled={isGenerating || isSending}
                     />
                   </FormControl>
                   <FormMessage />
@@ -268,7 +254,7 @@ export function NotificationSender({ users }: NotificationSenderProps) {
               )}
             />
 
-            <Button type="submit" className="w-full md:w-auto" disabled={isSending || (!form.getValues().customMessage && !generatedMessage)}>
+            <Button type="submit" className="w-full md:w-auto" disabled={isGenerating || isSending}>
               {isSending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
