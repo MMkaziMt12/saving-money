@@ -18,11 +18,12 @@ import { useRouter } from "next/navigation";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-import { format, parseISO } from "date-fns";
+import { format, isPast, parseISO } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { EmergencyRequest } from "@/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import React, { useMemo } from "react";
 
 
 const emergencyRequestSchema = z.object({
@@ -52,6 +53,43 @@ async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefine
   return data || [];
 }
 
+const RequestTableDisplay = ({ requests }: { requests: EmergencyRequest[] }) => {
+  if (!requests || requests.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Amount</TableHead>
+            <TableHead>Reason</TableHead>
+            <TableHead>Requested On</TableHead>
+            <TableHead>Expected Return</TableHead>
+            <TableHead>Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {requests.map(req => (
+            <TableRow key={req.id}>
+              <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
+              <TableCell className="max-w-xs truncate text-ellipsis whitespace-nowrap overflow-hidden">{req.reason}</TableCell>
+              <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy")}</TableCell>
+              <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : "N/A"}</TableCell>
+              <TableCell>
+                  <Badge
+                      variant={req.status === 'approved' ? (req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'destructive' : 'success') : req.status === 'pending' ? 'secondary' : 'outline'}
+                      className="capitalize"
+                  >
+                      {req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'Overdue' : req.status}
+                  </Badge>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
+
 
 export default function EmergencyRequestPage() {
   const { toast } = useToast();
@@ -64,34 +102,48 @@ export default function EmergencyRequestPage() {
     defaultValues: {
       amount: 0,
       reason: "",
-      return_date: null, 
+      return_date: undefined,
     },
   });
 
-  // Use the specific fetch function for this page's needs
   const { data: existingRequests, isLoading: isLoadingExistingRequests } = useQuery<EmergencyRequest[], Error>({
     queryKey: ["currentUserActiveEmergencyRequests", user?.id],
     queryFn: () => fetchCurrentUserActiveEmergencyRequests(user?.id),
     enabled: !!user,
   });
 
+  const pendingRequests = useMemo(() =>
+    existingRequests?.filter(req => req.status === 'pending') || [],
+    [existingRequests]
+  );
+
+  const approvedOutstandingRequests = useMemo(() =>
+    existingRequests?.filter(req => req.status === 'approved' && !req.is_fully_repaid) || [],
+    [existingRequests]
+  );
+
+  const totalOutstandingAmount = useMemo(() =>
+    approvedOutstandingRequests.reduce((sum, req) => sum + (req.amount_requested - (req.amount_returned || 0)), 0),
+    [approvedOutstandingRequests]
+  );
+
   async function onSubmit(data: EmergencyRequestFormValues) {
     if (!user || !profile) {
       toast({ title: "Error", description: "You must be logged in to submit a request.", variant: "destructive" });
       return;
     }
-    
+
     const { error } = await supabase.from('emergency_requests').insert({
       user_id: user.id,
       amount_requested: data.amount,
       reason: data.reason,
-      return_date: data.return_date.toISOString(), 
-      status: 'pending', 
+      return_date: data.return_date.toISOString(),
+      status: 'pending',
       requested_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
     });
-    
+
     if (error) {
       toast({
         title: "Submission Failed",
@@ -104,13 +156,12 @@ export default function EmergencyRequestPage() {
         description: `Your request for ${CURRENCY_SYMBOL}${data.amount} has been submitted for approval.`,
         variant: "default",
       });
-      form.reset();
-      // Invalidate queries for this user's active requests and also the global list on the dashboard
+      form.reset({ amount: 0, reason: "", return_date: undefined });
       queryClient.invalidateQueries({ queryKey: ["currentUserActiveEmergencyRequests", user?.id] });
-      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] }); 
+      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] });
     }
   }
-  
+
   if (authLoading) {
     return (
       <div className="flex items-center justify-center h-full py-10">
@@ -120,63 +171,51 @@ export default function EmergencyRequestPage() {
   }
 
   if (!user || !profile) {
-     router.replace("/login"); 
+     router.replace("/login");
      return null;
   }
 
-  const totalOutstandingAmount = existingRequests
-    ?.filter(req => req.status === 'approved' && !req.is_fully_repaid) 
-    .reduce((sum, req) => sum + (req.amount_requested - (req.amount_returned || 0)), 0) || 0;
+  const showSummaryCard = !isLoadingExistingRequests && (pendingRequests.length > 0 || approvedOutstandingRequests.length > 0);
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0 max-w-3xl space-y-8">
-      {isLoadingExistingRequests ? (
+      {isLoadingExistingRequests && !existingRequests ? (
         <Card className="shadow-md">
-          <CardHeader><CardTitle>Loading Your Active Requests...</CardTitle></CardHeader>
-          <CardContent><Loader2 className="h-6 w-6 animate-spin text-primary" /></CardContent>
+          <CardHeader><CardTitle className="text-lg">Loading Your Active Requests...</CardTitle></CardHeader>
+          <CardContent className="flex justify-center py-6"><Loader2 className="h-8 w-8 animate-spin text-primary" /></CardContent>
         </Card>
-      ) : existingRequests && existingRequests.length > 0 && (
+      ) : showSummaryCard ? (
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle className="text-xl flex items-center gap-2"><Info className="text-primary"/>Your Active Emergency Requests</CardTitle>
+            <CardTitle className="text-xl flex items-center gap-2"><Info className="text-primary h-5 w-5"/>Your Active Emergency Requests</CardTitle>
             <CardDescription>
-              You have {existingRequests.length} pending or approved request(s). 
-              Total outstanding from approved requests: <span className="font-semibold text-primary">{CURRENCY_SYMBOL}{totalOutstandingAmount.toLocaleString()}</span>
+              Review your pending and approved outstanding emergency fund requests.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Requested On</TableHead>
-                  <TableHead>Expected Return</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {existingRequests.map(req => (
-                  <TableRow key={req.id}>
-                    <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
-                    <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
-                    <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy")}</TableCell>
-                    <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : "N/A"}</TableCell>
-                    <TableCell>
-                        <Badge 
-                            variant={req.status === 'approved' ? (req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'destructive' : 'success') : req.status === 'pending' ? 'secondary' : 'outline'} 
-                            className="capitalize"
-                        >
-                            {req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'Overdue' : req.status}
-                        </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <CardContent className="space-y-4">
+            {pendingRequests.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold mb-2 text-foreground/90">Pending Requests ({pendingRequests.length})</h3>
+                <RequestTableDisplay requests={pendingRequests} />
+              </div>
+            )}
+            {pendingRequests.length > 0 && approvedOutstandingRequests.length > 0 && (
+              <hr className="my-6 border-border" />
+            )}
+            {approvedOutstandingRequests.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold mb-2 text-foreground/90">Approved & Outstanding Requests ({approvedOutstandingRequests.length})</h3>
+                <RequestTableDisplay requests={approvedOutstandingRequests} />
+                {totalOutstandingAmount > 0 && (
+                    <p className="mt-4 text-sm font-medium text-muted-foreground">
+                        Total outstanding from approved requests: <span className="font-semibold text-primary">{CURRENCY_SYMBOL}{totalOutstandingAmount.toLocaleString()}</span>
+                    </p>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
       <Card className="shadow-xl">
         <CardHeader>
@@ -257,7 +296,7 @@ export default function EmergencyRequestPage() {
                           selected={field.value || undefined}
                           onSelect={field.onChange}
                           disabled={(date) =>
-                            date < new Date(new Date().setDate(new Date().getDate() -1)) 
+                            date < new Date(new Date().setDate(new Date().getDate() -1))
                           }
                           initialFocus
                         />
@@ -284,3 +323,4 @@ export default function EmergencyRequestPage() {
     </div>
   );
 }
+
