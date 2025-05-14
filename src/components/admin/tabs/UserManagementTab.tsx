@@ -38,6 +38,7 @@ export function UserManagementTab() {
   }, [fetchUsers]);
 
   const handleApproveUser = async (userId: string) => {
+    console.log(userId,"apprvode useriD")
     const { error } = await supabase.from('profiles').update({ is_approved: true, updated_at: new Date().toISOString() }).eq('id', userId);
     if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
     else {
