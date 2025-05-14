@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Profile } from "@/types";
@@ -34,7 +35,6 @@ interface UserManagementTableProps {
   onMakeAdmin?: (userId: string) => void;
   onRevokeAdmin?: (userId: string) => void;
   onDeleteUser?: (userId: string) => void;
-  // onAddNewUser was removed
 }
 
 export function UserManagementTable({ 
@@ -49,12 +49,10 @@ export function UserManagementTable({
 
   const handleApprove = (userId: string, userName: string) => {
     onApproveUser(userId);
-    // Toast is handled by parent component after Supabase call
   };
 
   const handleReject = (userId: string, userName: string) => { 
     onRejectUser(userId);
-    // Toast is handled by parent component
   };
   
   const handleMakeAdmin = (userId: string, userName: string) => {
@@ -77,14 +75,13 @@ export function UserManagementTable({
 
   return (
     <>
-      {/* "Add New User" Dialog and Trigger Button Removed */}
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Full Name</TableHead>
             <TableHead>Email</TableHead>
             <TableHead>Phone</TableHead>
-            <TableHead>Joined At</TableHead>
+            <TableHead>Created At</TableHead> 
             <TableHead>Role</TableHead>
             <TableHead className="text-center">Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -103,7 +100,7 @@ export function UserManagementTable({
                 <TableCell className="font-medium">{user.full_name || 'N/A'}</TableCell>
                 <TableCell>{user.email || 'N/A'}</TableCell>
                 <TableCell>{user.phone || 'N/A'}</TableCell>
-                <TableCell>{user.joined_at ? format(parseISO(user.joined_at), "MMM dd, yyyy") : 'N/A'}</TableCell>
+                <TableCell>{user.created_at ? format(parseISO(user.created_at), "MMM dd, yyyy") : 'N/A'}</TableCell>
                 <TableCell>
                   <Badge variant={user.role === 'admin' ? 'destructive' : 'secondary'} className="capitalize">{user.role}</Badge>
                 </TableCell>
@@ -133,7 +130,7 @@ export function UserManagementTable({
                           <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" /> Approve User
                         </DropdownMenuItem>
                       )}
-                      {user.is_approved && (
+                      {user.is_approved && user.role !== 'admin' && ( // Admins generally shouldn't be "unapproved" this way
                         <DropdownMenuItem onClick={() => handleReject(user.id, user.full_name || user.email || user.id)}>
                           <XCircle className="mr-2 h-4 w-4 text-orange-500" /> Unapprove User
                         </DropdownMenuItem>
@@ -144,12 +141,12 @@ export function UserManagementTable({
                           <ShieldCheck className="mr-2 h-4 w-4 text-blue-500" /> Make Admin
                         </DropdownMenuItem>
                       )}
-                      {user.role === 'admin' && onRevokeAdmin && ( // Ensure not revoking own admin status if it's the only admin, logic for that is outside this component
+                      {user.role === 'admin' && onRevokeAdmin && ( 
                         <DropdownMenuItem onClick={() => handleRevokeAdmin(user.id, user.full_name || user.email || user.id)} className="text-orange-600 focus:text-orange-600 focus:bg-orange-50">
                           <ShieldX className="mr-2 h-4 w-4" /> Revoke Admin
                         </DropdownMenuItem>
                       )}
-                      {onDeleteUser && (
+                      {onDeleteUser && user.role !== 'admin' && ( // Prevent easy deletion of admin accounts from this menu
                         <>
                           <DropdownMenuSeparator />
                           <AlertDialog>
