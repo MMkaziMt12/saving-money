@@ -1,7 +1,7 @@
--- Enable the pgvector extension if not already enabled (optional, for future use)
-CREATE EXTENSION IF NOT EXISTS vector;
+-- Enable the pgvector extension if not already enabled
+-- create extension if not exists vector;
 
--- Function to safely check if a user is an admin (SECURITY DEFINER to bypass RLS for this specific check)
+-- Function to check if a user is an admin (SECURITY DEFINER for safe RLS checks)
 CREATE OR REPLACE FUNCTION public.is_admin(user_id_to_check UUID)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -17,22 +17,21 @@ GRANT EXECUTE ON FUNCTION public.is_admin(UUID) TO authenticated;
 
 
 -- Table for User Profiles
-DROP TABLE IF EXISTS public.profiles CASCADE; -- Ensure clean slate if re-running
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   full_name TEXT,
-  email TEXT UNIQUE, -- Make email unique at DB level
+  email TEXT UNIQUE, -- Added unique constraint for email
   phone TEXT,
   avatar_url TEXT,
-  role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')), -- Added CHECK constraint for role
   is_approved BOOLEAN DEFAULT FALSE,
   is_active BOOLEAN DEFAULT TRUE,
   last_login TIMESTAMP WITH TIME ZONE
 );
 
--- Trigger function to create a profile entry when a new user signs up in auth.users
+-- Trigger function to automatically create a profile when a new user signs up in auth.users
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -47,222 +46,247 @@ BEGIN
   );
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER; -- SECURITY DEFINER is crucial here
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- SECURITY DEFINER is important for triggers modifying other tables
 
--- Drop existing trigger if it exists, then create the new one
+-- Drop existing trigger if it exists to avoid conflicts
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+-- Create the trigger
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- RLS Policies for Profiles
+
+-- RLS Policies for Profiles table
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
+-- Drop old policies to ensure clean application
 DROP POLICY IF EXISTS "Profiles are viewable by users who created them." ON public.profiles;
-CREATE POLICY "Profiles are viewable by users who created them."
-  ON public.profiles FOR SELECT
-  TO authenticated
-  USING (auth.uid() = id);
-
-DROP POLICY IF EXISTS "Profiles are updateable by users who created them." ON public.profiles;
-CREATE POLICY "Profiles are updateable by users who created them."
-  ON public.profiles FOR UPDATE
-  TO authenticated
-  USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id);
-
+DROP POLICY IF EXISTS "Users can update their own profile data" ON public.profiles;
 DROP POLICY IF EXISTS "Admins can manage all profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Authenticated users can view all profiles for joins" ON public.profiles;
+DROP POLICY IF EXISTS "Authenticated users can view basic public profile info" ON public.profiles;
+
+
+-- 1. Authenticated users can view all profiles (needed for joins to display names, etc.)
+CREATE POLICY "Authenticated users can view all profiles"
+ON public.profiles
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- 2. Users can update their OWN profile.
+CREATE POLICY "Users can update their own profile data"
+ON public.profiles
+FOR UPDATE
+TO authenticated
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+-- 3. Admins can perform ANY action on ANY profile.
 CREATE POLICY "Admins can manage all profiles"
-  ON public.profiles FOR ALL -- Covers SELECT, INSERT, UPDATE, DELETE
-  TO authenticated
-  USING (is_admin(auth.uid()))
-  WITH CHECK (is_admin(auth.uid()));
+ON public.profiles
+FOR ALL -- Covers SELECT, INSERT, UPDATE, DELETE
+TO authenticated
+USING (is_admin(auth.uid()))
+WITH CHECK (is_admin(auth.uid()));
 
 
 -- Table for Monthly Contributions
-DROP TABLE IF EXISTS public.monthly_contributions CASCADE;
-CREATE TABLE public.monthly_contributions (
+CREATE TABLE IF NOT EXISTS public.monthly_contributions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-  amount NUMERIC NOT NULL,
+  amount NUMERIC NOT NULL CHECK (amount > 0),
   payment_date TIMESTAMP WITH TIME ZONE NOT NULL,
   month INTEGER NOT NULL CHECK (month >= 1 AND month <= 12),
-  year INTEGER NOT NULL,
+  year INTEGER NOT NULL CHECK (year >= 2000 AND year <= date_part('year', now()) + 5),
   recorded_by_admin_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- RLS Policies for Monthly Contributions
 ALTER TABLE public.monthly_contributions ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Users can view their own monthly contributions." ON public.monthly_contributions;
-CREATE POLICY "Users can view their own monthly contributions."
-  ON public.monthly_contributions FOR SELECT
-  TO authenticated
-  USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can only view their own monthly contributions." ON public.monthly_contributions;
+DROP POLICY IF EXISTS "Admins can manage monthly contributions." ON public.monthly_contributions;
 
-DROP POLICY IF EXISTS "Admins can manage all monthly contributions." ON public.monthly_contributions;
-CREATE POLICY "Admins can manage all monthly contributions."
-  ON public.monthly_contributions FOR ALL
-  TO authenticated
-  USING (is_admin(auth.uid()))
-  WITH CHECK (is_admin(auth.uid()));
+CREATE POLICY "Users can only view their own monthly contributions"
+ON public.monthly_contributions
+FOR SELECT
+TO authenticated
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Admins can manage monthly contributions"
+ON public.monthly_contributions
+FOR ALL
+TO authenticated
+USING (is_admin(auth.uid()))
+WITH CHECK (is_admin(auth.uid()));
 
 
 -- Table for Emergency Requests
-DROP TABLE IF EXISTS public.emergency_requests CASCADE;
-CREATE TABLE public.emergency_requests (
+CREATE TABLE IF NOT EXISTS public.emergency_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-  amount_requested NUMERIC NOT NULL,
+  amount_requested NUMERIC NOT NULL CHECK (amount_requested > 0),
   reason TEXT NOT NULL,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'repaid')), -- Consider 'repaid' status
-  requested_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'repaid')),
+  requested_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   reviewed_by_admin_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   reviewed_at TIMESTAMP WITH TIME ZONE,
-  return_date TIMESTAMP WITH TIME ZONE, -- User specified expected return date
-  amount_returned NUMERIC DEFAULT 0,
+  admin_notes TEXT,
+  return_date TIMESTAMP WITH TIME ZONE,
+  amount_returned NUMERIC DEFAULT 0 CHECK (amount_returned >= 0),
   last_return_date TIMESTAMP WITH TIME ZONE,
   is_fully_repaid BOOLEAN DEFAULT FALSE,
-  admin_notes TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- RLS Policies for Emergency Requests
 ALTER TABLE public.emergency_requests ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Admins can manage all emergency_requests" ON public.emergency_requests;
-CREATE POLICY "Admins can manage all emergency_requests"
-  ON public.emergency_requests FOR ALL
-  TO authenticated
-  USING (is_admin(auth.uid()))
-  WITH CHECK (is_admin(auth.uid()));
-
+-- Drop existing policies to ensure clean application
+DROP POLICY IF EXISTS "Users can only view their own emergency requests." ON public.emergency_requests;
+DROP POLICY IF EXISTS "Admins can manage all emergency requests" ON public.emergency_requests;
 DROP POLICY IF EXISTS "Authenticated users can view all emergency_requests" ON public.emergency_requests;
-CREATE POLICY "Authenticated users can view all emergency_requests"
-  ON public.emergency_requests FOR SELECT
-  TO authenticated
-  USING (true); -- Allows any authenticated user to read all rows
-
 DROP POLICY IF EXISTS "Authenticated users can insert their own emergency_requests" ON public.emergency_requests;
+DROP POLICY IF EXISTS "Admins can update emergency requests for repayments" ON public.emergency_requests;
+DROP POLICY IF EXISTS "Admins can manage all emergency_requests" ON public.emergency_requests; -- common older name
+DROP POLICY IF EXISTS "Users can create emergency requests" ON public.emergency_requests;
+
+-- 1. Admins can do anything with emergency requests
+CREATE POLICY "Admins can manage all emergency_requests"
+ON public.emergency_requests
+FOR ALL
+TO authenticated
+USING (is_admin(auth.uid()))
+WITH CHECK (is_admin(auth.uid()));
+
+-- 2. All authenticated users can VIEW all emergency requests (for the dashboard global view)
+CREATE POLICY "Authenticated users can view all emergency_requests"
+ON public.emergency_requests
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- 3. Authenticated users can INSERT only their OWN emergency requests
 CREATE POLICY "Authenticated users can insert their own emergency_requests"
-  ON public.emergency_requests FOR INSERT
-  TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+ON public.emergency_requests
+FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = user_id);
+
 
 -- Table for Notifications
-DROP TABLE IF EXISTS public.notifications CASCADE;
-CREATE TABLE public.notifications (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-  message TEXT NOT NULL,
-  type TEXT, -- e.g., 'contribution_reminder', 'emergency_update', 'general'
-  sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  channel TEXT -- e.g., 'in-app', 'email' (for future use)
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    message TEXT NOT NULL,
+    type TEXT, -- e.g., 'contribution_reminder', 'emergency_update', 'general'
+    sent_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    channel TEXT -- e.g., 'email', 'in_app', 'sms'
 );
 
 -- RLS Policies for Notifications
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Users can view their own notifications." ON public.notifications;
-CREATE POLICY "Users can view their own notifications."
-  ON public.notifications FOR SELECT
-  TO authenticated
-  USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can view their own notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Admins can send notifications (insert only)" ON public.notifications;
 
-DROP POLICY IF EXISTS "Admins can send notifications (insert)." ON public.notifications;
-CREATE POLICY "Admins can send notifications (insert)."
-  ON public.notifications FOR INSERT
-  TO authenticated
-  WITH CHECK (is_admin(auth.uid()));
+CREATE POLICY "Users can view their own notifications"
+ON public.notifications
+FOR SELECT
+TO authenticated
+USING (auth.uid() = user_id);
+
+-- Admins might need to insert notifications. Select/Update/Delete might be more restricted or via functions.
+CREATE POLICY "Admins can send notifications (insert only)"
+ON public.notifications
+FOR INSERT
+TO authenticated
+WITH CHECK (is_admin(auth.uid()));
 
 
--- Function to get NET total family savings (balance)
--- This function is SECURITY DEFINER to bypass RLS for summing all contributions and requests.
+-- Function to get total family savings (Net Balance)
 CREATE OR REPLACE FUNCTION public.get_total_family_savings()
 RETURNS NUMERIC AS $$
 DECLARE
   total_contributions NUMERIC;
   total_disbursed NUMERIC;
-  total_repaid NUMERIC;
+  total_returned NUMERIC;
 BEGIN
-  SELECT COALESCE(SUM(amount), 0) INTO total_contributions FROM public.monthly_contributions;
+  -- Calculate total contributions
+  SELECT COALESCE(SUM(amount), 0)
+  INTO total_contributions
+  FROM public.monthly_contributions;
 
-  SELECT COALESCE(SUM(amount_requested), 0) INTO total_disbursed
+  -- Calculate total amount requested for approved emergency requests
+  SELECT COALESCE(SUM(amount_requested), 0)
+  INTO total_disbursed
   FROM public.emergency_requests
-  WHERE status = 'approved'; -- Only count approved requests as disbursed
+  WHERE status = 'approved';
 
-  SELECT COALESCE(SUM(amount_returned), 0) INTO total_repaid
+  -- Calculate total amount returned for approved emergency requests
+  SELECT COALESCE(SUM(COALESCE(amount_returned, 0)), 0) -- Ensure amount_returned is treated as 0 if NULL
+  INTO total_returned
   FROM public.emergency_requests
-  WHERE status = 'approved'; -- Only count repayments against approved requests
+  WHERE status = 'approved'; -- Or consider all requests where amount_returned > 0
 
-  RETURN total_contributions - total_disbursed + total_repaid;
+  RETURN total_contributions - total_disbursed + total_returned;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Grant execute permission to authenticated users so they can call this function
+-- Grant execute permission on get_total_family_savings to authenticated users
 GRANT EXECUTE ON FUNCTION public.get_total_family_savings() TO authenticated;
 
 
--- RLS for Supabase Storage bucket: 'profile-pic'
--- Bucket: profile-pic
--- Make sure this bucket exists in your Supabase Storage.
+-- Storage RLS Policies for 'profile-pic' bucket
+-- Ensure the 'profile-pic' bucket exists in your Supabase Storage.
 
--- Policy: Allow users to view their own profile picture.
-DROP POLICY IF EXISTS "User can view own profile picture" ON storage.objects;
-CREATE POLICY "User can view own profile picture"
-  FOR SELECT
-  ON storage.objects
-  USING (bucket_id = 'profile-pic' AND auth.uid()::text = (storage.foldername(name))[1]);
+-- Allow authenticated users to view any file in 'profile-pic' (common for public avatars)
+-- If you want avatars to be private, you'd restrict this further based on user_id in path.
+CREATE POLICY "Authenticated users can view profile pictures"
+ON storage.objects FOR SELECT
+TO authenticated
+USING (bucket_id = 'profile-pic');
 
--- Policy: Allow users to upload/insert their profile picture.
--- File path must start with their user_id.
-DROP POLICY IF EXISTS "User can upload own profile picture" ON storage.objects;
-CREATE POLICY "User can upload own profile picture"
-  FOR INSERT
-  ON storage.objects
-  WITH CHECK (bucket_id = 'profile-pic' AND auth.uid()::text = (storage.foldername(name))[1]);
+-- Users can insert their own profile picture into a folder named with their user_id
+CREATE POLICY "Users can upload their own profile picture"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'profile-pic' AND
+  auth.uid() = (storage.foldername(name))[1]::uuid -- Assumes folder structure like: user_id/filename.ext
+);
 
--- Policy: Allow users to update their profile picture.
-DROP POLICY IF EXISTS "User can update own profile picture" ON storage.objects;
-CREATE POLICY "User can update own profile picture"
-  FOR UPDATE
-  ON storage.objects
-  USING (bucket_id = 'profile-pic' AND auth.uid()::text = (storage.foldername(name))[1]);
+-- Users can update their own profile picture
+CREATE POLICY "Users can update their own profile picture"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (
+  bucket_id = 'profile-pic' AND
+  auth.uid() = (storage.foldername(name))[1]::uuid
+);
 
--- Policy: Allow users to delete their own profile picture.
-DROP POLICY IF EXISTS "User can delete own profile picture" ON storage.objects;
-CREATE POLICY "User can delete own profile picture"
-  FOR DELETE
-  ON storage.objects
-  USING (bucket_id = 'profile-pic' AND auth.uid()::text = (storage.foldername(name))[1]);
+-- Users can delete their own profile picture
+CREATE POLICY "Users can delete their own profile picture"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'profile-pic' AND
+  auth.uid() = (storage.foldername(name))[1]::uuid
+);
 
--- Policy: Admins have full access to the profile-pic bucket.
--- This assumes the is_admin(uuid) function is defined and working.
-DROP POLICY IF EXISTS "Admin full access to profile-pic bucket" ON storage.objects;
-CREATE POLICY "Admin full access to profile-pic bucket"
-  FOR ALL -- SELECT, INSERT, UPDATE, DELETE
-  ON storage.objects
-  USING (bucket_id = 'profile-pic' AND is_admin(auth.uid()))
-  WITH CHECK (bucket_id = 'profile-pic' AND is_admin(auth.uid()));
-
--- Make bucket public if it's intended to be (usually profile pictures are)
--- If you created the bucket as private, and want image URLs to work directly, make it public.
--- Otherwise, you'll need to generate signed URLs.
--- Example: Update this based on your bucket settings.
--- If your bucket is already public, this isn't strictly necessary but good for explicitness.
--- You can manage bucket public/private status in the Supabase Dashboard.
--- For this example, assuming you want profile pictures to be publicly accessible via their URL once RLS allows access to the metadata.
--- Note: RLS still controls WHO can see the *existence* of a file and its metadata. Public bucket means if someone has the URL, they can view the file.
--- Consider if your `avatar_url` in `profiles` stores the direct public URL or if you construct it.
-
--- Function to get profile path for a user
-CREATE OR REPLACE FUNCTION get_profile_avatar_path(user_id_to_check UUID)
-RETURNS TEXT AS $$
-BEGIN
-  RETURN user_id_to_check || '/';
-END;
-$$ LANGUAGE plpgsql STABLE;
-GRANT EXECUTE ON FUNCTION get_profile_avatar_path(UUID) TO authenticated;
+-- Admins can manage all files in 'profile-pic' bucket
+CREATE POLICY "Admins can manage all profile pictures"
+ON storage.objects FOR ALL -- SELECT, INSERT, UPDATE, DELETE
+TO authenticated
+USING (
+  bucket_id = 'profile-pic' AND
+  is_admin(auth.uid()) -- Relies on your is_admin function
+)
+WITH CHECK (
+  bucket_id = 'profile-pic' AND
+  is_admin(auth.uid())
+);
