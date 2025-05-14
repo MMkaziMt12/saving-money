@@ -17,15 +17,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useState } from "react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, DollarSign, Loader2 } from "lucide-react";
+import { CalendarIcon, DollarSign, Loader2, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const addContributionSchema = z.object({
   userId: z.string().min(1, "User selection is required."),
-  amount: z.coerce.number().min(1, "Amount must be greater than 0"),
+  amount: z.coerce.number().min(1, "Amount per month must be greater than 0"),
   paymentDate: z.date({ required_error: "Payment date is required." }),
-  month: z.coerce.number().min(1).max(12),
-  year: z.coerce.number().min(new Date().getFullYear() - 10).max(new Date().getFullYear() + 1), // Expanded year range
+  month: z.coerce.number().min(1).max(12), // Starting month
+  year: z.coerce.number().min(new Date().getFullYear() - 10).max(new Date().getFullYear() + 10), // Expanded year range for future
+  numberOfMonths: z.coerce.number().min(1, "Number of months must be at least 1").max(60, "Cannot record more than 60 months at once."), // Max 5 years
 });
 
 export type AddContributionFormValues = z.infer<typeof addContributionSchema>;
@@ -33,16 +34,16 @@ export type AddContributionFormValues = z.infer<typeof addContributionSchema>;
 interface ContributionManagementProps {
   users: Profile[]; 
   contributions: MonthlyContribution[]; 
-  onAddContribution: (data: AddContributionFormValues) => Promise<void>; // Changed to Promise for async handling
+  onAddContribution: (data: AddContributionFormValues) => Promise<void>;
 }
 
 const currentYear = new Date().getFullYear();
-const years = Array.from({ length: 12 }, (_, i) => currentYear - 10 + i + 1).reverse(); // Last 10 years + current + next
+const years = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i).reverse(); // Last 10 years + current + next 10
 const months = Array.from({length: 12}, (_, i) => ({ value: i + 1, label: format(new Date(currentYear, i), "MMMM")}));
 
 
 export function ContributionManagement({ users, contributions, onAddContribution }: ContributionManagementProps) {
-  const { toast } = useToast(); // Toast will be shown by parent tab component after Supabase call
+  const { toast } = useToast(); 
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const form = useForm<AddContributionFormValues>({
@@ -53,23 +54,23 @@ export function ContributionManagement({ users, contributions, onAddContribution
       year: new Date().getFullYear(),
       paymentDate: new Date(),
       userId: "",
+      numberOfMonths: 1,
     },
   });
 
   async function onSubmit(data: AddContributionFormValues) {
     setIsSubmitting(true);
     try {
-      await onAddContribution(data); // This now calls the async handler from the parent tab
-      // Toast is handled by parent
+      await onAddContribution(data); 
       form.reset({
         amount: MONTHLY_CONTRIBUTION_AMOUNT,
         month: new Date().getMonth() + 1,
         year: new Date().getFullYear(),
         paymentDate: new Date(),
         userId: "",
+        numberOfMonths: 1,
       });
     } catch (error) {
-      // Error toast is handled by parent or onAddContribution implementation
       console.error("Submission error in ContributionManagement form:", error);
     } finally {
       setIsSubmitting(false);
@@ -81,7 +82,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
       <Card className="md:col-span-1 shadow-lg">
         <CardHeader>
           <CardTitle>Add Contribution</CardTitle>
-          <CardDescription>Manually record a contribution for a family member.</CardDescription>
+          <CardDescription>Manually record contribution(s) for a family member.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -108,11 +109,19 @@ export function ContributionManagement({ users, contributions, onAddContribution
               {form.formState.errors.userId && <p className="text-sm font-medium text-destructive">{form.formState.errors.userId.message}</p>}
             </div>
             
-            <div>
-              <Label htmlFor="amount">Amount ({CURRENCY_SYMBOL})</Label>
-              <Input id="amount" type="number" {...form.register("amount")} disabled={isSubmitting} />
-              {form.formState.errors.amount && <p className="text-sm font-medium text-destructive">{form.formState.errors.amount.message}</p>}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="amount">Amount Per Month ({CURRENCY_SYMBOL})</Label>
+                <Input id="amount" type="number" {...form.register("amount")} disabled={isSubmitting} />
+                {form.formState.errors.amount && <p className="text-sm font-medium text-destructive">{form.formState.errors.amount.message}</p>}
+              </div>
+              <div>
+                <Label htmlFor="numberOfMonths">Number of Months</Label>
+                <Input id="numberOfMonths" type="number" {...form.register("numberOfMonths")} disabled={isSubmitting} />
+                {form.formState.errors.numberOfMonths && <p className="text-sm font-medium text-destructive">{form.formState.errors.numberOfMonths.message}</p>}
+              </div>
             </div>
+
 
             <div>
               <Label htmlFor="paymentDate">Payment Date</Label>
@@ -151,7 +160,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="month">Month</Label>
+                <Label htmlFor="month">Starting Month</Label>
                 <Controller
                   name="month"
                   control={form.control}
@@ -167,7 +176,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
                  {form.formState.errors.month && <p className="text-sm font-medium text-destructive">{form.formState.errors.month.message}</p>}
               </div>
               <div>
-                <Label htmlFor="year">Year</Label>
+                <Label htmlFor="year">Starting Year</Label>
                 <Controller
                   name="year"
                   control={form.control}
@@ -185,8 +194,8 @@ export function ContributionManagement({ users, contributions, onAddContribution
             </div>
             
             <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DollarSign className="mr-2 h-4 w-4" />}
-              {isSubmitting ? "Recording..." : "Record Contribution"}
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Layers className="mr-2 h-4 w-4" />}
+              {isSubmitting ? "Recording..." : "Record Contribution(s)"}
             </Button>
           </form>
         </CardContent>
@@ -202,8 +211,8 @@ export function ContributionManagement({ users, contributions, onAddContribution
             <TableHeader>
               <TableRow>
                 <TableHead>User</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Month/Year</TableHead>
+                <TableHead>Payment Date</TableHead>
+                <TableHead>Contribution For (Month/Year)</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Recorded By</TableHead>
               </TableRow>

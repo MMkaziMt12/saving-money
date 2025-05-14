@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
-import { ArrowRight, DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { ArrowRight, DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2, Gift } from "lucide-react";
 import { APP_NAME, CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, differenceInCalendarMonths, getMonth, getYear } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { StatCard } from "@/components/shared/StatCard";
@@ -24,7 +24,8 @@ async function fetchUserContributions(userId: string): Promise<MonthlyContributi
     .from("monthly_contributions")
     .select("*")
     .eq("user_id", userId)
-    .order("payment_date", { ascending: false });
+    .order("year", { ascending: false })
+    .order("month", { ascending: false }); // Order by year then month
   if (error) throw new Error(error.message);
   return data || [];
 }
@@ -41,10 +42,9 @@ async function fetchEmergencyRequests(userId: string | null, isAdmin: boolean): 
   if (!isAdmin && userId) {
     query = query.eq("user_id", userId);
   } else if (!isAdmin && !userId) {
-    return []; // Non-admin with no user ID shouldn't fetch all
+    return []; 
   }
-  // Admins fetch all by not adding a user_id filter
-
+  
   const { data: rawRequests, error } = await query;
   if (error) throw new Error(error.message);
 
@@ -88,8 +88,8 @@ function PaymentHistoryTable({ contributions, isLoading }: { contributions: Mont
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Month/Year</TableHead>
+              <TableHead>Payment Date</TableHead>
+              <TableHead>Contribution For (Month/Year)</TableHead>
               <TableHead className="text-right">Amount</TableHead>
             </TableRow>
           </TableHeader>
@@ -134,7 +134,7 @@ function EmergencyRequestHistoryTable({ requests, isLoading, title, description,
     switch (status) {
       case "approved": return <CheckCircle2 className="h-4 w-4 text-green-500" />;
       case "rejected": return <XCircle className="h-4 w-4 text-red-500" />;
-      case "pending": return <Clock className="h-4 w-4 text-yellow-500" />; // Updated for consistency
+      case "pending": return <Clock className="h-4 w-4 text-yellow-500" />; 
       default: return null;
     }
   }
@@ -179,7 +179,7 @@ function EmergencyRequestHistoryTable({ requests, isLoading, title, description,
                 <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
                 <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
                 <TableCell className="text-center">
-                  <Badge variant={getStatusBadgeVariant(req.status)} className="capitalize flex items-center justify-center gap-1.5 min-w-[110px]"> {/* Ensure badge has enough width */}
+                  <Badge variant={getStatusBadgeVariant(req.status)} className="capitalize flex items-center justify-center gap-1.5 min-w-[110px]">
                     {getStatusIcon(req.status)}
                     {req.status}
                   </Badge>
@@ -202,13 +202,13 @@ export default function DashboardPage() {
   const { data: userContributions, isLoading: isLoadingContributions } = useQuery<MonthlyContribution[], Error>({
     queryKey: ["userContributions", user?.id],
     queryFn: () => fetchUserContributions(user!.id),
-    enabled: !!user, // Fetch for any logged-in user (admin or regular)
+    enabled: !!user, 
   });
 
   const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests } = useQuery<EmergencyRequest[], Error>({
     queryKey: ["emergencyRequests", user?.id, isAdmin],
     queryFn: () => fetchEmergencyRequests(user?.id || null, isAdmin),
-    enabled: !!user, // Fetch if user is logged in (logic inside handles admin vs user)
+    enabled: !!user, 
   });
 
   const { data: totalFamilySavings, isLoading: isLoadingTotalSavings } = useQuery<number, Error>({
@@ -234,10 +234,59 @@ export default function DashboardPage() {
   }
   
   const totalPaidByUser = userContributions?.reduce((sum, c) => sum + c.amount, 0) || 0;
-  const accountCreationDate = profile.created_at ? parseISO(profile.created_at) : new Date();
-  const monthsJoined = Math.max(1, Math.floor((Date.now() - accountCreationDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
-  const totalExpected = monthsJoined * MONTHLY_CONTRIBUTION_AMOUNT;
-  const pendingAmount = Math.max(0, totalExpected - totalPaidByUser);
+  
+  let monthsSinceJoined = 0;
+  let pendingAmountValue = 0;
+  let paymentDifferenceMonths = 0;
+  let pendingStatusDescription = "Calculating status...";
+  let pendingStatusIcon = Clock;
+  let pendingAmountColorClass = "text-orange-500";
+
+
+  if (profile.created_at) {
+    const accountCreationDate = parseISO(profile.created_at);
+    const currentDate = new Date();
+    // Calculate months from the first day of join month to first day of current month
+    const startMonthDate = new Date(getYear(accountCreationDate), getMonth(accountCreationDate), 1);
+    const endMonthDate = new Date(getYear(currentDate), getMonth(currentDate), 1);
+    monthsSinceJoined = differenceInCalendarMonths(endMonthDate, startMonthDate) + 1;
+    monthsSinceJoined = Math.max(1, monthsSinceJoined); // Ensure at least 1 month
+
+    const numberOfContributionsMade = userContributions?.length || 0;
+    paymentDifferenceMonths = numberOfContributionsMade - monthsSinceJoined;
+
+    if (paymentDifferenceMonths > 0) {
+      pendingAmountValue = 0; // No pending amount if paid in advance
+      pendingStatusDescription = `Paid in advance for ${paymentDifferenceMonths} month${paymentDifferenceMonths > 1 ? 's' : ''}!`;
+      pendingStatusIcon = Gift; // Using Gift icon for advance payments
+      pendingAmountColorClass = "text-green-500";
+    } else if (paymentDifferenceMonths < 0) {
+      const dueMonthsCount = Math.abs(paymentDifferenceMonths);
+      pendingAmountValue = dueMonthsCount * MONTHLY_CONTRIBUTION_AMOUNT;
+      pendingStatusDescription = `Pending payment for ${dueMonthsCount} month${dueMonthsCount > 1 ? 's' : ''}.`;
+      pendingStatusIcon = AlertTriangle;
+      pendingAmountColorClass = "text-orange-500";
+    } else { // paymentDifferenceMonths === 0
+      pendingAmountValue = 0; // No pending if exactly caught up or new user with 0 contributions in first month
+      // Check if current month's contribution is made
+      const currentMonthPaid = userContributions?.some(c => c.month === (getMonth(currentDate) + 1) && c.year === getYear(currentDate));
+      if (numberOfContributionsMade === 0 && monthsSinceJoined === 1) { // New user, first month
+         pendingAmountValue = MONTHLY_CONTRIBUTION_AMOUNT;
+         pendingStatusDescription = `Current month's contribution due.`;
+         pendingStatusIcon = AlertTriangle;
+         pendingAmountColorClass = "text-orange-500";
+      } else if (currentMonthPaid || numberOfContributionsMade >= monthsSinceJoined) {
+        pendingStatusDescription = "All contributions paid up to date!";
+        pendingStatusIcon = CheckCircle2;
+        pendingAmountColorClass = "text-green-500";
+      } else {
+         pendingAmountValue = MONTHLY_CONTRIBUTION_AMOUNT;
+         pendingStatusDescription = `Current month's contribution due.`;
+         pendingStatusIcon = AlertTriangle;
+         pendingAmountColorClass = "text-orange-500";
+      }
+    }
+  }
 
 
   return (
@@ -252,18 +301,17 @@ export default function DashboardPage() {
           title="My Total Contributions" 
           value={isLoadingContributions ? "Loading..." : totalPaidByUser }
           icon={DollarSign}
-          description={isLoadingContributions ? "Fetching..." : (isAdmin ? "Your personal contributions." : "You've contributed consistently.")}
+          description={isLoadingContributions ? "Fetching..." : "Total amount you've contributed."}
           iconClassName="text-green-500"
         />
         <StatCard 
-          title="Pending Amount" 
-          value={isLoadingContributions ? "Loading..." : pendingAmount}
-          icon={AlertTriangle}
-          description={isLoadingContributions ? "Fetching..." : 
-            (isAdmin ? (pendingAmount > 0 ? `Your pending contributions.` : "All caught up with your payments!") : 
-                       (pendingAmount > 0 ? `Keep up with your contributions!` : "All caught up!"))
-          }
-          iconClassName={pendingAmount > 0 ? "text-orange-500" : "text-green-500"}
+          title="Contribution Status" 
+          value={isLoadingContributions ? "Loading..." : (paymentDifferenceMonths > 0 ? `${paymentDifferenceMonths} Adv. Mths` : pendingAmountValue)}
+          icon={pendingStatusIcon}
+          valuePrefix={paymentDifferenceMonths > 0 ? "" : CURRENCY_SYMBOL}
+          description={isLoadingContributions ? "Fetching..." : pendingStatusDescription}
+          iconClassName={pendingAmountColorClass}
+          valueClassName={pendingAmountColorClass}
         />
          <StatCard 
           title="Total Family Savings" 

@@ -39,23 +39,42 @@ async function fetchAdminContributions(): Promise<MonthlyContribution[]> {
   })) || [];
 }
 
-async function addContribution(payload: { formData: AddContributionFormValues; adminProfileId: string }): Promise<MonthlyContribution> {
-  const { formData, adminProfileId } = payload;
+type AddContributionPayload = {
+  formData: AddContributionFormValues;
+  adminProfileId: string;
+};
+
+async function addContributions({ formData, adminProfileId }: AddContributionPayload): Promise<MonthlyContribution[]> {
+  const contributionsToInsert = [];
+  let currentMonth = formData.month;
+  let currentYear = formData.year;
+
+  for (let i = 0; i < formData.numberOfMonths; i++) {
+    contributionsToInsert.push({
+      user_id: formData.userId,
+      amount: formData.amount, // This is amount per month
+      payment_date: formData.paymentDate.toISOString(),
+      month: currentMonth,
+      year: currentYear,
+      recorded_by_admin_id: adminProfileId,
+    });
+
+    // Increment month and handle year overflow
+    currentMonth += 1;
+    if (currentMonth > 12) {
+      currentMonth = 1;
+      currentYear += 1;
+    }
+  }
+
   const { data, error } = await supabase
     .from('monthly_contributions')
-    .insert({
-      user_id: formData.userId,
-      amount: formData.amount,
-      payment_date: formData.paymentDate.toISOString(),
-      month: formData.month,
-      year: formData.year,
-      recorded_by_admin_id: adminProfileId,
-    })
-    .select()
-    .single();
-  if (error) throw new Error(`Error adding contribution: ${error.message}`);
-  if (!data) throw new Error("Failed to add contribution, no data returned.");
-  return data as MonthlyContribution;
+    .insert(contributionsToInsert)
+    .select();
+
+  if (error) throw new Error(`Error adding contribution(s): ${error.message}`);
+  if (!data) throw new Error("Failed to add contribution(s), no data returned.");
+  return data as MonthlyContribution[];
 }
 
 
@@ -74,17 +93,19 @@ export function ContributionManagementTab() {
     queryFn: fetchAdminContributions,
   });
 
-  const addContributionMutation = useMutation<MonthlyContribution, Error, AddContributionFormValues>({
+  const addContributionMutation = useMutation<MonthlyContribution[], Error, AddContributionFormValues>({
     mutationFn: (formData) => {
       if (!adminProfile?.id) throw new Error("Admin profile not found for recording contribution.");
-      return addContribution({ formData, adminProfileId: adminProfile.id });
+      return addContributions({ formData, adminProfileId: adminProfile.id });
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminContributions'] });
-      toast({ title: "Success", description: "Contribution recorded." });
+      queryClient.invalidateQueries({ queryKey: ['userContributions', variables.userId] }); // Invalidate specific user's contributions
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings']}); // Invalidate total savings
+      toast({ title: "Success", description: `${variables.numberOfMonths} contribution(s) recorded for ${users?.find(u => u.id === variables.userId)?.full_name}.` });
     },
     onError: (error: Error) => {
-      toast({ title: "Error adding contribution", description: error.message, variant: "destructive" });
+      toast({ title: "Error adding contribution(s)", description: error.message, variant: "destructive" });
     },
   });
 
@@ -119,3 +140,4 @@ export function ContributionManagementTab() {
     />
   );
 }
+
