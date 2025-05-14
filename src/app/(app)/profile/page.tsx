@@ -112,7 +112,7 @@ export default function ProfilePage() {
         updates.avatar_url = newAvatarUrl;
     }
 
-
+    console.log(updates,"updates profile")
     const { data, error } = await supabase
       .from('profiles')
       .update(updates)
