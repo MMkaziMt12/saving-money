@@ -1,8 +1,9 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAuth } from "@/contexts/AuthContext"; // Use new AuthContext
+import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
 import { ArrowRight, DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { APP_NAME, CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
@@ -10,48 +11,78 @@ import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { format, parseISO } from "date-fns";
-import { useState, useEffect } from "react";
-// TODO: Import Supabase client and React Query for data fetching
+import { useQuery } from "@tanstack/react-query";
+import { createClient } from "@/lib/supabase/client";
+import { StatCard } from "@/components/shared/StatCard";
 
-// Placeholder: Data will be fetched from Supabase
-const MOCK_TOTAL_FAMILY_SAVINGS = 0; // Example total, to be replaced
+const supabase = createClient();
 
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  icon: React.ElementType;
-  description?: string;
-  actionLink?: string;
-  actionText?: string;
-  color?: string;
+// Fetching functions
+async function fetchUserContributions(userId: string): Promise<MonthlyContribution[]> {
+  if (!userId) return [];
+  const { data, error } = await supabase
+    .from("monthly_contributions")
+    .select("*")
+    .eq("user_id", userId)
+    .order("payment_date", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data || [];
 }
 
-function StatCard({ title, value, icon: Icon, description, actionLink, actionText, color = "text-primary" }: StatCardProps) {
-  return (
-    <Card className="shadow-lg hover:shadow-xl transition-shadow">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className={`h-5 w-5 ${color}`} />
-      </CardHeader>
-      <CardContent>
-        <div className="text-3xl font-bold">{typeof value === 'number' && (title.toLowerCase().includes('amount') || title.toLowerCase().includes('savings') || title.toLowerCase().includes('balance')) ? `${CURRENCY_SYMBOL}${value.toLocaleString()}` : value}</div>
-        {description && <p className="text-xs text-muted-foreground pt-1">{description}</p>}
-        {actionLink && actionText && (
-          <Button asChild variant="link" className="px-0 pt-2 text-sm">
-            <Link href={actionLink}>{actionText} <ArrowRight className="ml-1 h-4 w-4" /></Link>
-          </Button>
-        )}
-      </CardContent>
-    </Card>
-  );
+async function fetchEmergencyRequests(userId: string | null, isAdmin: boolean): Promise<EmergencyRequest[]> {
+  let query = supabase
+    .from("emergency_requests")
+    .select(`
+      *,
+      profile_user:profiles!emergency_requests_user_id_fkey(full_name)
+    `)
+    .order("requested_at", { ascending: false });
+
+  if (!isAdmin && userId) {
+    query = query.eq("user_id", userId);
+  } else if (!isAdmin && !userId) {
+    return []; // Non-admin with no user ID shouldn't fetch all
+  }
+  // Admins fetch all by not adding a user_id filter
+
+  const { data: rawRequests, error } = await query;
+  if (error) throw new Error(error.message);
+
+  return rawRequests?.map(req => ({
+      ...req,
+      user_name: (req.profile_user as unknown as Profile)?.full_name || req.user_id,
+  })) || [];
 }
 
-function PaymentHistoryTable({ contributions }: { contributions: MonthlyContribution[] }) {
+async function fetchTotalFamilySavings(): Promise<number> {
+  const { data, error } = await supabase
+    .from("monthly_contributions")
+    .select("amount");
+  
+  if (error) throw new Error(error.message);
+  return data?.reduce((sum, c) => sum + c.amount, 0) || 0;
+}
+
+
+function PaymentHistoryTable({ contributions, isLoading }: { contributions: MonthlyContribution[] | undefined, isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle>My Payment History</CardTitle>
+          <CardDescription>Loading your contribution data...</CardDescription>
+        </CardHeader>
+        <CardContent className="h-48 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </CardContent>
+      </Card>
+    )
+  }
   return (
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle>My Payment History</CardTitle>
-        <CardDescription>Overview of your monthly contributions. (Data from Supabase)</CardDescription>
+        <CardDescription>Overview of your monthly contributions.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -63,16 +94,17 @@ function PaymentHistoryTable({ contributions }: { contributions: MonthlyContribu
             </TableRow>
           </TableHeader>
           <TableBody>
-            {contributions.length === 0 ? (
-              <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground h-24">No payments made yet. Fetching...</TableCell></TableRow>
-            ) : (
+            {contributions && contributions.length > 0 ? (
               contributions.map(c => (
                 <TableRow key={c.id}>
                   <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
                   <TableCell>{format(new Date(c.year, c.month -1), "MMMM yyyy")}</TableCell>
                   <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
                 </TableRow>
-              )))}
+              ))
+            ) : (
+              <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground h-24">No payments made yet.</TableCell></TableRow>
+            )}
           </TableBody>
         </Table>
       </CardContent>
@@ -81,13 +113,14 @@ function PaymentHistoryTable({ contributions }: { contributions: MonthlyContribu
 }
 
 interface EmergencyRequestHistoryTableProps {
-  requests: EmergencyRequest[];
+  requests: EmergencyRequest[] | undefined;
+  isLoading: boolean;
   title: string;
   description: string;
   showUserName?: boolean;
 }
 
-function EmergencyRequestHistoryTable({ requests, title, description, showUserName = false }: EmergencyRequestHistoryTableProps) {
+function EmergencyRequestHistoryTable({ requests, isLoading, title, description, showUserName = false }: EmergencyRequestHistoryTableProps) {
     const getStatusBadgeVariant = (status: EmergencyRequest["status"]) => {
     switch (status) {
       case "approved": return "success"; 
@@ -101,16 +134,30 @@ function EmergencyRequestHistoryTable({ requests, title, description, showUserNa
     switch (status) {
       case "approved": return <CheckCircle2 className="h-4 w-4 text-green-500" />;
       case "rejected": return <XCircle className="h-4 w-4 text-red-500" />;
-      case "pending": return <Clock className="h-4 w-4 text-yellow-500" />;
+      case "pending": return <Clock className="h-4 w-4 text-yellow-500" />; // Updated for consistency
       default: return null;
     }
+  }
+
+  if (isLoading) {
+    return (
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+          <CardDescription>Loading emergency request data...</CardDescription>
+        </CardHeader>
+        <CardContent className="h-48 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>{description} (Data from Supabase)</CardDescription>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -124,23 +171,23 @@ function EmergencyRequestHistoryTable({ requests, title, description, showUserNa
             </TableRow>
           </TableHeader>
           <TableBody>
-             {requests.length === 0 ? (
-              <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center text-muted-foreground h-24">No emergency requests found. Fetching...</TableCell></TableRow>
-            ) : (
+             {requests && requests.length > 0 ? (
             requests.map(req => (
               <TableRow key={req.id}>
-                {showUserName && <TableCell>{req.user_name || req.user_id /* Fallback to ID if name not populated */}</TableCell>}
+                {showUserName && <TableCell>{req.user_name || req.user_id}</TableCell>}
                 <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy HH:mm")}</TableCell>
                 <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
                 <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
                 <TableCell className="text-center">
-                  <Badge variant={getStatusBadgeVariant(req.status)} className="capitalize flex items-center justify-center gap-1.5 w-28">
+                  <Badge variant={getStatusBadgeVariant(req.status)} className="capitalize flex items-center justify-center gap-1.5 min-w-[110px]"> {/* Ensure badge has enough width */}
                     {getStatusIcon(req.status)}
                     {req.status}
                   </Badge>
                 </TableCell>
               </TableRow>
-            )))}
+            ))) : (
+                 <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center text-muted-foreground h-24">No emergency requests found.</TableCell></TableRow>
+            )}
           </TableBody>
         </Table>
       </CardContent>
@@ -151,26 +198,25 @@ function EmergencyRequestHistoryTable({ requests, title, description, showUserNa
 
 export default function DashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
-  const [userContributions, setUserContributions] = useState<MonthlyContribution[]>([]);
-  const [allEmergencyRequests, setAllEmergencyRequests] = useState<EmergencyRequest[]>([]);
-  const [totalFamilySavings, setTotalFamilySavings] = useState<number>(MOCK_TOTAL_FAMILY_SAVINGS);
-  const [isDataLoading, setIsDataLoading] = useState(true);
 
-  // TODO: Implement actual data fetching from Supabase using React Query
-  useEffect(() => {
-    if (!authLoading && user && profile) {
-      // Simulate data fetching
-      setTimeout(() => {
-        // Replace with actual Supabase calls
-        // e.g., fetchUserContributions(user.id).then(setUserContributions);
-        // fetchAllEmergencyRequests().then(setAllEmergencyRequests);
-        // fetchTotalFamilySavings().then(setTotalFamilySavings);
-        setIsDataLoading(false);
-      }, 1000);
-    }
-  }, [authLoading, user, profile]);
+  const { data: userContributions, isLoading: isLoadingContributions } = useQuery<MonthlyContribution[], Error>({
+    queryKey: ["userContributions", user?.id],
+    queryFn: () => fetchUserContributions(user!.id),
+    enabled: !!user && !isAdmin, // Only fetch for non-admins who are logged in
+  });
+
+  const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests } = useQuery<EmergencyRequest[], Error>({
+    queryKey: ["emergencyRequests", user?.id, isAdmin],
+    queryFn: () => fetchEmergencyRequests(user?.id || null, isAdmin),
+    enabled: !!user, // Fetch if user is logged in (logic inside handles admin vs user)
+  });
+
+  const { data: totalFamilySavings, isLoading: isLoadingTotalSavings } = useQuery<number, Error>({
+    queryKey: ["totalFamilySavings"],
+    queryFn: fetchTotalFamilySavings,
+  });
   
-  if (authLoading || isDataLoading) {
+  if (authLoading || (!profile && !authLoading) ) { // Added check for profile ensures it's loaded too
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -179,15 +225,21 @@ export default function DashboardPage() {
     );
   }
 
-  if (!user || !profile) {
-     return <p>Error: User or profile data not available.</p>; // Should be handled by layout
+  if (!user || !profile) { // Should be caught by layout, but as a safeguard
+     return (
+        <div className="flex items-center justify-center h-full py-10">
+          <p>Error: User or profile data not available. Please re-login.</p>
+        </div>
+     );
   }
   
-  const totalPaidByUser = userContributions.reduce((sum, c) => sum + c.amount, 0);
-  const joinedAtDate = profile.joined_at ? parseISO(profile.joined_at) : new Date();
-  const monthsJoined = Math.max(1, Math.floor((Date.now() - joinedAtDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
+  const totalPaidByUser = userContributions?.reduce((sum, c) => sum + c.amount, 0) || 0;
+  // Use created_at from profile if joined_at is not available or reliable
+  const accountCreationDate = profile.created_at ? parseISO(profile.created_at) : new Date();
+  const monthsJoined = Math.max(1, Math.floor((Date.now() - accountCreationDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
   const totalExpected = monthsJoined * MONTHLY_CONTRIBUTION_AMOUNT;
   const pendingAmount = Math.max(0, totalExpected - totalPaidByUser);
+
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0">
@@ -199,21 +251,21 @@ export default function DashboardPage() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard 
           title="My Total Contributions" 
-          value={totalPaidByUser} 
+          value={isLoadingContributions && !isAdmin ? "Loading..." : (isAdmin ? "N/A for Admin" : totalPaidByUser) }
           icon={DollarSign}
-          description={`You've contributed consistently.`}
-          color="text-green-500"
+          description={isAdmin ? "Admin view" : (isLoadingContributions ? "Fetching..." : "You've contributed consistently.")}
+          iconClassName="text-green-500"
         />
         <StatCard 
           title="Pending Amount" 
-          value={pendingAmount}
+          value={isLoadingContributions && !isAdmin ? "Loading..." : (isAdmin ? "N/A for Admin" : pendingAmount)}
           icon={AlertTriangle}
-          description={pendingAmount > 0 ? `Keep up with your contributions!` : "All caught up!"}
-          color={pendingAmount > 0 ? "text-orange-500" : "text-green-500"}
+          description={isAdmin ? "Admin view" : (isLoadingContributions ? "Fetching..." : (pendingAmount > 0 ? `Keep up with your contributions!` : "All caught up!"))}
+          iconClassName={pendingAmount > 0 && !isAdmin ? "text-orange-500" : "text-green-500"}
         />
          <StatCard 
           title="Total Family Savings" 
-          value={totalFamilySavings}
+          value={isLoadingTotalSavings ? "Loading..." : (totalFamilySavings ?? 0)}
           icon={BarChart3}
           description="Combined savings of all family members."
         />
@@ -240,14 +292,16 @@ export default function DashboardPage() {
       )}
 
       <div className="grid gap-8 lg:grid-cols-1">
-        {!isAdmin && <PaymentHistoryTable contributions={userContributions} />}
+        {!isAdmin && <PaymentHistoryTable contributions={userContributions} isLoading={isLoadingContributions} />}
         <EmergencyRequestHistoryTable 
-          requests={allEmergencyRequests} 
-          title={isAdmin ? "All Family Emergency Requests" : "Family Emergency Request History"}
-          description={isAdmin ? "Track the status of all emergency fund requests." : "Overview of all submitted emergency fund requests in the family."}
-          showUserName={true} 
+          requests={emergencyRequests} 
+          isLoading={isLoadingEmergencyRequests}
+          title={isAdmin ? "All Family Emergency Requests" : "My Emergency Request History"}
+          description={isAdmin ? "Track the status of all emergency fund requests." : "Overview of your submitted emergency fund requests."}
+          showUserName={isAdmin} 
         />
       </div>
     </div>
   );
 }
+
