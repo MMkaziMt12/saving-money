@@ -20,15 +20,11 @@ export interface MonthlyContribution extends Tables<'monthly_contributions'> {
 export interface EmergencyRequest extends Tables<'emergency_requests'> {
    user_name?: string; // For display, populated by joining/mapping
    reviewed_by_admin_name?: string; // For display, populated by joining/mapping
+   return_date?: string | null; // Added for expected return date
 }
 
 
-export interface Notification {
-  id: string;
-  user_id: string; 
-  message: string;
-  type: "contribution_reminder" | "emergency_update" | "approval_status" | "general";
-  sent_at: string; // ISO date string
-  channel: "email" | "whatsapp" | "app"; 
+export interface Notification extends Tables<'notifications'> { 
+  // id, user_id, message, type, sent_at, channel are from Tables<'notifications'>
+  // You can add additional client-side properties here if needed.
 }
-

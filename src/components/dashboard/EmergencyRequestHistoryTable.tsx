@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Loader2, Search, CheckCircle2, XCircle, Clock, CalendarDays } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 
@@ -58,7 +58,6 @@ export function EmergencyRequestHistoryTable({
     }
   };
 
-  // Initial loading state for the entire card
   if (isLoading && (!requests || requests.length === 0) && totalCount === 0) {
     return (
       <Card className="shadow-lg">
@@ -88,7 +87,7 @@ export function EmergencyRequestHistoryTable({
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="pl-10 w-full md:w-1/2"
-            disabled={isLoading && requests && requests.length > 0} // Disable input if loading new data but old data is shown
+            disabled={isLoading && requests && requests.length > 0}
           />
         </div>
         <div className="overflow-x-auto">
@@ -99,12 +98,13 @@ export function EmergencyRequestHistoryTable({
                 <TableHead>Requested At</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Reason</TableHead>
+                <TableHead>Expected Return</TableHead>
                 <TableHead className="text-center">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && requests && requests.length > 0 ? ( // Spinner for subsequent loads
-                 <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
+              {isLoading && requests && requests.length > 0 ? (
+                 <TableRow><TableCell colSpan={showUserName ? 6 : 5} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
               ) : requests && requests.length > 0 ? (
                 requests.map((req) => (
                   <TableRow key={req.id}>
@@ -112,6 +112,9 @@ export function EmergencyRequestHistoryTable({
                     <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy HH:mm")}</TableCell>
                     <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
                     <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
+                    <TableCell>
+                      {req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground">N/A</span>}
+                    </TableCell>
                     <TableCell className="text-center">
                       <Badge variant={getStatusBadgeVariant(req.status)} className="capitalize flex items-center justify-center gap-1.5 min-w-[110px]">
                         {getStatusIcon(req.status)}
@@ -121,7 +124,7 @@ export function EmergencyRequestHistoryTable({
                   </TableRow>
                 ))
               ) : (
-                <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={showUserName ? 6 : 5} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

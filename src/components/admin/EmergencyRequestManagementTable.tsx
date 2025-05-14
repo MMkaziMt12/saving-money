@@ -5,7 +5,7 @@ import type { EmergencyRequest, Profile } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle, MoreHorizontal, Eye } from "lucide-react";
+import { CheckCircle2, XCircle, MoreHorizontal, Eye, CalendarDays } from "lucide-react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 
 interface EmergencyRequestManagementTableProps {
   requests: EmergencyRequest[];
-  users: Profile[]; // To map user_id to user_name
+  users: Profile[]; 
   onApproveRequest: (requestId: string) => void;
   onRejectRequest: (requestId: string) => void;
 }
@@ -45,19 +45,17 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
 
   const handleApprove = (request: EmergencyRequest) => {
     onApproveRequest(request.id);
-    toast({ title: "Request Approved", description: `Emergency request from ${getUserName(request.user_id)} for ${CURRENCY_SYMBOL}${request.amount_requested} has been approved.` });
   };
 
   const handleReject = (request: EmergencyRequest) => {
     onRejectRequest(request.id);
-    toast({ title: "Request Rejected", description: `Emergency request from ${getUserName(request.user_id)} for ${CURRENCY_SYMBOL}${request.amount_requested} has been rejected.`, variant: "destructive" });
   };
   
   const getStatusBadgeVariant = (status: EmergencyRequest["status"]) => {
     switch (status) {
-      case "approved": return "default"; // Green bg
+      case "approved": return "default"; 
       case "rejected": return "destructive";
-      case "pending": return "secondary"; // Yellow/Orange bg
+      case "pending": return "secondary"; 
       default: return "outline";
     }
   };
@@ -72,6 +70,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
           <TableHead>Amount</TableHead>
           <TableHead>Reason (Excerpt)</TableHead>
           <TableHead>Requested</TableHead>
+          <TableHead>Expected Return</TableHead>
           <TableHead className="text-center">Status</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -79,8 +78,8 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
       <TableBody>
         {requests.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={6} className="h-24 text-center">
-              No pending emergency requests.
+            <TableCell colSpan={7} className="h-24 text-center">
+              No emergency requests match your criteria.
             </TableCell>
           </TableRow>
         ) : (
@@ -90,6 +89,9 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
               <TableCell>{CURRENCY_SYMBOL}{request.amount_requested.toLocaleString()}</TableCell>
               <TableCell className="max-w-xs truncate">{request.reason}</TableCell>
               <TableCell>{formatDistanceToNow(parseISO(request.requested_at), { addSuffix: true })}</TableCell>
+              <TableCell>
+                {request.return_date ? format(parseISO(request.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground text-xs">N/A</span>}
+              </TableCell>
               <TableCell className="text-center">
                 <Badge 
                   variant={getStatusBadgeVariant(request.status)} 
@@ -99,7 +101,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                 </Badge>
               </TableCell>
               <TableCell className="text-right">
-                <Dialog>
+                <Dialog onOpenChange={(isOpen) => { if(!isOpen) setSelectedRequest(null);}}>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" className="h-8 w-8 p-0">
@@ -135,25 +137,26 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                           Reviewing request from {getUserName(selectedRequest.user_id)}.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label className="text-right col-span-1">User:</Label>
-                          <span className="col-span-3 font-medium">{getUserName(selectedRequest.user_id)}</span>
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label className="text-right col-span-1">Amount:</Label>
-                          <span className="col-span-3">{CURRENCY_SYMBOL}{selectedRequest.amount_requested.toLocaleString()}</span>
-                        </div>
-                         <div className="grid grid-cols-4 items-center gap-4">
-                          <Label className="text-right col-span-1">Requested:</Label>
-                          <span className="col-span-3">{format(parseISO(selectedRequest.requested_at), "MMM dd, yyyy HH:mm")}</span>
-                        </div>
+                      <div className="grid gap-4 py-4 text-sm">
+                        <InfoRow label="User:" value={getUserName(selectedRequest.user_id)} />
+                        <InfoRow label="Amount:" value={`${CURRENCY_SYMBOL}${selectedRequest.amount_requested.toLocaleString()}`} />
+                        <InfoRow label="Requested At:" value={format(parseISO(selectedRequest.requested_at), "MMM dd, yyyy HH:mm")} />
+                        <InfoRow 
+                          label="Expected Return:" 
+                          value={selectedRequest.return_date ? format(parseISO(selectedRequest.return_date), "MMM dd, yyyy") : "Not specified"} 
+                        />
                         <div className="grid grid-cols-4 items-start gap-4">
-                          <Label className="text-right col-span-1 pt-1">Reason:</Label>
-                          <p className="col-span-3 text-sm bg-muted p-3 rounded-md max-h-40 overflow-y-auto">{selectedRequest.reason}</p>
+                          <Label className="text-right col-span-1 pt-1 text-muted-foreground">Reason:</Label>
+                          <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto">{selectedRequest.reason}</p>
+                        </div>
+                         <div className="grid grid-cols-4 items-start gap-4">
+                          <Label className="text-right col-span-1 pt-1 text-muted-foreground">Admin Notes:</Label>
+                          <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto">
+                            {selectedRequest.admin_notes || <span className="italic text-muted-foreground">No notes yet.</span>}
+                          </p>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                          <Label className="text-right col-span-1">Status:</Label>
+                          <Label className="text-right col-span-1 text-muted-foreground">Status:</Label>
                           <Badge 
                             variant={getStatusBadgeVariant(selectedRequest.status)} 
                             className={`capitalize col-span-3 w-fit ${selectedRequest.status === 'approved' ? 'bg-green-500 hover:bg-green-600 text-white' : selectedRequest.status === 'pending' ? 'bg-orange-400 hover:bg-orange-500 text-white' : '' }`}
@@ -162,10 +165,10 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                           </Badge>
                         </div>
                         {selectedRequest.reviewed_at && (
-                           <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right col-span-1">Reviewed:</Label>
-                            <span className="col-span-3">{format(parseISO(selectedRequest.reviewed_at), "MMM dd, yyyy HH:mm")} by {selectedRequest.reviewed_by_admin_name || 'Admin'}</span>
-                          </div>
+                           <InfoRow 
+                            label="Reviewed:" 
+                            value={`${format(parseISO(selectedRequest.reviewed_at), "MMM dd, yyyy HH:mm")} by ${selectedRequest.reviewed_by_admin_name || 'Admin'}`} 
+                           />
                         )}
                       </div>
                       <DialogFooter className="sm:justify-end">
@@ -192,7 +195,13 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
   );
 }
 
-// Small Label component for Dialog
 const Label = ({className, ...props}: React.ComponentPropsWithoutRef<"label">) => (
   <label className={cn("text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70", className)} {...props} />
-)
+);
+
+const InfoRow = ({ label, value }: { label: string, value: string | React.ReactNode }) => (
+  <div className="grid grid-cols-4 items-center gap-4">
+    <Label className="text-right col-span-1 text-muted-foreground">{label}</Label>
+    <span className="col-span-3 font-medium">{value}</span>
+  </div>
+);
