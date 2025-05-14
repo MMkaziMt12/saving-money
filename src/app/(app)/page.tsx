@@ -2,21 +2,19 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
-import { ArrowRight, DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2, Gift, Search as SearchIcon } from "lucide-react";
+import { DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2, Gift } from "lucide-react";
 import { APP_NAME, CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { format, parseISO, differenceInCalendarMonths, getMonth, getYear } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { StatCard } from "@/components/shared/StatCard";
-import { useState, useEffect, useMemo } from "react";
-import { useDebounce } from "@/hooks/use-debounce"; // Import useDebounce
+import { useState, useEffect } from "react";
+import { useDebounce } from "@/hooks/use-debounce";
+import { PaymentHistoryTable } from "@/components/dashboard/PaymentHistoryTable";
+import { EmergencyRequestHistoryTable } from "@/components/dashboard/EmergencyRequestHistoryTable";
 
 const supabase = createClient();
 const ITEMS_PER_PAGE = 5; // For dashboard tables
@@ -31,7 +29,7 @@ async function fetchUserContributions(
   userId: string,
   page: number,
   itemsPerPage: number,
-  searchTerm: string // This will be the debounced term
+  searchTerm: string
 ): Promise<PaginatedData<MonthlyContribution>> {
   if (!userId) return { data: [], count: 0 };
 
@@ -64,22 +62,18 @@ async function fetchEmergencyRequests(
   isAdmin: boolean,
   page: number,
   itemsPerPage: number,
-  searchTerm: string // This will be the debounced term
+  searchTerm: string
 ): Promise<PaginatedData<EmergencyRequest>> {
   const from = (page - 1) * itemsPerPage;
   const to = from + itemsPerPage - 1;
 
   let query = supabase
     .from("emergency_requests")
-    .select(`
-      *,
-      profile_user:profiles!emergency_requests_user_id_fkey(full_name)
-    `, { count: "exact" });
+    .select("*, profile_user:profiles!emergency_requests_user_id_fkey(full_name)", { count: "exact" });
 
   if (!isAdmin && userId) {
     query = query.eq("user_id", userId);
   } else if (!isAdmin && !userId) {
-    // If not admin and no userId, return empty. This case should ideally be prevented by UI logic.
     return { data: [], count: 0 };
   }
   
@@ -88,7 +82,11 @@ async function fetchEmergencyRequests(
     if (isAdmin) { // Only search by user name if admin is viewing all requests
         orConditions.push(`profile_user:full_name.ilike.%${searchTerm}%`);
     }
-    query = query.or(orConditions.join(','));
+    // Correct usage of .or() for Supabase client
+     // For .or with foreign table, it's a bit tricky.
+    // We might need to adjust if direct filtering on foreign table name in .or() isn't supported as expected.
+    // A simpler search for now:
+    query = query.or(orConditions.join(','), { foreignTable: 'profiles' });
   }
   
   query = query.order("requested_at", { ascending: false }).range(from, to);
@@ -123,263 +121,17 @@ async function fetchTotalFamilySavings(): Promise<number> {
 }
 
 
-function PaymentHistoryTable({ 
-  contributions, 
-  isLoading, 
-  totalCount,
-  currentPage,
-  onPageChange,
-  searchTerm,
-  onSearchChange,
-  itemsPerPage
-}: { 
-  contributions: MonthlyContribution[] | undefined, 
-  isLoading: boolean,
-  totalCount: number,
-  currentPage: number,
-  onPageChange: (newPage: number) => void,
-  searchTerm: string,
-  onSearchChange: (term: string) => void,
-  itemsPerPage: number
-}) {
-  const totalPages = Math.ceil(totalCount / itemsPerPage);
-
-  if (isLoading && (!contributions || contributions.length === 0) && totalCount === 0) { // Show loader only if no data yet AND total is 0 (initial load)
-    return (
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle>My Payment History</CardTitle>
-          <CardDescription>Loading your contribution data...</CardDescription>
-        </CardHeader>
-        <CardContent className="h-48 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </CardContent>
-      </Card>
-    )
-  }
-  return (
-    <Card className="shadow-lg">
-      <CardHeader>
-        <CardTitle>My Payment History</CardTitle>
-        <CardDescription>Overview of your monthly contributions. Search by year.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="relative">
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <Input 
-              type="search"
-              placeholder="Search by year (e.g., 2023)..."
-              value={searchTerm}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="pl-10 w-full md:w-1/2"
-            />
-        </div>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Payment Date</TableHead>
-                <TableHead>Contribution For (Month/Year)</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={3} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>}
-              {!isLoading && contributions && contributions.length > 0 ? (
-                contributions.map(c => (
-                  <TableRow key={c.id}>
-                    <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
-                    <TableCell>{format(new Date(c.year, c.month -1), "MMMM yyyy")}</TableCell>
-                    <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                !isLoading && <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No payments made yet.' : 'No results for your search.'}</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-end space-x-2 pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1 || isLoading}
-            >
-              Previous
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              Page {currentPage} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage === totalPages || isLoading}
-            >
-              Next
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-interface EmergencyRequestHistoryTableProps {
-  requests: EmergencyRequest[] | undefined;
-  isLoading: boolean;
-  title: string;
-  description: string;
-  showUserName?: boolean;
-  totalCount: number;
-  currentPage: number;
-  onPageChange: (newPage: number) => void;
-  searchTerm: string;
-  onSearchChange: (term: string) => void;
-  itemsPerPage: number;
-}
-
-function EmergencyRequestHistoryTable({ 
-  requests, 
-  isLoading, 
-  title, 
-  description, 
-  showUserName = false,
-  totalCount,
-  currentPage,
-  onPageChange,
-  searchTerm,
-  onSearchChange,
-  itemsPerPage 
-}: EmergencyRequestHistoryTableProps) {
-    const totalPages = Math.ceil(totalCount / itemsPerPage);
-    const getStatusBadgeVariant = (status: EmergencyRequest["status"]) => {
-    switch (status) {
-      case "approved": return "success";
-      case "rejected": return "destructive";
-      case "pending": return "secondary";
-      default: return "outline";
-    }
-  };
-
-  const getStatusIcon = (status: EmergencyRequest["status"]) => {
-    switch (status) {
-      case "approved": return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-      case "rejected": return <XCircle className="h-4 w-4 text-red-500" />;
-      case "pending": return <Clock className="h-4 w-4 text-yellow-500" />;
-      default: return null;
-    }
-  }
-
-  if (isLoading && (!requests || requests.length === 0) && totalCount === 0) {
-    return (
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>Loading emergency request data...</CardDescription>
-        </CardHeader>
-        <CardContent className="h-48 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="shadow-lg">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}. Search by reason, status {showUserName ? ', or user name' : ''}.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-         <div className="relative">
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <Input 
-              type="search"
-              placeholder="Search requests..."
-              value={searchTerm}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="pl-10 w-full md:w-1/2"
-            />
-        </div>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {showUserName && <TableHead>Requested By</TableHead>}
-                <TableHead>Requested At</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead className="text-center">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>}
-              {!isLoading && requests && requests.length > 0 ? (
-              requests.map(req => (
-                <TableRow key={req.id}>
-                  {showUserName && <TableCell>{req.user_name || req.user_id}</TableCell>}
-                  <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy HH:mm")}</TableCell>
-                  <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
-                  <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant={getStatusBadgeVariant(req.status)} className="capitalize flex items-center justify-center gap-1.5 min-w-[110px]">
-                      {getStatusIcon(req.status)}
-                      {req.status}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))) : (
-                  !isLoading && <TableRow><TableCell colSpan={showUserName ? 5 : 4} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-         {totalPages > 1 && (
-          <div className="flex items-center justify-end space-x-2 pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1 || isLoading}
-            >
-              Previous
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              Page {currentPage} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage === totalPages || isLoading}
-            >
-              Next
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-
 export default function DashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
   const queryClient = useQueryClient(); 
 
-  // State for Contributions Table
   const [currentPageContributions, setCurrentPageContributions] = useState(1);
   const [searchTermContributions, setSearchTermContributions] = useState("");
   const debouncedSearchTermContributions = useDebounce(searchTermContributions, 500);
   
-  // State for Emergency Requests Table
   const [currentPageEmergencyRequests, setCurrentPageEmergencyRequests] = useState(1);
   const [searchTermEmergencyRequests, setSearchTermEmergencyRequests] = useState("");
   const debouncedSearchTermEmergencyRequests = useDebounce(searchTermEmergencyRequests, 500);
-
 
   const { data: userContributionsData, isLoading: isLoadingContributions } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["userContributions", user?.id, currentPageContributions, debouncedSearchTermContributions],
@@ -410,7 +162,6 @@ export default function DashboardPage() {
     setCurrentPageEmergencyRequests(1); 
   };
 
-  // Effect to prefetch next page data for contributions
   useEffect(() => {
     if (userContributionsData && currentPageContributions < Math.ceil((userContributionsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
@@ -420,7 +171,6 @@ export default function DashboardPage() {
     }
   }, [userContributionsData, currentPageContributions, debouncedSearchTermContributions, user?.id, queryClient]);
 
-  // Effect to prefetch next page data for emergency requests
   useEffect(() => {
     if (emergencyRequestsData && currentPageEmergencyRequests < Math.ceil((emergencyRequestsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
@@ -430,8 +180,13 @@ export default function DashboardPage() {
     }
   }, [emergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, user?.id, isAdmin, queryClient]);
 
+  const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
+    queryKey: ["allUserContributionsForTotal", user?.id],
+    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), 
+    enabled: !!user,
+  });
 
-  if (authLoading || (!profile && !authLoading) ) {
+  if (authLoading || (!profile && !authLoading) || isLoadingAllContributionsForTotal ) {
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -447,15 +202,9 @@ export default function DashboardPage() {
         </div>
      );
   }
-
-  const { data: allUserContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
-    queryKey: ["allUserContributionsForTotal", user?.id], // This query doesn't use pagination/search for its specific purpose
-    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), 
-    enabled: !!user,
-  });
+  
   const totalPaidByUser = allUserContributionsForTotal?.data?.reduce((sum, c) => sum + c.amount, 0) || 0;
   const numberOfContributionsMadeForStatus = allUserContributionsForTotal?.data?.length || 0;
-
 
   let monthsSinceJoined = 0;
   let pendingAmountValue = 0;
@@ -506,7 +255,6 @@ export default function DashboardPage() {
     }
   }
 
-
   return (
     <div className="container mx-auto py-8 px-4 md:px-0">
       <div className="mb-8">
@@ -517,17 +265,17 @@ export default function DashboardPage() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard
           title="My Total Contributions"
-          value={isLoadingContributions ? "Loading..." : totalPaidByUser } // Using totalPaidByUser from specific query
+          value={isLoadingAllContributionsForTotal ? "Loading..." : totalPaidByUser }
           icon={DollarSign}
-          description={isLoadingContributions ? "Fetching..." : "Total amount you've contributed."}
+          description={isLoadingAllContributionsForTotal ? "Fetching..." : "Total amount you've contributed."}
           iconClassName="text-green-500"
         />
         <StatCard
           title="Contribution Status"
-          value={isLoadingContributions ? "Loading..." : (paymentDifferenceMonths > 0 ? `${paymentDifferenceMonths} Adv. Mths` : pendingAmountValue)}
+          value={isLoadingAllContributionsForTotal ? "Loading..." : (paymentDifferenceMonths > 0 ? `${paymentDifferenceMonths} Adv. Mths` : pendingAmountValue)}
           icon={pendingStatusIcon}
           valuePrefix={paymentDifferenceMonths > 0 ? "" : CURRENCY_SYMBOL}
-          description={isLoadingContributions ? "Fetching..." : pendingStatusDescription}
+          description={isLoadingAllContributionsForTotal ? "Fetching..." : pendingStatusDescription}
           iconClassName={pendingAmountColorClass}
           valueClassName={pendingAmountColorClass}
         />
@@ -562,24 +310,24 @@ export default function DashboardPage() {
       <div className="grid gap-8 lg:grid-cols-1">
         <PaymentHistoryTable 
           contributions={userContributionsData?.data} 
-          isLoading={isLoadingContributions}
+          isLoading={isLoadingContributions} // Pass the specific loading state
           totalCount={userContributionsData?.count || 0}
           currentPage={currentPageContributions}
           onPageChange={setCurrentPageContributions}
-          searchTerm={searchTermContributions} // Pass the immediate search term to the input
+          searchTerm={searchTermContributions}
           onSearchChange={handleContributionSearchChange}
           itemsPerPage={ITEMS_PER_PAGE}
         />
         <EmergencyRequestHistoryTable
           requests={emergencyRequestsData?.data}
-          isLoading={isLoadingEmergencyRequests}
+          isLoading={isLoadingEmergencyRequests} // Pass the specific loading state
           title={isAdmin ? "All Family Emergency Requests" : "My Emergency Request History"}
           description={isAdmin ? "Track the status of all emergency fund requests." : "Overview of your submitted emergency fund requests."}
           showUserName={isAdmin}
           totalCount={emergencyRequestsData?.count || 0}
           currentPage={currentPageEmergencyRequests}
           onPageChange={setCurrentPageEmergencyRequests}
-          searchTerm={searchTermEmergencyRequests} // Pass the immediate search term to the input
+          searchTerm={searchTermEmergencyRequests}
           onSearchChange={handleEmergencyRequestSearchChange}
           itemsPerPage={ITEMS_PER_PAGE}
         />
@@ -587,4 +335,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
