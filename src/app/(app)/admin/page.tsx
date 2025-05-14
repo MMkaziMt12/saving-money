@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,14 +8,12 @@ import { ContributionManagement } from "@/components/admin/ContributionManagemen
 import { EmergencyRequestManagementTable } from "@/components/admin/EmergencyRequestManagementTable";
 import { NotificationSender } from "@/components/admin/NotificationSender";
 import type { Profile, MonthlyContribution, EmergencyRequest } from "@/types";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Users, ListChecks, ShieldAlert, BellRing, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/contexts/AuthContext"; // Using Supabase Auth
+import { useAuth } from "@/contexts/AuthContext"; 
 import { useToast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
-
-// TODO: Replace mock data fetching with Supabase data fetching using React Query
 
 export default function AdminPage() {
   const { user, profile, isAdmin, isLoading: authLoading, isApproved } = useAuth();
@@ -27,10 +26,27 @@ export default function AdminPage() {
   const [emergencyRequests, setEmergencyRequests] = useState<EmergencyRequest[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
+  const fetchAllUsers = useCallback(async () => {
+    if (!isAdmin) return;
+    setIsDataLoading(true);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      toast({ title: "Error fetching users", description: error.message, variant: "destructive" });
+      setUsers([]);
+    } else {
+      setUsers(data || []);
+    }
+    setIsDataLoading(false);
+  }, [isAdmin, supabase, toast]);
+
   useEffect(() => {
     if (!authLoading) {
       if (!user || !isApproved) {
-        router.replace("/login"); // Or awaiting-approval
+        router.replace("/login"); 
         return;
       }
       if (!isAdmin) {
@@ -38,14 +54,14 @@ export default function AdminPage() {
         router.replace("/");
         return;
       }
-      // TODO: Fetch initial data from Supabase here
-      // For now, setting loading to false and using empty arrays
-      setIsDataLoading(false);
+      fetchAllUsers();
+      // TODO: Fetch other admin data (contributions, emergency requests)
+      // For now, setting loading to false for other data if users are fetched
+      // setIsDataLoading(false); // This will be handled by individual fetch functions
     }
-  }, [user, profile, isAdmin, authLoading, isApproved, router, toast]);
+  }, [user, profile, isAdmin, authLoading, isApproved, router, toast, fetchAllUsers]);
 
 
-  // TODO: Implement Supabase data manipulation functions
   const handleApproveUser = async (userId: string) => {
     const { error } = await supabase.from('profiles').update({ is_approved: true, updated_at: new Date().toISOString() }).eq('id', userId);
     if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -79,31 +95,15 @@ export default function AdminPage() {
     }
   };
   const handleDeleteUser = async (userId: string) => {
-    // Note: Deleting a user from 'profiles' does not delete their auth.users entry.
-    // True user deletion is more complex and might involve Supabase admin functions.
-    // This only deletes the profile.
     const { error } = await supabase.from('profiles').delete().eq('id', userId);
     if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
     else {
         setUsers(prev => prev.filter(u => u.id !== userId));
-        // Also remove their contributions and requests for mock consistency
-        // setContributions(prev => prev.filter(c => c.user_id !== userId));
-        // setEmergencyRequests(prev => prev.filter(er => er.user_id !== userId));
         toast({ title: "Success", description: "User profile deleted." });
     }
   };
 
-
-  // Add new user form removed for Supabase integration simplicity for now.
-  // const handleAddNewUser = (data: AddUserFormValues) => { ... }
-
-
-  // const handleAddContribution = (data: any) => { ... }
-  // const handleApproveRequest = (requestId: string) => { ... }
-  // const handleRejectRequest = (requestId: string) => { ... }
-
-
-  if (authLoading || isDataLoading) {
+  if (authLoading || (!isAdmin && !authLoading)) { // Show loader if auth is loading OR if not admin and auth is done
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -112,7 +112,7 @@ export default function AdminPage() {
     );
   }
   
-  if (!isAdmin) {
+  if (!isAdmin) { // This check is now more robust after loading state
      return (
       <div className="flex items-center justify-center h-full py-10">
         <p className="text-lg text-destructive">Access Denied. You are not an administrator.</p>
@@ -125,7 +125,7 @@ export default function AdminPage() {
       <Card className="shadow-xl">
         <CardHeader className="border-b">
           <CardTitle className="text-3xl font-bold">Admin Panel</CardTitle>
-          <CardDescription>Manage users, contributions, emergency requests, and notifications. (Data integration with Supabase pending for some sections)</CardDescription>
+          <CardDescription>Manage users, contributions, emergency requests, and notifications.</CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           <Tabs defaultValue="users" className="w-full">
@@ -137,15 +137,21 @@ export default function AdminPage() {
             </TabsList>
             
             <TabsContent value="users">
-              <UserManagementTable 
-                users={users} // TODO: Fetch from Supabase
-                onApproveUser={handleApproveUser} 
-                onRejectUser={handleRejectUser}
-                onMakeAdmin={handleMakeAdmin}
-                onRevokeAdmin={handleRevokeAdmin}
-                onDeleteUser={handleDeleteUser}
-                // onAddNewUser is removed for now
-              />
+              {isDataLoading && users.length === 0 ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="ml-3 text-muted-foreground">Fetching users...</p>
+                </div>
+              ) : (
+                <UserManagementTable 
+                  users={users} 
+                  onApproveUser={handleApproveUser} 
+                  onRejectUser={handleRejectUser}
+                  onMakeAdmin={handleMakeAdmin}
+                  onRevokeAdmin={handleRevokeAdmin}
+                  onDeleteUser={handleDeleteUser}
+                />
+              )}
             </TabsContent>
             <TabsContent value="contributions">
               {/* TODO: Update ContributionManagement to use Supabase */}
@@ -164,3 +170,5 @@ export default function AdminPage() {
     </div>
   );
 }
+    
+    

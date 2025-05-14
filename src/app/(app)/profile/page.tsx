@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/types"; 
+import { Badge } from "@/components/ui/badge";
 
 export default function ProfilePage() {
   const { user, profile, isLoading: authLoading, fetchProfile, setProfile: setAuthProfile } = useAuth();
