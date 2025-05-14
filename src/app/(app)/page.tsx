@@ -4,7 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
-import { DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, XCircle, Loader2, Gift } from "lucide-react";
+import { DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, Gift } from "lucide-react";
 import { APP_NAME, CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
 import { format, parseISO, differenceInCalendarMonths, getMonth, getYear } from "date-fns";
@@ -15,6 +15,8 @@ import { useState, useEffect } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { PaymentHistoryTable } from "@/components/dashboard/PaymentHistoryTable";
 import { EmergencyRequestHistoryTable } from "@/components/dashboard/EmergencyRequestHistoryTable";
+import { Loader2 } from "lucide-react";
+
 
 const supabase = createClient();
 const ITEMS_PER_PAGE = 5; 
@@ -56,7 +58,6 @@ async function fetchUserContributions(
   return { data: data || [], count };
 }
 
-// Updated to fetch ALL requests, RLS will handle actual visibility based on new policies
 async function fetchAllFamilyEmergencyRequests(
   page: number,
   itemsPerPage: number,
@@ -70,10 +71,9 @@ async function fetchAllFamilyEmergencyRequests(
     .select("*, profile_user:profiles!emergency_requests_user_id_fkey(full_name)", { count: "exact" });
   
   if (searchTerm) {
-    // Search by reason, status, or user's full name (from profiles table)
     query = query.or(
-        `reason.ilike.%${searchTerm}%,status.ilike.%${searchTerm}%,profile_user:full_name.ilike.%${searchTerm}%`,
-        { foreignTable: "profiles" } // Specify foreign table for user name search
+        `reason.ilike.%${searchTerm}%,status.ilike.%${searchTerm}%,profile_user:full_name.ilike.%${searchTerm}%${",overdue".includes(searchTerm.toLowerCase()) ? ",return_date.lt.now(),is_fully_repaid.is.false" : ""}${"repaid".includes(searchTerm.toLowerCase()) ? ",is_fully_repaid.is.true" : ""}`,
+        { foreignTable: "profiles" } 
     );
   }
   
@@ -82,7 +82,6 @@ async function fetchAllFamilyEmergencyRequests(
   const { data: rawRequests, error, count } = await query;
   if (error) throw new Error(error.message);
 
-  // Ensure user_name is populated for display
   const formattedData = rawRequests?.map(req => ({
       ...req,
       user_name: (req.profile_user as unknown as Profile)?.full_name || req.user_id,
@@ -129,11 +128,10 @@ export default function DashboardPage() {
     keepPreviousData: true, 
   });
 
-  // Updated to fetch all family requests for the dashboard
   const { data: allEmergencyRequestsData, isLoading: isLoadingEmergencyRequests } = useQuery<PaginatedData<EmergencyRequest>, Error>({
     queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
     queryFn: () => fetchAllFamilyEmergencyRequests(currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
-    enabled: !!user, // Fetch if user is logged in
+    enabled: !!user,
     keepPreviousData: true,
   });
 
@@ -172,7 +170,7 @@ export default function DashboardPage() {
 
   const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["allUserContributionsForTotal", user?.id],
-    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), // Fetch all contributions for status calculation
+    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), 
     enabled: !!user,
   });
 
@@ -197,13 +195,15 @@ export default function DashboardPage() {
   const numberOfContributionsMadeForStatus = allUserContributionsForTotal?.data?.length || 0;
 
   let monthsSinceJoined = 0;
-  let pendingAmountValue = 0;
+  let userPendingAmountValue = 0;
   let paymentDifferenceMonths = 0;
-  let pendingStatusDescription = "Calculating status...";
-  let pendingStatusIcon: React.ElementType = Clock;
-  let pendingAmountColorClass = "text-orange-500";
+  let userDetailedContributionDescription = "Calculating status...";
+  let userGeneralContributionStatusText = "Calculating...";
+  let userContributionStatusIcon: React.ElementType = Clock;
+  let userContributionValueColorClass = "text-orange-500";
 
-  if (profile.created_at) {
+
+  if (profile.created_at && !isLoadingAllContributionsForTotal && allUserContributionsForTotal?.data) {
     const accountCreationDate = parseISO(profile.created_at);
     const currentDate = new Date();
     const startMonthDate = new Date(getYear(accountCreationDate), getMonth(accountCreationDate), 1);
@@ -215,31 +215,31 @@ export default function DashboardPage() {
     paymentDifferenceMonths = numberOfContributionsMadeForStatus - monthsSinceJoined;
 
     if (paymentDifferenceMonths > 0) { // Paid in advance
-      pendingAmountValue = 0; 
-      pendingStatusDescription = `Paid in advance for ${paymentDifferenceMonths} month${paymentDifferenceMonths > 1 ? 's' : ''}!`;
-      pendingStatusIcon = Gift; 
-      pendingAmountColorClass = "text-green-500";
+      userPendingAmountValue = 0; 
+      userDetailedContributionDescription = `Paid in advance for ${paymentDifferenceMonths} month${paymentDifferenceMonths > 1 ? 's' : ''}!`;
+      userContributionStatusIcon = Gift; 
+      userContributionValueColorClass = "text-green-500";
+      userGeneralContributionStatusText = "Paid in Advance";
     } else if (paymentDifferenceMonths < 0) { // Pending payments
       const dueMonthsCount = Math.abs(paymentDifferenceMonths);
-      pendingAmountValue = dueMonthsCount * MONTHLY_CONTRIBUTION_AMOUNT;
-      pendingStatusDescription = `Pending payment for ${dueMonthsCount} month${dueMonthsCount > 1 ? 's' : ''}.`;
-      pendingStatusIcon = AlertTriangle;
-      pendingAmountColorClass = "text-orange-500";
+      userPendingAmountValue = dueMonthsCount * MONTHLY_CONTRIBUTION_AMOUNT;
+      userDetailedContributionDescription = `Pending payment for ${dueMonthsCount} month${dueMonthsCount > 1 ? 's' : ''}.`;
+      userContributionStatusIcon = AlertTriangle;
+      userContributionValueColorClass = "text-orange-500";
+      userGeneralContributionStatusText = "Payment Due";
     } else { // paymentDifferenceMonths === 0;
-      pendingAmountValue = 0; 
+      userPendingAmountValue = 0; 
       if (monthsSinceJoined === 1 && numberOfContributionsMadeForStatus === 0) {
-        // First month as a member, and no contribution made yet for this first month.
-        pendingAmountValue = MONTHLY_CONTRIBUTION_AMOUNT;
-        pendingStatusDescription = `Current month's contribution due.`;
-        pendingStatusIcon = AlertTriangle;
-        pendingAmountColorClass = "text-orange-500";
+        userPendingAmountValue = MONTHLY_CONTRIBUTION_AMOUNT;
+        userDetailedContributionDescription = `Current month's contribution due.`;
+        userContributionStatusIcon = AlertTriangle;
+        userContributionValueColorClass = "text-orange-500";
+        userGeneralContributionStatusText = "Payment Due";
       } else {
-        // Either:
-        // 1. Joined for N months, paid for N months (including first month payment).
-        // 2. First month as member, and has made the first month's contribution.
-        pendingStatusDescription = "All contributions paid up to date!";
-        pendingStatusIcon = CheckCircle2;
-        pendingAmountColorClass = "text-green-500";
+        userDetailedContributionDescription = "All contributions paid up to date!";
+        userContributionStatusIcon = CheckCircle2;
+        userContributionValueColorClass = "text-green-500";
+        userGeneralContributionStatusText = "Up to Date";
       }
     }
   }
@@ -251,7 +251,7 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">Here&apos;s your family savings overview.</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
         <StatCard
           title="My Total Contributions"
           value={isLoadingAllContributionsForTotal ? "Loading..." : totalPaidByUser }
@@ -261,12 +261,21 @@ export default function DashboardPage() {
         />
         <StatCard
           title="Contribution Status"
-          value={isLoadingAllContributionsForTotal ? "Loading..." : (paymentDifferenceMonths > 0 ? `${paymentDifferenceMonths} Adv. Mths` : pendingAmountValue)}
-          icon={pendingStatusIcon}
-          valuePrefix={paymentDifferenceMonths > 0 ? "" : CURRENCY_SYMBOL} // No currency for "Adv. Mths"
-          description={isLoadingAllContributionsForTotal ? "Fetching..." : pendingStatusDescription}
-          iconClassName={pendingAmountColorClass}
-          valueClassName={pendingAmountColorClass}
+          value={isLoadingAllContributionsForTotal ? "Loading..." : userGeneralContributionStatusText}
+          icon={userContributionStatusIcon}
+          description={isLoadingAllContributionsForTotal ? "Fetching..." : (paymentDifferenceMonths > 0 ? `You are ${paymentDifferenceMonths} month${paymentDifferenceMonths > 1 ? 's' : ''} ahead!` : (userGeneralContributionStatusText === "Payment Due" ? `Please settle your outstanding balance.` : `You're all set!`)) }
+          iconClassName={userContributionValueColorClass}
+          valueClassName={userContributionValueColorClass}
+          valuePrefix="" // No currency symbol for general status text
+        />
+        <StatCard
+          title="My Dues / Advance"
+          value={isLoadingAllContributionsForTotal ? "Loading..." : userPendingAmountValue}
+          icon={userPendingAmountValue > 0 ? AlertTriangle : (paymentDifferenceMonths > 0 ? Gift : CheckCircle2)}
+          valuePrefix={CURRENCY_SYMBOL}
+          description={isLoadingAllContributionsForTotal ? "Fetching..." : userDetailedContributionDescription}
+          iconClassName={userPendingAmountValue > 0 ? "text-orange-500" : (paymentDifferenceMonths > 0 ? "text-green-500" : "text-green-500")}
+          valueClassName={userContributionValueColorClass}
         />
          <StatCard
           title="Total Family Savings"
@@ -311,7 +320,7 @@ export default function DashboardPage() {
           requests={allEmergencyRequestsData?.data} 
           isLoading={isLoadingEmergencyRequests} 
           title="All Family Emergency Requests" 
-          description="Track the status of all emergency fund requests across the family." 
+          description="Track the status of all emergency fund requests across the family. Search by user, reason, or status (e.g. pending, approved, overdue, repaid)." 
           showUserName={true} 
           totalCount={allEmergencyRequestsData?.count || 0}
           currentPage={currentPageEmergencyRequests}
@@ -325,5 +334,6 @@ export default function DashboardPage() {
     </div>
   );
 }
+    
 
     
