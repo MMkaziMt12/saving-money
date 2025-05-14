@@ -7,8 +7,9 @@ import { useToast } from "@/hooks/use-toast";
 import { ContributionManagement } from "@/components/admin/ContributionManagement";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import type { AddContributionFormValues } from "@/components/admin/ContributionManagement";
+import type { AddContributionFormValues } from "@/components/admin/ContributionManagement"; // Ensure this type matches the form
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants"; // Import constant
 
 const supabase = createClient();
 
@@ -31,7 +32,7 @@ async function fetchAdminContributions(): Promise<MonthlyContribution[]> {
     `)
     .order('payment_date', { ascending: false });
   if (error) throw new Error(`Error fetching contributions: ${error.message}`);
-  
+
   return rawContributions?.map(c => ({
     ...c,
     user_name: (c.profile_user as unknown as Profile)?.full_name || c.user_id,
@@ -40,11 +41,15 @@ async function fetchAdminContributions(): Promise<MonthlyContribution[]> {
 }
 
 type AddContributionPayload = {
-  formData: AddContributionFormValues;
+  formData: AddContributionFormValues; // This now contains totalAmountReceived and numberOfMonths
   adminProfileId: string;
 };
 
 async function addContributions({ formData, adminProfileId }: AddContributionPayload): Promise<MonthlyContribution[]> {
+  // Validation is now primarily handled by Zod schema, but a server-side check can be good.
+  // For example, if formData.totalAmountReceived !== formData.numberOfMonths * MONTHLY_CONTRIBUTION_AMOUNT, throw error.
+  // However, Zod should prevent this state if configured correctly.
+
   const contributionsToInsert = [];
   let currentMonth = formData.month;
   let currentYear = formData.year;
@@ -52,14 +57,13 @@ async function addContributions({ formData, adminProfileId }: AddContributionPay
   for (let i = 0; i < formData.numberOfMonths; i++) {
     contributionsToInsert.push({
       user_id: formData.userId,
-      amount: formData.amount, // This is amount per month
+      amount: MONTHLY_CONTRIBUTION_AMOUNT, // Always record the standard monthly amount per entry
       payment_date: formData.paymentDate.toISOString(),
       month: currentMonth,
       year: currentYear,
       recorded_by_admin_id: adminProfileId,
     });
 
-    // Increment month and handle year overflow
     currentMonth += 1;
     if (currentMonth > 12) {
       currentMonth = 1;
@@ -100,9 +104,9 @@ export function ContributionManagementTab() {
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminContributions'] });
-      queryClient.invalidateQueries({ queryKey: ['userContributions', variables.userId] }); // Invalidate specific user's contributions
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings']}); // Invalidate total savings
-      toast({ title: "Success", description: `${variables.numberOfMonths} contribution(s) recorded for ${users?.find(u => u.id === variables.userId)?.full_name}.` });
+      queryClient.invalidateQueries({ queryKey: ['userContributions', variables.userId] });
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings']});
+      toast({ title: "Success", description: `${variables.numberOfMonths} contribution(s) for ${MONTHLY_CONTRIBUTION_AMOUNT} each recorded for ${users?.find(u => u.id === variables.userId)?.full_name}.` });
     },
     onError: (error: Error) => {
       toast({ title: "Error adding contribution(s)", description: error.message, variant: "destructive" });
@@ -125,19 +129,18 @@ export function ContributionManagementTab() {
      return (
       <div className="flex flex-col items-center justify-center py-10">
         <p className="text-destructive">Error: {queryError.message}</p>
-        <button onClick={() => queryClient.invalidateQueries()} className="mt-2 text-blue-500">Try again</button>
+        <button onClick={() => queryClient.invalidateQueries({queryKey: ["adminContributions", "adminProfilesForContributions"]})} className="mt-2 text-primary hover:underline">Try again</button>
       </div>
     );
   }
-  
+
   return (
-    <ContributionManagement 
-      users={users || []} 
-      contributions={contributions || []} 
+    <ContributionManagement
+      users={users || []}
+      contributions={contributions || []}
       onAddContribution={async (formData) => {
          await addContributionMutation.mutateAsync(formData);
       }}
     />
   );
 }
-

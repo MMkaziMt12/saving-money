@@ -9,12 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, DollarSign, Loader2, Layers } from "lucide-react";
@@ -22,34 +22,38 @@ import { cn } from "@/lib/utils";
 
 const addContributionSchema = z.object({
   userId: z.string().min(1, "User selection is required."),
-  amount: z.coerce.number().min(1, "Amount per month must be greater than 0"),
+  totalAmountReceived: z.coerce.number().min(MONTHLY_CONTRIBUTION_AMOUNT, `Total amount must be at least ${CURRENCY_SYMBOL}${MONTHLY_CONTRIBUTION_AMOUNT}`),
   paymentDate: z.date({ required_error: "Payment date is required." }),
   month: z.coerce.number().min(1).max(12), // Starting month
-  year: z.coerce.number().min(new Date().getFullYear() - 10).max(new Date().getFullYear() + 10), // Expanded year range for future
-  numberOfMonths: z.coerce.number().min(1, "Number of months must be at least 1").max(60, "Cannot record more than 60 months at once."), // Max 5 years
+  year: z.coerce.number().min(new Date().getFullYear() - 10).max(new Date().getFullYear() + 10),
+  numberOfMonths: z.coerce.number().min(1, "Number of months must be at least 1").max(60, "Cannot record more than 60 months at once."),
+}).refine(data => data.totalAmountReceived === data.numberOfMonths * MONTHLY_CONTRIBUTION_AMOUNT, {
+  message: `Total amount received must be exactly ${CURRENCY_SYMBOL}${MONTHLY_CONTRIBUTION_AMOUNT} multiplied by the number of months.`,
+  path: ["totalAmountReceived"], // You can also set this to ["numberOfMonths"] or a general form error
 });
+
 
 export type AddContributionFormValues = z.infer<typeof addContributionSchema>;
 
 interface ContributionManagementProps {
-  users: Profile[]; 
-  contributions: MonthlyContribution[]; 
+  users: Profile[];
+  contributions: MonthlyContribution[];
   onAddContribution: (data: AddContributionFormValues) => Promise<void>;
 }
 
 const currentYear = new Date().getFullYear();
-const years = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i).reverse(); // Last 10 years + current + next 10
+const years = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i).reverse();
 const months = Array.from({length: 12}, (_, i) => ({ value: i + 1, label: format(new Date(currentYear, i), "MMMM")}));
 
 
 export function ContributionManagement({ users, contributions, onAddContribution }: ContributionManagementProps) {
-  const { toast } = useToast(); 
+  const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
   const form = useForm<AddContributionFormValues>({
     resolver: zodResolver(addContributionSchema),
     defaultValues: {
-      amount: MONTHLY_CONTRIBUTION_AMOUNT,
+      totalAmountReceived: MONTHLY_CONTRIBUTION_AMOUNT,
       month: new Date().getMonth() + 1,
       year: new Date().getFullYear(),
       paymentDate: new Date(),
@@ -58,12 +62,28 @@ export function ContributionManagement({ users, contributions, onAddContribution
     },
   });
 
+  const watchedTotalAmount = useWatch({ control: form.control, name: "totalAmountReceived" });
+
+  useEffect(() => {
+    if (watchedTotalAmount && MONTHLY_CONTRIBUTION_AMOUNT > 0) {
+      if (watchedTotalAmount % MONTHLY_CONTRIBUTION_AMOUNT === 0) {
+        const calculatedMonths = watchedTotalAmount / MONTHLY_CONTRIBUTION_AMOUNT;
+        if (calculatedMonths >= 1 && calculatedMonths <= 60) { // Max 60 months
+            if (form.getValues("numberOfMonths") !== calculatedMonths) {
+                form.setValue("numberOfMonths", calculatedMonths, { shouldValidate: true });
+            }
+        }
+      }
+    }
+  }, [watchedTotalAmount, form]);
+
+
   async function onSubmit(data: AddContributionFormValues) {
     setIsSubmitting(true);
     try {
-      await onAddContribution(data); 
+      await onAddContribution(data);
       form.reset({
-        amount: MONTHLY_CONTRIBUTION_AMOUNT,
+        totalAmountReceived: MONTHLY_CONTRIBUTION_AMOUNT,
         month: new Date().getMonth() + 1,
         year: new Date().getFullYear(),
         paymentDate: new Date(),
@@ -71,6 +91,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
         numberOfMonths: 1,
       });
     } catch (error) {
+      // Error is typically handled by the mutation's onError in the parent tab
       console.error("Submission error in ContributionManagement form:", error);
     } finally {
       setIsSubmitting(false);
@@ -82,7 +103,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
       <Card className="md:col-span-1 shadow-lg">
         <CardHeader>
           <CardTitle>Add Contribution</CardTitle>
-          <CardDescription>Manually record contribution(s) for a family member.</CardDescription>
+          <CardDescription>Manually record contribution(s) for a family member. Individual contributions are {CURRENCY_SYMBOL}{MONTHLY_CONTRIBUTION_AMOUNT}.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -108,12 +129,12 @@ export function ContributionManagement({ users, contributions, onAddContribution
               />
               {form.formState.errors.userId && <p className="text-sm font-medium text-destructive">{form.formState.errors.userId.message}</p>}
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="amount">Amount Per Month ({CURRENCY_SYMBOL})</Label>
-                <Input id="amount" type="number" {...form.register("amount")} disabled={isSubmitting} />
-                {form.formState.errors.amount && <p className="text-sm font-medium text-destructive">{form.formState.errors.amount.message}</p>}
+                <Label htmlFor="totalAmountReceived">Total Amount Received ({CURRENCY_SYMBOL})</Label>
+                <Input id="totalAmountReceived" type="number" {...form.register("totalAmountReceived")} disabled={isSubmitting} />
+                {form.formState.errors.totalAmountReceived && <p className="text-sm font-medium text-destructive">{form.formState.errors.totalAmountReceived.message}</p>}
               </div>
               <div>
                 <Label htmlFor="numberOfMonths">Number of Months</Label>
@@ -192,11 +213,12 @@ export function ContributionManagement({ users, contributions, onAddContribution
                 {form.formState.errors.year && <p className="text-sm font-medium text-destructive">{form.formState.errors.year.message}</p>}
               </div>
             </div>
-            
+
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Layers className="mr-2 h-4 w-4" />}
               {isSubmitting ? "Recording..." : "Record Contribution(s)"}
             </Button>
+             {form.formState.errors.root?.message && <p className="text-sm font-medium text-destructive">{form.formState.errors.root.message}</p>}
           </form>
         </CardContent>
       </Card>
@@ -237,4 +259,3 @@ export function ContributionManagement({ users, contributions, onAddContribution
     </div>
   );
 }
-
