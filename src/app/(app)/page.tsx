@@ -172,7 +172,7 @@ export default function DashboardPage() {
 
   const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["allUserContributionsForTotal", user?.id],
-    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), 
+    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), // Fetch all contributions for status calculation
     enabled: !!user,
   });
 
@@ -200,7 +200,7 @@ export default function DashboardPage() {
   let pendingAmountValue = 0;
   let paymentDifferenceMonths = 0;
   let pendingStatusDescription = "Calculating status...";
-  let pendingStatusIcon = Clock;
+  let pendingStatusIcon: React.ElementType = Clock;
   let pendingAmountColorClass = "text-orange-500";
 
   if (profile.created_at) {
@@ -208,39 +208,38 @@ export default function DashboardPage() {
     const currentDate = new Date();
     const startMonthDate = new Date(getYear(accountCreationDate), getMonth(accountCreationDate), 1);
     const endMonthDate = new Date(getYear(currentDate), getMonth(currentDate), 1);
+    
     monthsSinceJoined = differenceInCalendarMonths(endMonthDate, startMonthDate) + 1;
     monthsSinceJoined = Math.max(1, monthsSinceJoined); 
 
     paymentDifferenceMonths = numberOfContributionsMadeForStatus - monthsSinceJoined;
 
-    if (paymentDifferenceMonths > 0) {
+    if (paymentDifferenceMonths > 0) { // Paid in advance
       pendingAmountValue = 0; 
       pendingStatusDescription = `Paid in advance for ${paymentDifferenceMonths} month${paymentDifferenceMonths > 1 ? 's' : ''}!`;
       pendingStatusIcon = Gift; 
       pendingAmountColorClass = "text-green-500";
-    } else if (paymentDifferenceMonths < 0) {
+    } else if (paymentDifferenceMonths < 0) { // Pending payments
       const dueMonthsCount = Math.abs(paymentDifferenceMonths);
       pendingAmountValue = dueMonthsCount * MONTHLY_CONTRIBUTION_AMOUNT;
       pendingStatusDescription = `Pending payment for ${dueMonthsCount} month${dueMonthsCount > 1 ? 's' : ''}.`;
       pendingStatusIcon = AlertTriangle;
       pendingAmountColorClass = "text-orange-500";
-    } else { 
+    } else { // paymentDifferenceMonths === 0;
       pendingAmountValue = 0; 
-      const currentMonthPaid = allUserContributionsForTotal?.data?.some(c => c.month === (getMonth(currentDate) + 1) && c.year === getYear(currentDate));
-      if (numberOfContributionsMadeForStatus === 0 && monthsSinceJoined === 1) { 
-         pendingAmountValue = MONTHLY_CONTRIBUTION_AMOUNT;
-         pendingStatusDescription = `Current month's contribution due.`;
-         pendingStatusIcon = AlertTriangle;
-         pendingAmountColorClass = "text-orange-500";
-      } else if (currentMonthPaid || numberOfContributionsMadeForStatus >= monthsSinceJoined) {
+      if (monthsSinceJoined === 1 && numberOfContributionsMadeForStatus === 0) {
+        // First month as a member, and no contribution made yet for this first month.
+        pendingAmountValue = MONTHLY_CONTRIBUTION_AMOUNT;
+        pendingStatusDescription = `Current month's contribution due.`;
+        pendingStatusIcon = AlertTriangle;
+        pendingAmountColorClass = "text-orange-500";
+      } else {
+        // Either:
+        // 1. Joined for N months, paid for N months (including first month payment).
+        // 2. First month as member, and has made the first month's contribution.
         pendingStatusDescription = "All contributions paid up to date!";
         pendingStatusIcon = CheckCircle2;
         pendingAmountColorClass = "text-green-500";
-      } else {
-         pendingAmountValue = MONTHLY_CONTRIBUTION_AMOUNT;
-         pendingStatusDescription = `Current month's contribution due.`;
-         pendingStatusIcon = AlertTriangle;
-         pendingAmountColorClass = "text-orange-500";
       }
     }
   }
@@ -264,7 +263,7 @@ export default function DashboardPage() {
           title="Contribution Status"
           value={isLoadingAllContributionsForTotal ? "Loading..." : (paymentDifferenceMonths > 0 ? `${paymentDifferenceMonths} Adv. Mths` : pendingAmountValue)}
           icon={pendingStatusIcon}
-          valuePrefix={paymentDifferenceMonths > 0 ? "" : CURRENCY_SYMBOL}
+          valuePrefix={paymentDifferenceMonths > 0 ? "" : CURRENCY_SYMBOL} // No currency for "Adv. Mths"
           description={isLoadingAllContributionsForTotal ? "Fetching..." : pendingStatusDescription}
           iconClassName={pendingAmountColorClass}
           valueClassName={pendingAmountColorClass}
@@ -309,20 +308,22 @@ export default function DashboardPage() {
           itemsPerPage={ITEMS_PER_PAGE}
         />
         <EmergencyRequestHistoryTable
-          requests={allEmergencyRequestsData?.data} // Pass all family requests
+          requests={allEmergencyRequestsData?.data} 
           isLoading={isLoadingEmergencyRequests} 
-          title="All Family Emergency Requests" // Updated title
-          description="Track the status of all emergency fund requests across the family." // Updated description
-          showUserName={true} // Always show user name
+          title="All Family Emergency Requests" 
+          description="Track the status of all emergency fund requests across the family." 
+          showUserName={true} 
           totalCount={allEmergencyRequestsData?.count || 0}
           currentPage={currentPageEmergencyRequests}
           onPageChange={setCurrentPageEmergencyRequests}
           searchTerm={searchTermEmergencyRequests}
           onSearchChange={handleEmergencyRequestSearchChange}
           itemsPerPage={ITEMS_PER_PAGE}
-          isGlobalView={true} // Add this prop to indicate it's the global view
+          isGlobalView={true} 
         />
       </div>
     </div>
   );
 }
+
+    
