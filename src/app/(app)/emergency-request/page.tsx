@@ -36,14 +36,13 @@ type EmergencyRequestFormValues = z.infer<typeof emergencyRequestSchema>;
 
 const supabase = createClient();
 
-// This function fetches ONLY the current user's PENDING or APPROVED requests for this page's summary
 async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefined): Promise<EmergencyRequest[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
     .select("*")
     .eq("user_id", userId)
-    .in("status", ["pending", "approved"]) // Fetch only pending or approved requests relevant to the user for this form page
+    .in("status", ["pending", "approved"])
     .order("requested_at", { ascending: false });
 
   if (error) {
@@ -52,6 +51,25 @@ async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefine
   }
   return data || [];
 }
+
+async function fetchTotalFamilySavingsRPC(): Promise<number> {
+  const { data, error } = await supabase.rpc('get_total_family_savings');
+  if (error) {
+    console.error("Error fetching total family savings via RPC on request page:", error.message, error);
+    throw new Error(error.message);
+  }
+  if (data === null || data === undefined) {
+    console.warn("RPC 'get_total_family_savings' returned null or undefined on request page. Defaulting to 0.");
+    return 0;
+  }
+  const savings = Number(data);
+  if (isNaN(savings)) {
+    console.warn(`RPC 'get_total_family_savings' returned a non-numeric value on request page: ${data}. Defaulting to 0.`);
+    return 0;
+  }
+  return savings;
+}
+
 
 const RequestTableDisplay = ({ requests }: { requests: EmergencyRequest[] }) => {
   if (!requests || requests.length === 0) return null;
@@ -112,6 +130,11 @@ export default function EmergencyRequestPage() {
     enabled: !!user,
   });
 
+  const { data: totalFamilySavings, isLoading: isLoadingTotalSavings } = useQuery<number, Error>({
+    queryKey: ["totalFamilySavingsForRequestForm"],
+    queryFn: fetchTotalFamilySavingsRPC,
+  });
+
   const pendingRequests = useMemo(() =>
     existingRequests?.filter(req => req.status === 'pending') || [],
     [existingRequests]
@@ -132,6 +155,22 @@ export default function EmergencyRequestPage() {
       toast({ title: "Error", description: "You must be logged in to submit a request.", variant: "destructive" });
       return;
     }
+
+    if (totalFamilySavings === undefined || isLoadingTotalSavings) {
+        toast({ title: "Validation Error", description: "Fund balance is still loading. Please try again shortly.", variant: "destructive" });
+        return;
+    }
+
+    if (data.amount > totalFamilySavings) {
+        toast({ 
+            title: "Request Exceeds Funds", 
+            description: `Your requested amount of ${CURRENCY_SYMBOL}${data.amount.toLocaleString()} exceeds the current available fund balance of ${CURRENCY_SYMBOL}${totalFamilySavings.toLocaleString()}.`, 
+            variant: "destructive",
+            duration: 7000,
+        });
+        return;
+    }
+
 
     const { error } = await supabase.from('emergency_requests').insert({
       user_id: user.id,
@@ -158,7 +197,9 @@ export default function EmergencyRequestPage() {
       });
       form.reset({ amount: 0, reason: "", return_date: undefined });
       queryClient.invalidateQueries({ queryKey: ["currentUserActiveEmergencyRequests", user?.id] });
-      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] });
+      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] }); // For dashboard
+      queryClient.invalidateQueries({ queryKey: ["totalFamilySavingsForRequestForm"] }); // To get latest after potential disbursement if auto-approved
+      queryClient.invalidateQueries({ queryKey: ["totalFamilySavings"] }); // For dashboard
     }
   }
 
@@ -222,6 +263,12 @@ export default function EmergencyRequestPage() {
           <CardTitle className="text-2xl font-bold">Request New Emergency Fund</CardTitle>
           <CardDescription>
             Need financial assistance for an emergency? Fill out the form below. All requests are subject to admin approval.
+            <br />
+            {isLoadingTotalSavings ? (
+                <span className="text-sm text-muted-foreground italic">Loading available fund balance...</span>
+            ) : (
+                <span className="text-sm text-primary font-medium">Current Available Fund Balance: {CURRENCY_SYMBOL}{(totalFamilySavings ?? 0).toLocaleString()}</span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -234,7 +281,7 @@ export default function EmergencyRequestPage() {
                   <FormItem>
                     <FormLabel>Amount Requested ({CURRENCY_SYMBOL})</FormLabel>
                     <FormControl>
-                      <Input type="number" placeholder="e.g., 5000" {...field} disabled={form.formState.isSubmitting} />
+                      <Input type="number" placeholder="e.g., 5000" {...field} disabled={form.formState.isSubmitting || isLoadingTotalSavings} />
                     </FormControl>
                     <FormDescription>
                       Enter the total amount you require.
@@ -309,7 +356,7 @@ export default function EmergencyRequestPage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full md:w-auto" disabled={form.formState.isSubmitting}>
+              <Button type="submit" className="w-full md:w-auto" disabled={form.formState.isSubmitting || isLoadingTotalSavings}>
                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (
                   <>
                     <Send className="mr-2 h-4 w-4" /> Submit Request
