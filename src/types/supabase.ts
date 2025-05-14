@@ -1,11 +1,3 @@
-//
-// TODO: Replace this file with your Supabase generated types.
-//
-// This is a temporary placeholder. You should generate your Supabase types using:
-//   supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/supabase.ts
-//
-// See: https://supabase.com/docs/guides/database/api/generating-types
-
 export type Json =
   | string
   | number
@@ -17,204 +9,307 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      profiles: {
+      emergency_requests: {
         Row: {
-          id: string
+          admin_notes: string | null
+          amount_requested: number
+          amount_returned: number | null
           created_at: string | null
+          id: string
+          is_fully_repaid: boolean | null
+          last_return_date: string | null
+          reason: string
+          requested_at: string | null
+          return_date: string | null
+          reviewed_at: string | null
+          reviewed_by_admin_id: string | null
+          status: string | null
           updated_at: string | null
-          full_name: string | null
-          email: string | null
-          phone: string | null
-          avatar_url: string | null
-          role: "user" | "admin"
-          is_approved: boolean
-          is_active: boolean
-          joined_at: string | null
-          last_login: string | null
+          user_id: string | null
         }
         Insert: {
-          id: string
+          admin_notes?: string | null
+          amount_requested: number
+          amount_returned?: number | null
           created_at?: string | null
+          id?: string
+          is_fully_repaid?: boolean | null
+          last_return_date?: string | null
+          reason: string
+          requested_at?: string | null
+          return_date?: string | null
+          reviewed_at?: string | null
+          reviewed_by_admin_id?: string | null
+          status?: string | null
           updated_at?: string | null
-          full_name?: string | null
-          email?: string | null
-          phone?: string | null
-          avatar_url?: string | null
-          role?: "user" | "admin"
-          is_approved?: boolean
-          is_active?: boolean
-          joined_at?: string | null
-          last_login?: string | null
+          user_id?: string | null
         }
         Update: {
-          id?: string
+          admin_notes?: string | null
+          amount_requested?: number
+          amount_returned?: number | null
           created_at?: string | null
+          id?: string
+          is_fully_repaid?: boolean | null
+          last_return_date?: string | null
+          reason?: string
+          requested_at?: string | null
+          return_date?: string | null
+          reviewed_at?: string | null
+          reviewed_by_admin_id?: string | null
+          status?: string | null
           updated_at?: string | null
-          full_name?: string | null
-          email?: string | null
-          phone?: string | null
-          avatar_url?: string | null
-          role?: "user" | "admin"
-          is_approved?: boolean
-          is_active?: boolean
-          joined_at?: string | null
-          last_login?: string | null
+          user_id?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "profiles_id_fkey"
-            columns: ["id"]
-            referencedRelation: "users"
+            foreignKeyName: "emergency_requests_reviewed_by_admin_id_fkey"
+            columns: ["reviewed_by_admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
-          }
+          },
+          {
+            foreignKeyName: "emergency_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       monthly_contributions: {
         Row: {
-          id: string
-          user_id: string
           amount: number
-          payment_date: string
+          created_at: string | null
+          id: string
           month: number
-          year: number
+          payment_date: string
           recorded_by_admin_id: string | null
-          created_at: string
-          updated_at: string
+          updated_at: string | null
+          user_id: string | null
+          year: number
         }
         Insert: {
-          id?: string
-          user_id: string
           amount: number
-          payment_date: string
+          created_at?: string | null
+          id?: string
           month: number
-          year: number
+          payment_date: string
           recorded_by_admin_id?: string | null
-          created_at?: string
-          updated_at?: string
+          updated_at?: string | null
+          user_id?: string | null
+          year: number
         }
         Update: {
-          id?: string
-          user_id?: string
           amount?: number
-          payment_date?: string
+          created_at?: string | null
+          id?: string
           month?: number
-          year?: number
+          payment_date?: string
           recorded_by_admin_id?: string | null
-          created_at?: string
-          updated_at?: string
+          updated_at?: string | null
+          user_id?: string | null
+          year?: number
         }
         Relationships: [
-          {
-            foreignKeyName: "monthly_contributions_user_id_fkey"
-            columns: ["user_id"]
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "monthly_contributions_recorded_by_admin_id_fkey"
             columns: ["recorded_by_admin_id"]
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-      emergency_requests: {
-        Row: {
-          id: string
-          user_id: string
-          amount_requested: number
-          reason: string
-          status: "pending" | "approved" | "rejected"
-          requested_at: string
-          reviewed_by_admin_id: string | null
-          reviewed_at: string | null
-          created_at: string
-          updated_at: string
-          admin_notes: string | null
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          amount_requested: number
-          reason: string
-          status?: "pending" | "approved" | "rejected"
-          requested_at?: string
-          reviewed_by_admin_id?: string | null
-          reviewed_at?: string | null
-          created_at?: string
-          updated_at?: string
-          admin_notes?: string | null
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          amount_requested?: number
-          reason?: string
-          status?: "pending" | "approved" | "rejected"
-          requested_at?: string
-          reviewed_by_admin_id?: string | null
-          reviewed_at?: string | null
-          created_at?: string
-          updated_at?: string
-          admin_notes?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "emergency_requests_user_id_fkey"
-            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "emergency_requests_reviewed_by_admin_id_fkey"
-            columns: ["reviewed_by_admin_id"]
+            foreignKeyName: "monthly_contributions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          }
+          },
         ]
       }
-      notifications: { 
+      notifications: {
         Row: {
-          id: string
-          user_id: string
-          message: string | null
-          type: string | null
-          sent_at: string
           channel: string | null
+          id: string
+          message: string | null
+          sent_at: string | null
+          type: string | null
+          user_id: string | null
         }
         Insert: {
-          id?: string
-          user_id: string
-          message?: string | null
-          type?: string | null
-          sent_at?: string
           channel?: string | null
+          id?: string
+          message?: string | null
+          sent_at?: string | null
+          type?: string | null
+          user_id?: string | null
         }
         Update: {
-          id?: string
-          user_id?: string
-          message?: string | null
-          type?: string | null
-          sent_at?: string
           channel?: string | null
+          id?: string
+          message?: string | null
+          sent_at?: string | null
+          type?: string | null
+          user_id?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "notifications_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          }
+          },
         ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          email: string | null
+          full_name: string | null
+          id: string
+          is_active: boolean | null
+          is_approved: boolean | null
+          last_login: string | null
+          phone: string | null
+          role: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          id: string
+          is_active?: boolean | null
+          is_approved?: boolean | null
+          last_login?: string | null
+          phone?: string | null
+          role?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_approved?: boolean | null
+          last_login?: string | null
+          phone?: string | null
+          role?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      handle_new_user: { 
-        Args: Record<string, unknown> // Or more specific if known, for triggers it's often related to NEW/OLD
-        Returns: "trigger" // Trigger functions return 'trigger'
+      binary_quantize: {
+        Args: { "": string } | { "": unknown }
+        Returns: unknown
+      }
+      get_total_family_savings: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      halfvec_avg: {
+        Args: { "": number[] }
+        Returns: unknown
+      }
+      halfvec_out: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      halfvec_send: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      halfvec_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
+      }
+      hnsw_bit_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnsw_halfvec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnsw_sparsevec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnswhandler: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      is_admin: {
+        Args: { user_id: string }
+        Returns: boolean
+      }
+      ivfflat_bit_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      ivfflat_halfvec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      ivfflathandler: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      l2_norm: {
+        Args: { "": unknown } | { "": unknown }
+        Returns: number
+      }
+      l2_normalize: {
+        Args: { "": string } | { "": unknown } | { "": unknown }
+        Returns: unknown
+      }
+      sparsevec_out: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      sparsevec_send: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      sparsevec_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
+      }
+      vector_avg: {
+        Args: { "": number[] }
+        Returns: string
+      }
+      vector_dims: {
+        Args: { "": string } | { "": unknown }
+        Returns: number
+      }
+      vector_norm: {
+        Args: { "": string }
+        Returns: number
+      }
+      vector_out: {
+        Args: { "": string }
+        Returns: unknown
+      }
+      vector_send: {
+        Args: { "": string }
+        Returns: string
+      }
+      vector_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
       }
     }
     Enums: {
@@ -226,25 +321,29 @@ export type Database = {
   }
 }
 
+type DefaultSchema = Database[Extract<keyof Database, "public">]
+
 export type Tables<
-  PublicTableNameOrOptions extends
-    | keyof (Database["public"]["Tables"] & Database["public"]["Views"])
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof Database },
-  TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
-    ? keyof (Database[PublicTableNameOrOptions["schema"]]["Tables"] &
-        Database[PublicTableNameOrOptions["schema"]]["Views"])
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never = never,
-> = PublicTableNameOrOptions extends { schema: keyof Database }
-  ? (Database[PublicTableNameOrOptions["schema"]]["Tables"] &
-      Database[PublicTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
+  ? (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
     ? R
     : never
-  : PublicTableNameOrOptions extends keyof (Database["public"]["Tables"] &
-        Database["public"]["Views"])
-    ? (Database["public"]["Tables"] &
-        Database["public"]["Views"])[PublicTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
         Row: infer R
       }
       ? R
@@ -252,20 +351,22 @@ export type Tables<
     : never
 
 export type TablesInsert<
-  PublicTableNameOrOptions extends
-    | keyof Database["public"]["Tables"]
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof Database },
-  TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
-    ? keyof Database[PublicTableNameOrOptions["schema"]]["Tables"]
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
-> = PublicTableNameOrOptions extends { schema: keyof Database }
-  ? Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Insert: infer I
     }
     ? I
     : never
-  : PublicTableNameOrOptions extends keyof Database["public"]["Tables"]
-    ? Database["public"]["Tables"][PublicTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Insert: infer I
       }
       ? I
@@ -273,20 +374,22 @@ export type TablesInsert<
     : never
 
 export type TablesUpdate<
-  PublicTableNameOrOptions extends
-    | keyof Database["public"]["Tables"]
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof Database },
-  TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
-    ? keyof Database[PublicTableNameOrOptions["schema"]]["Tables"]
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
-> = PublicTableNameOrOptions extends { schema: keyof Database }
-  ? Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Update: infer U
     }
     ? U
     : never
-  : PublicTableNameOrOptions extends keyof Database["public"]["Tables"]
-    ? Database["public"]["Tables"][PublicTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Update: infer U
       }
       ? U
@@ -294,14 +397,37 @@ export type TablesUpdate<
     : never
 
 export type Enums<
-  PublicEnumNameOrOptions extends
-    | keyof Database["public"]["Enums"]
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
     | { schema: keyof Database },
-  EnumName extends PublicEnumNameOrOptions extends { schema: keyof Database }
-    ? keyof Database[PublicEnumNameOrOptions["schema"]]["Enums"]
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never = never,
-> = PublicEnumNameOrOptions extends { schema: keyof Database }
-  ? Database[PublicEnumNameOrOptions["schema"]]["Enums"][EnumName]
-  : PublicEnumNameOrOptions extends keyof Database["public"]["Enums"]
-    ? Database["public"]["Enums"][PublicEnumNameOrOptions]
+> = DefaultSchemaEnumNameOrOptions extends { schema: keyof Database }
+  ? Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
     : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof Database },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends { schema: keyof Database }
+  ? Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

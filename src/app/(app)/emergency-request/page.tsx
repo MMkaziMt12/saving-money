@@ -35,17 +35,18 @@ type EmergencyRequestFormValues = z.infer<typeof emergencyRequestSchema>;
 
 const supabase = createClient();
 
-async function fetchUserEmergencyRequests(userId: string | undefined): Promise<EmergencyRequest[]> {
+// This function fetches ONLY the current user's PENDING or APPROVED requests for this page's summary
+async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefined): Promise<EmergencyRequest[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
     .select("*")
     .eq("user_id", userId)
-    .in("status", ["pending", "approved"]) // Fetch pending or approved requests
+    .in("status", ["pending", "approved"]) // Fetch only pending or approved requests relevant to the user for this form page
     .order("requested_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching user's emergency requests:", error);
+    console.error("Error fetching user's active emergency requests:", error);
     throw new Error(error.message);
   }
   return data || [];
@@ -63,13 +64,14 @@ export default function EmergencyRequestPage() {
     defaultValues: {
       amount: 0,
       reason: "",
-      return_date: null, // Zod will enforce selection if required_error is set
+      return_date: null, 
     },
   });
 
+  // Use the specific fetch function for this page's needs
   const { data: existingRequests, isLoading: isLoadingExistingRequests } = useQuery<EmergencyRequest[], Error>({
-    queryKey: ["userEmergencyRequests", user?.id],
-    queryFn: () => fetchUserEmergencyRequests(user?.id),
+    queryKey: ["currentUserActiveEmergencyRequests", user?.id],
+    queryFn: () => fetchCurrentUserActiveEmergencyRequests(user?.id),
     enabled: !!user,
   });
 
@@ -83,7 +85,7 @@ export default function EmergencyRequestPage() {
       user_id: user.id,
       amount_requested: data.amount,
       reason: data.reason,
-      return_date: data.return_date.toISOString(), // Now always a date
+      return_date: data.return_date.toISOString(), 
       status: 'pending', 
       requested_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -103,8 +105,9 @@ export default function EmergencyRequestPage() {
         variant: "default",
       });
       form.reset();
-      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequests", user?.id] });
-      queryClient.invalidateQueries({ queryKey: ["emergencyRequests"] }); // For dashboard if admin views it
+      // Invalidate queries for this user's active requests and also the global list on the dashboard
+      queryClient.invalidateQueries({ queryKey: ["currentUserActiveEmergencyRequests", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] }); 
     }
   }
   
@@ -122,20 +125,20 @@ export default function EmergencyRequestPage() {
   }
 
   const totalOutstandingAmount = existingRequests
-    ?.filter(req => req.status === 'approved') // Only sum approved amounts not yet marked as returned
-    .reduce((sum, req) => sum + req.amount_requested, 0) || 0;
+    ?.filter(req => req.status === 'approved' && !req.is_fully_repaid) 
+    .reduce((sum, req) => sum + (req.amount_requested - (req.amount_returned || 0)), 0) || 0;
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0 max-w-3xl space-y-8">
       {isLoadingExistingRequests ? (
         <Card className="shadow-md">
-          <CardHeader><CardTitle>Loading Existing Requests...</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Loading Your Active Requests...</CardTitle></CardHeader>
           <CardContent><Loader2 className="h-6 w-6 animate-spin text-primary" /></CardContent>
         </Card>
       ) : existingRequests && existingRequests.length > 0 && (
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle className="text-xl flex items-center gap-2"><Info className="text-primary"/>Your Existing Emergency Requests</CardTitle>
+            <CardTitle className="text-xl flex items-center gap-2"><Info className="text-primary"/>Your Active Emergency Requests</CardTitle>
             <CardDescription>
               You have {existingRequests.length} pending or approved request(s). 
               Total outstanding from approved requests: <span className="font-semibold text-primary">{CURRENCY_SYMBOL}{totalOutstandingAmount.toLocaleString()}</span>
@@ -160,8 +163,11 @@ export default function EmergencyRequestPage() {
                     <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy")}</TableCell>
                     <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : "N/A"}</TableCell>
                     <TableCell>
-                        <Badge variant={req.status === 'approved' ? 'success' : req.status === 'pending' ? 'secondary' : 'outline'} className="capitalize">
-                            {req.status}
+                        <Badge 
+                            variant={req.status === 'approved' ? (req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'destructive' : 'success') : req.status === 'pending' ? 'secondary' : 'outline'} 
+                            className="capitalize"
+                        >
+                            {req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'Overdue' : req.status}
                         </Badge>
                     </TableCell>
                   </TableRow>
@@ -251,14 +257,14 @@ export default function EmergencyRequestPage() {
                           selected={field.value || undefined}
                           onSelect={field.onChange}
                           disabled={(date) =>
-                            date < new Date(new Date().setDate(new Date().getDate() -1)) // Cannot select past dates
+                            date < new Date(new Date().setDate(new Date().getDate() -1)) 
                           }
                           initialFocus
                         />
                       </PopoverContent>
                     </Popover>
                     <FormDescription>
-                      When do you expect to return this amount?
+                      When do you expect to return this amount? This is a required field.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -278,4 +284,3 @@ export default function EmergencyRequestPage() {
     </div>
   );
 }
-

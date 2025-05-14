@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, CheckCircle2, XCircle, Clock, CalendarDays } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { Loader2, Search, CheckCircle2, XCircle, Clock, CalendarDays, Hourglass, DollarSign, AlertTriangle } from "lucide-react";
+import { format, parseISO, isPast } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 
 interface EmergencyRequestHistoryTableProps {
   requests: EmergencyRequest[] | undefined;
@@ -23,6 +24,7 @@ interface EmergencyRequestHistoryTableProps {
   searchTerm: string;
   onSearchChange: (term: string) => void;
   itemsPerPage: number;
+  isGlobalView?: boolean; // New prop to indicate if it's showing all family requests
 }
 
 export function EmergencyRequestHistoryTable({
@@ -37,26 +39,29 @@ export function EmergencyRequestHistoryTable({
   searchTerm,
   onSearchChange,
   itemsPerPage,
+  isGlobalView = false, // Default to false
 }: EmergencyRequestHistoryTableProps) {
   const totalPages = Math.ceil(totalCount / itemsPerPage);
 
-  const getStatusBadgeVariant = (status: EmergencyRequest["status"]) => {
-    switch (status) {
-      case "approved": return "success";
-      case "rejected": return "destructive";
-      case "pending": return "secondary";
-      default: return "outline";
+  const getStatusBadgeInfo = (request: EmergencyRequest): { variant: VariantProps<typeof Badge>["variant"], text: string, icon?: React.ReactNode } => {
+    if (request.is_fully_repaid) {
+      return { variant: "success", text: "Fully Repaid", icon: <CheckCircle2 className="h-3 w-3" /> };
     }
+    if (request.status === 'approved') {
+      if (request.return_date && isPast(parseISO(request.return_date))) {
+        return { variant: "destructive", text: "Overdue", icon: <AlertTriangle className="h-3 w-3" /> };
+      }
+      return { variant: "default", text: "Approved", icon: <CheckCircle2 className="h-3 w-3 text-green-500" /> }; // Use default for approved, not success unless repaid
+    }
+    if (request.status === "rejected") {
+      return { variant: "destructive", text: "Rejected", icon: <XCircle className="h-3 w-3" /> };
+    }
+    if (request.status === "pending") {
+      return { variant: "secondary", text: "Pending", icon: <Hourglass className="h-3 w-3" /> };
+    }
+    return { variant: "outline", text: request.status || "Unknown", icon: <Clock className="h-3 w-3" /> };
   };
 
-  const getStatusIcon = (status: EmergencyRequest["status"]) => {
-    switch (status) {
-      case "approved": return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-      case "rejected": return <XCircle className="h-4 w-4 text-red-500" />;
-      case "pending": return <Clock className="h-4 w-4 text-yellow-500" />;
-      default: return null;
-    }
-  };
 
   if (isLoading && (!requests || requests.length === 0) && totalCount === 0) {
     return (
@@ -76,14 +81,14 @@ export function EmergencyRequestHistoryTable({
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}. Search by reason, status {showUserName ? ', or user name' : ''}.</CardDescription>
+        <CardDescription>{description}{isGlobalView ? " Search by user, reason, or status (e.g. pending, approved, overdue, repaid)." : " Search by reason or status."}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Search requests..."
+            placeholder={isGlobalView ? "Search all requests..." : "Search your requests..."}
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="pl-10 w-full md:w-1/2"
@@ -96,35 +101,48 @@ export function EmergencyRequestHistoryTable({
               <TableRow>
                 {showUserName && <TableHead>Requested By</TableHead>}
                 <TableHead>Requested At</TableHead>
-                <TableHead>Amount</TableHead>
+                <TableHead>Amount Req.</TableHead>
+                {isGlobalView && <TableHead>Amount Ret.</TableHead>}
                 <TableHead>Reason</TableHead>
-                <TableHead>Expected Return</TableHead>
+                <TableHead>Exp. Return</TableHead>
                 <TableHead className="text-center">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && requests && requests.length > 0 ? (
-                 <TableRow><TableCell colSpan={showUserName ? 6 : 5} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
+                 <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 7 : 6) : (isGlobalView ? 6 : 5)} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
               ) : requests && requests.length > 0 ? (
-                requests.map((req) => (
-                  <TableRow key={req.id}>
-                    {showUserName && <TableCell>{req.user_name || req.user_id}</TableCell>}
-                    <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy HH:mm")}</TableCell>
-                    <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
-                    <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
-                    <TableCell>
-                      {req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground">N/A</span>}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant={getStatusBadgeVariant(req.status)} className="capitalize flex items-center justify-center gap-1.5 min-w-[110px]">
-                        {getStatusIcon(req.status)}
-                        {req.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))
+                requests.map((req) => {
+                  const statusInfo = getStatusBadgeInfo(req);
+                  return (
+                    <TableRow key={req.id}>
+                      {showUserName && <TableCell>{req.user_name || req.user_id}</TableCell>}
+                      <TableCell>{format(parseISO(req.requested_at), "MMM dd, yy HH:mm")}</TableCell>
+                      <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
+                      {isGlobalView && <TableCell>{CURRENCY_SYMBOL}{(req.amount_returned || 0).toLocaleString()}</TableCell>}
+                      <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
+                      <TableCell>
+                        {req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground">N/A</span>}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge 
+                          variant={statusInfo.variant} 
+                          className={cn("capitalize flex items-center justify-center gap-1.5 min-w-[110px]",
+                            {'bg-yellow-500 hover:bg-yellow-600 text-white': statusInfo.text === 'Pending'},
+                            {'bg-green-500 hover:bg-green-600 text-white': statusInfo.text === 'Approved'},
+                            {'bg-green-600 hover:bg-green-700 text-white': statusInfo.text === 'Fully Repaid'},
+                            {'bg-red-500 hover:bg-red-600 text-white': statusInfo.text === 'Rejected' || statusInfo.text === 'Overdue' }
+                          )}
+                        >
+                          {statusInfo.icon}
+                          {statusInfo.text}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               ) : (
-                <TableRow><TableCell colSpan={showUserName ? 6 : 5} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 7 : 6) : (isGlobalView ? 6 : 5)} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

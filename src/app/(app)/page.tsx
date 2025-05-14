@@ -17,9 +17,8 @@ import { PaymentHistoryTable } from "@/components/dashboard/PaymentHistoryTable"
 import { EmergencyRequestHistoryTable } from "@/components/dashboard/EmergencyRequestHistoryTable";
 
 const supabase = createClient();
-const ITEMS_PER_PAGE = 5; // For dashboard tables
+const ITEMS_PER_PAGE = 5; 
 
-// Fetching functions with server-side pagination and search
 interface PaginatedData<T> {
   data: T[];
   count: number | null;
@@ -57,9 +56,8 @@ async function fetchUserContributions(
   return { data: data || [], count };
 }
 
-async function fetchEmergencyRequests(
-  userId: string | null, 
-  isAdmin: boolean,
+// Updated to fetch ALL requests, RLS will handle actual visibility based on new policies
+async function fetchAllFamilyEmergencyRequests(
   page: number,
   itemsPerPage: number,
   searchTerm: string
@@ -70,23 +68,13 @@ async function fetchEmergencyRequests(
   let query = supabase
     .from("emergency_requests")
     .select("*, profile_user:profiles!emergency_requests_user_id_fkey(full_name)", { count: "exact" });
-
-  if (!isAdmin && userId) {
-    query = query.eq("user_id", userId);
-  } else if (!isAdmin && !userId) {
-    return { data: [], count: 0 };
-  }
   
   if (searchTerm) {
-    const orConditions = [`reason.ilike.%${searchTerm}%`, `status.ilike.%${searchTerm}%`];
-    if (isAdmin) { // Only search by user name if admin is viewing all requests
-        orConditions.push(`profile_user:full_name.ilike.%${searchTerm}%`);
-    }
-    // Correct usage of .or() for Supabase client
-     // For .or with foreign table, it's a bit tricky.
-    // We might need to adjust if direct filtering on foreign table name in .or() isn't supported as expected.
-    // A simpler search for now:
-    query = query.or(orConditions.join(','), { foreignTable: 'profiles' });
+    // Search by reason, status, or user's full name (from profiles table)
+    query = query.or(
+        `reason.ilike.%${searchTerm}%,status.ilike.%${searchTerm}%,profile_user:full_name.ilike.%${searchTerm}%`,
+        { foreignTable: "profiles" } // Specify foreign table for user name search
+    );
   }
   
   query = query.order("requested_at", { ascending: false }).range(from, to);
@@ -94,6 +82,7 @@ async function fetchEmergencyRequests(
   const { data: rawRequests, error, count } = await query;
   if (error) throw new Error(error.message);
 
+  // Ensure user_name is populated for display
   const formattedData = rawRequests?.map(req => ({
       ...req,
       user_name: (req.profile_user as unknown as Profile)?.full_name || req.user_id,
@@ -140,10 +129,11 @@ export default function DashboardPage() {
     keepPreviousData: true, 
   });
 
-  const { data: emergencyRequestsData, isLoading: isLoadingEmergencyRequests } = useQuery<PaginatedData<EmergencyRequest>, Error>({
-    queryKey: ["emergencyRequests", user?.id, isAdmin, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
-    queryFn: () => fetchEmergencyRequests(user?.id || null, isAdmin, currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
-    enabled: !!user,
+  // Updated to fetch all family requests for the dashboard
+  const { data: allEmergencyRequestsData, isLoading: isLoadingEmergencyRequests } = useQuery<PaginatedData<EmergencyRequest>, Error>({
+    queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
+    queryFn: () => fetchAllFamilyEmergencyRequests(currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
+    enabled: !!user, // Fetch if user is logged in
     keepPreviousData: true,
   });
 
@@ -172,13 +162,13 @@ export default function DashboardPage() {
   }, [userContributionsData, currentPageContributions, debouncedSearchTermContributions, user?.id, queryClient]);
 
   useEffect(() => {
-    if (emergencyRequestsData && currentPageEmergencyRequests < Math.ceil((emergencyRequestsData.count || 0) / ITEMS_PER_PAGE)) {
+    if (allEmergencyRequestsData && currentPageEmergencyRequests < Math.ceil((allEmergencyRequestsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
-        queryKey: ["emergencyRequests", user?.id, isAdmin, currentPageEmergencyRequests + 1, debouncedSearchTermEmergencyRequests],
-        queryFn: () => fetchEmergencyRequests(user?.id || null, isAdmin, currentPageEmergencyRequests + 1, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
+        queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests + 1, debouncedSearchTermEmergencyRequests],
+        queryFn: () => fetchAllFamilyEmergencyRequests(currentPageEmergencyRequests + 1, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
       });
     }
-  }, [emergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, user?.id, isAdmin, queryClient]);
+  }, [allEmergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, queryClient]);
 
   const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["allUserContributionsForTotal", user?.id],
@@ -310,7 +300,7 @@ export default function DashboardPage() {
       <div className="grid gap-8 lg:grid-cols-1">
         <PaymentHistoryTable 
           contributions={userContributionsData?.data} 
-          isLoading={isLoadingContributions} // Pass the specific loading state
+          isLoading={isLoadingContributions} 
           totalCount={userContributionsData?.count || 0}
           currentPage={currentPageContributions}
           onPageChange={setCurrentPageContributions}
@@ -319,17 +309,18 @@ export default function DashboardPage() {
           itemsPerPage={ITEMS_PER_PAGE}
         />
         <EmergencyRequestHistoryTable
-          requests={emergencyRequestsData?.data}
-          isLoading={isLoadingEmergencyRequests} // Pass the specific loading state
-          title={isAdmin ? "All Family Emergency Requests" : "My Emergency Request History"}
-          description={isAdmin ? "Track the status of all emergency fund requests." : "Overview of your submitted emergency fund requests."}
-          showUserName={isAdmin}
-          totalCount={emergencyRequestsData?.count || 0}
+          requests={allEmergencyRequestsData?.data} // Pass all family requests
+          isLoading={isLoadingEmergencyRequests} 
+          title="All Family Emergency Requests" // Updated title
+          description="Track the status of all emergency fund requests across the family." // Updated description
+          showUserName={true} // Always show user name
+          totalCount={allEmergencyRequestsData?.count || 0}
           currentPage={currentPageEmergencyRequests}
           onPageChange={setCurrentPageEmergencyRequests}
           searchTerm={searchTermEmergencyRequests}
           onSearchChange={handleEmergencyRequestSearchChange}
           itemsPerPage={ITEMS_PER_PAGE}
+          isGlobalView={true} // Add this prop to indicate it's the global view
         />
       </div>
     </div>
