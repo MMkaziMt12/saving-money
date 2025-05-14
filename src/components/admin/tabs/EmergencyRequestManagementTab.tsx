@@ -64,6 +64,47 @@ async function updateEmergencyRequestStatus({ requestId, status, adminProfileId 
   return data as EmergencyRequest;
 }
 
+type RecordRepaymentPayload = {
+  requestId: string;
+  amountRepaid: number;
+  repaymentDate: Date;
+  adminProfileId: string;
+};
+
+async function recordRepayment({ requestId, amountRepaid, repaymentDate, adminProfileId }: RecordRepaymentPayload): Promise<EmergencyRequest> {
+  const { data: existingRequest, error: fetchError } = await supabase
+    .from('emergency_requests')
+    .select('amount_requested, amount_returned')
+    .eq('id', requestId)
+    .single();
+
+  if (fetchError || !existingRequest) {
+    throw new Error(fetchError?.message || "Could not find existing request to record repayment.");
+  }
+
+  const currentAmountReturned = existingRequest.amount_returned || 0;
+  const newAmountReturned = currentAmountReturned + amountRepaid;
+  const isFullyRepaid = newAmountReturned >= (existingRequest.amount_requested || 0);
+
+  const { data, error } = await supabase
+    .from('emergency_requests')
+    .update({
+      amount_returned: newAmountReturned,
+      last_return_date: repaymentDate.toISOString(),
+      is_fully_repaid: isFullyRepaid,
+      updated_at: new Date().toISOString(),
+      // Optionally, if fully repaid, you might want to update status too, e.g., to 'repaid'
+      // status: isFullyRepaid ? 'repaid' : existingRequest.status, 
+    })
+    .eq('id', requestId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Error recording repayment: ${error.message}`);
+  if (!data) throw new Error("Failed to record repayment, no data returned.");
+  return data as EmergencyRequest;
+}
+
 
 export function EmergencyRequestManagementTab() {
   const { toast } = useToast();
@@ -94,6 +135,18 @@ export function EmergencyRequestManagementTab() {
     },
   });
 
+  const recordRepaymentMutation = useMutation<EmergencyRequest, Error, RecordRepaymentPayload>({
+    mutationFn: recordRepayment,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
+      toast({ title: "Success", description: `Repayment of ${CURRENCY_SYMBOL}${data.amount_returned && data.amount_returned > (requests?.find(r=>r.id === data.id)?.amount_returned || 0) ? data.amount_returned - (requests?.find(r=>r.id === data.id)?.amount_returned || 0) : 'amount'} recorded.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error recording repayment", description: error.message, variant: "destructive" });
+    },
+  });
+
+
   const handleUpdateRequest = (requestId: string, status: 'approved' | 'rejected') => {
     if (!adminProfile?.id) {
       toast({ title: "Error", description: "Admin profile not found.", variant: "destructive"});
@@ -101,6 +154,15 @@ export function EmergencyRequestManagementTab() {
     }
     updateRequestMutation.mutate({ requestId, status, adminProfileId: adminProfile.id });
   };
+
+  const handleRecordRepayment = async (requestId: string, amountRepaid: number, repaymentDate: Date) => {
+    if (!adminProfile?.id) {
+      toast({ title: "Error", description: "Admin profile not found.", variant: "destructive" });
+      throw new Error("Admin profile not found");
+    }
+    await recordRepaymentMutation.mutateAsync({ requestId, amountRepaid, repaymentDate, adminProfileId: adminProfile.id });
+  };
+
 
   const filteredRequests = useMemo(() => {
     if (!requests || !users) return [];
@@ -110,7 +172,9 @@ export function EmergencyRequestManagementTab() {
       return (
         userName.toLowerCase().includes(searchTermLower) ||
         req.reason.toLowerCase().includes(searchTermLower) ||
-        req.status.toLowerCase().includes(searchTermLower)
+        req.status.toLowerCase().includes(searchTermLower) ||
+        (req.is_fully_repaid && "repaid".includes(searchTermLower)) ||
+        (!req.is_fully_repaid && req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && "overdue".includes(searchTermLower))
       );
     });
   }, [requests, users, searchTerm]);
@@ -149,7 +213,7 @@ export function EmergencyRequestManagementTab() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
         <Input 
           type="search"
-          placeholder="Search requests by user, reason, or status..."
+          placeholder="Search requests (user, reason, status, overdue, repaid)..."
           value={searchTerm}
           onChange={(e) => {
             setSearchTerm(e.target.value);
@@ -163,6 +227,7 @@ export function EmergencyRequestManagementTab() {
         users={users || []} 
         onApproveRequest={(requestId) => handleUpdateRequest(requestId, 'approved')} 
         onRejectRequest={(requestId) => handleUpdateRequest(requestId, 'rejected')} 
+        onRecordRepayment={handleRecordRepayment}
       />
       {totalPages > 1 && (
         <div className="flex items-center justify-end space-x-2 pt-4">

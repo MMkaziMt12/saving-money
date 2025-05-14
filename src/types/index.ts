@@ -20,7 +20,10 @@ export interface MonthlyContribution extends Tables<'monthly_contributions'> {
 export interface EmergencyRequest extends Tables<'emergency_requests'> {
    user_name?: string; // For display, populated by joining/mapping
    reviewed_by_admin_name?: string; // For display, populated by joining/mapping
-   return_date?: string | null; // Added for expected return date
+   return_date?: string | null; 
+   amount_returned?: number | null;
+   last_return_date?: string | null;
+   is_fully_repaid?: boolean | null;
 }
 
 
