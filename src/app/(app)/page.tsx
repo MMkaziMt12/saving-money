@@ -55,12 +55,13 @@ async function fetchEmergencyRequests(userId: string | null, isAdmin: boolean): 
 }
 
 async function fetchTotalFamilySavings(): Promise<number> {
-  const { data, error } = await supabase
-    .from("monthly_contributions")
-    .select("amount");
+  const { data, error } = await supabase.rpc('get_total_family_savings');
   
-  if (error) throw new Error(error.message);
-  return data?.reduce((sum, c) => sum + c.amount, 0) || 0;
+  if (error) {
+    console.error("Error fetching total family savings via RPC:", error);
+    throw new Error(error.message);
+  }
+  return data ?? 0; // RPC returns the number directly, or null if function returns null
 }
 
 
@@ -212,8 +213,8 @@ export default function DashboardPage() {
   });
 
   const { data: totalFamilySavings, isLoading: isLoadingTotalSavings } = useQuery<number, Error>({
-    queryKey: ["totalFamilySavings"],
-    queryFn: fetchTotalFamilySavings,
+    queryKey: ["totalFamilySavings"], // This key will be invalidated by admin contribution additions
+    queryFn: fetchTotalFamilySavings, // Uses the new RPC call
   });
   
   if (authLoading || (!profile && !authLoading) ) { 
