@@ -42,9 +42,9 @@ async function fetchEmergencyRequests(userId: string | null, isAdmin: boolean): 
   if (!isAdmin && userId) {
     query = query.eq("user_id", userId);
   } else if (!isAdmin && !userId) {
-    return []; 
+    return [];
   }
-  
+
   const { data: rawRequests, error } = await query;
   if (error) throw new Error(error.message);
 
@@ -56,12 +56,26 @@ async function fetchEmergencyRequests(userId: string | null, isAdmin: boolean): 
 
 async function fetchTotalFamilySavings(): Promise<number> {
   const { data, error } = await supabase.rpc('get_total_family_savings');
-  
+
   if (error) {
-    console.error("Error fetching total family savings via RPC:", error);
+    console.error("Error fetching total family savings via RPC:", error.message, error); // Log the full error object
     throw new Error(error.message);
   }
-  return data ?? 0; // RPC returns the number directly, or null if function returns null
+
+  // Log the raw data received from the RPC, even if it's null
+  console.log("RPC 'get_total_family_savings' raw data received:", data);
+
+  if (data === null || data === undefined) {
+    console.warn("RPC 'get_total_family_savings' returned null or undefined. Defaulting to 0.");
+    return 0;
+  }
+
+  const savings = Number(data);
+  if (isNaN(savings)) {
+    console.warn(`RPC 'get_total_family_savings' returned a non-numeric value: ${data}. Defaulting to 0.`);
+    return 0;
+  }
+  return savings;
 }
 
 
@@ -124,18 +138,18 @@ interface EmergencyRequestHistoryTableProps {
 function EmergencyRequestHistoryTable({ requests, isLoading, title, description, showUserName = false }: EmergencyRequestHistoryTableProps) {
     const getStatusBadgeVariant = (status: EmergencyRequest["status"]) => {
     switch (status) {
-      case "approved": return "success"; 
+      case "approved": return "success";
       case "rejected": return "destructive";
       case "pending": return "secondary";
       default: return "outline";
     }
   };
-  
+
   const getStatusIcon = (status: EmergencyRequest["status"]) => {
     switch (status) {
       case "approved": return <CheckCircle2 className="h-4 w-4 text-green-500" />;
       case "rejected": return <XCircle className="h-4 w-4 text-red-500" />;
-      case "pending": return <Clock className="h-4 w-4 text-yellow-500" />; 
+      case "pending": return <Clock className="h-4 w-4 text-yellow-500" />;
       default: return null;
     }
   }
@@ -203,21 +217,21 @@ export default function DashboardPage() {
   const { data: userContributions, isLoading: isLoadingContributions } = useQuery<MonthlyContribution[], Error>({
     queryKey: ["userContributions", user?.id],
     queryFn: () => fetchUserContributions(user!.id),
-    enabled: !!user, 
+    enabled: !!user,
   });
 
   const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests } = useQuery<EmergencyRequest[], Error>({
     queryKey: ["emergencyRequests", user?.id, isAdmin],
     queryFn: () => fetchEmergencyRequests(user?.id || null, isAdmin),
-    enabled: !!user, 
+    enabled: !!user,
   });
 
   const { data: totalFamilySavings, isLoading: isLoadingTotalSavings } = useQuery<number, Error>({
-    queryKey: ["totalFamilySavings"], // This key will be invalidated by admin contribution additions
-    queryFn: fetchTotalFamilySavings, // Uses the new RPC call
+    queryKey: ["totalFamilySavings"],
+    queryFn: fetchTotalFamilySavings,
   });
-  
-  if (authLoading || (!profile && !authLoading) ) { 
+
+  if (authLoading || (!profile && !authLoading) ) {
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -226,16 +240,16 @@ export default function DashboardPage() {
     );
   }
 
-  if (!user || !profile) { 
+  if (!user || !profile) {
      return (
         <div className="flex items-center justify-center h-full py-10">
           <p>Error: User or profile data not available. Please re-login.</p>
         </div>
      );
   }
-  
+
   const totalPaidByUser = userContributions?.reduce((sum, c) => sum + c.amount, 0) || 0;
-  
+
   let monthsSinceJoined = 0;
   let pendingAmountValue = 0;
   let paymentDifferenceMonths = 0;
@@ -298,15 +312,15 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
-        <StatCard 
-          title="My Total Contributions" 
+        <StatCard
+          title="My Total Contributions"
           value={isLoadingContributions ? "Loading..." : totalPaidByUser }
           icon={DollarSign}
           description={isLoadingContributions ? "Fetching..." : "Total amount you've contributed."}
           iconClassName="text-green-500"
         />
-        <StatCard 
-          title="Contribution Status" 
+        <StatCard
+          title="Contribution Status"
           value={isLoadingContributions ? "Loading..." : (paymentDifferenceMonths > 0 ? `${paymentDifferenceMonths} Adv. Mths` : pendingAmountValue)}
           icon={pendingStatusIcon}
           valuePrefix={paymentDifferenceMonths > 0 ? "" : CURRENCY_SYMBOL}
@@ -314,14 +328,14 @@ export default function DashboardPage() {
           iconClassName={pendingAmountColorClass}
           valueClassName={pendingAmountColorClass}
         />
-         <StatCard 
-          title="Total Family Savings" 
+         <StatCard
+          title="Total Family Savings"
           value={isLoadingTotalSavings ? "Loading..." : (totalFamilySavings ?? 0)}
           icon={BarChart3}
           description="Combined savings of all family members."
         />
       </div>
-      
+
       {!isAdmin && (
         <div className="mb-8">
           <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-md">
@@ -331,7 +345,7 @@ export default function DashboardPage() {
           </Button>
         </div>
       )}
-      
+
       {isAdmin && (
         <div className="mb-8">
            <Button asChild size="lg" className="ml-0 shadow-md">
@@ -344,15 +358,14 @@ export default function DashboardPage() {
 
       <div className="grid gap-8 lg:grid-cols-1">
         <PaymentHistoryTable contributions={userContributions} isLoading={isLoadingContributions} />
-        <EmergencyRequestHistoryTable 
-          requests={emergencyRequests} 
+        <EmergencyRequestHistoryTable
+          requests={emergencyRequests}
           isLoading={isLoadingEmergencyRequests}
           title={isAdmin ? "All Family Emergency Requests" : "My Emergency Request History"}
           description={isAdmin ? "Track the status of all emergency fund requests." : "Overview of your submitted emergency fund requests."}
-          showUserName={isAdmin} 
+          showUserName={isAdmin}
         />
       </div>
     </div>
   );
 }
-
