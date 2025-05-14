@@ -23,7 +23,7 @@ export function UserManagementTab() {
       .from('profiles')
       .select('*')
       .order('created_at', { ascending: false });
-
+    console.log(data,"user Data list");
     if (error) {
       toast({ title: "Error fetching users", description: error.message, variant: "destructive" });
       setUsers([]);
