@@ -202,7 +202,7 @@ export default function DashboardPage() {
   const { data: userContributions, isLoading: isLoadingContributions } = useQuery<MonthlyContribution[], Error>({
     queryKey: ["userContributions", user?.id],
     queryFn: () => fetchUserContributions(user!.id),
-    enabled: !!user && !isAdmin, // Only fetch for non-admins who are logged in
+    enabled: !!user, // Fetch for any logged-in user (admin or regular)
   });
 
   const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests } = useQuery<EmergencyRequest[], Error>({
@@ -216,7 +216,7 @@ export default function DashboardPage() {
     queryFn: fetchTotalFamilySavings,
   });
   
-  if (authLoading || (!profile && !authLoading) ) { // Added check for profile ensures it's loaded too
+  if (authLoading || (!profile && !authLoading) ) { 
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -225,7 +225,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (!user || !profile) { // Should be caught by layout, but as a safeguard
+  if (!user || !profile) { 
      return (
         <div className="flex items-center justify-center h-full py-10">
           <p>Error: User or profile data not available. Please re-login.</p>
@@ -234,7 +234,6 @@ export default function DashboardPage() {
   }
   
   const totalPaidByUser = userContributions?.reduce((sum, c) => sum + c.amount, 0) || 0;
-  // Use created_at from profile if joined_at is not available or reliable
   const accountCreationDate = profile.created_at ? parseISO(profile.created_at) : new Date();
   const monthsJoined = Math.max(1, Math.floor((Date.now() - accountCreationDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
   const totalExpected = monthsJoined * MONTHLY_CONTRIBUTION_AMOUNT;
@@ -251,17 +250,20 @@ export default function DashboardPage() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard 
           title="My Total Contributions" 
-          value={isLoadingContributions && !isAdmin ? "Loading..." : (isAdmin ? "N/A for Admin" : totalPaidByUser) }
+          value={isLoadingContributions ? "Loading..." : totalPaidByUser }
           icon={DollarSign}
-          description={isAdmin ? "Admin view" : (isLoadingContributions ? "Fetching..." : "You've contributed consistently.")}
+          description={isLoadingContributions ? "Fetching..." : (isAdmin ? "Your personal contributions." : "You've contributed consistently.")}
           iconClassName="text-green-500"
         />
         <StatCard 
           title="Pending Amount" 
-          value={isLoadingContributions && !isAdmin ? "Loading..." : (isAdmin ? "N/A for Admin" : pendingAmount)}
+          value={isLoadingContributions ? "Loading..." : pendingAmount}
           icon={AlertTriangle}
-          description={isAdmin ? "Admin view" : (isLoadingContributions ? "Fetching..." : (pendingAmount > 0 ? `Keep up with your contributions!` : "All caught up!"))}
-          iconClassName={pendingAmount > 0 && !isAdmin ? "text-orange-500" : "text-green-500"}
+          description={isLoadingContributions ? "Fetching..." : 
+            (isAdmin ? (pendingAmount > 0 ? `Your pending contributions.` : "All caught up with your payments!") : 
+                       (pendingAmount > 0 ? `Keep up with your contributions!` : "All caught up!"))
+          }
+          iconClassName={pendingAmount > 0 ? "text-orange-500" : "text-green-500"}
         />
          <StatCard 
           title="Total Family Savings" 
@@ -292,7 +294,7 @@ export default function DashboardPage() {
       )}
 
       <div className="grid gap-8 lg:grid-cols-1">
-        {!isAdmin && <PaymentHistoryTable contributions={userContributions} isLoading={isLoadingContributions} />}
+        <PaymentHistoryTable contributions={userContributions} isLoading={isLoadingContributions} />
         <EmergencyRequestHistoryTable 
           requests={emergencyRequests} 
           isLoading={isLoadingEmergencyRequests}
