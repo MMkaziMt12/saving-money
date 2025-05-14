@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 const emergencyRequestSchema = z.object({
   amount: z.coerce.number().min(1, "Amount must be greater than 0"),
   reason: z.string().min(10, "Reason must be at least 10 characters long").max(500, "Reason cannot exceed 500 characters"),
-  return_date: z.date().optional().nullable(),
+  return_date: z.date({ required_error: "An expected return date is required." }),
 });
 
 type EmergencyRequestFormValues = z.infer<typeof emergencyRequestSchema>;
@@ -63,7 +63,7 @@ export default function EmergencyRequestPage() {
     defaultValues: {
       amount: 0,
       reason: "",
-      return_date: null,
+      return_date: null, // Zod will enforce selection if required_error is set
     },
   });
 
@@ -83,7 +83,7 @@ export default function EmergencyRequestPage() {
       user_id: user.id,
       amount_requested: data.amount,
       reason: data.reason,
-      return_date: data.return_date ? data.return_date.toISOString() : null,
+      return_date: data.return_date.toISOString(), // Now always a date
       status: 'pending', 
       requested_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -224,7 +224,7 @@ export default function EmergencyRequestPage() {
                 name="return_date"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>Expected Return Date (Optional)</FormLabel>
+                    <FormLabel>Expected Return Date</FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
                         <FormControl>
@@ -278,3 +278,4 @@ export default function EmergencyRequestPage() {
     </div>
   );
 }
+
