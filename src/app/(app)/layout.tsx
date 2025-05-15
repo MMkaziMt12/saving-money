@@ -90,7 +90,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       {!isMobile && <AppSidebar isCollapsed={isDesktopSidebarCollapsed} />}
       <div className={cn(
           "flex flex-col flex-1 transition-all duration-300 ease-in-out print:p-0",
-           mainContentPadding
         )}>
         <Header isMobile={isMobile} onMenuClick={!isMobile ? toggleDesktopSidebar : undefined}/>
         <main className="flex-1 p-4 sm:px-6 sm:py-6 md:gap-8 overflow-auto print:overflow-visible">

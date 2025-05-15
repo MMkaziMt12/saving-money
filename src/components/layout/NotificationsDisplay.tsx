@@ -333,13 +333,13 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
 
     const itemBaseStyle = "flex flex-col items-start gap-1 p-2 rounded-sm w-full text-left relative";
     // Ensure unread style has enough contrast and noticeability
-    const unreadSpecificStyle = isUnread ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/50";
+    const unreadSpecificStyle = isUnread ? "bg-primary/90 ring-1 ring-primary/30" : "hover:bg-muted/50";
 
     const content = (
         <div className={cn(itemBaseStyle, unreadSpecificStyle)}>
            {isUnread && <span className="absolute left-1 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-primary"></span>}
-            <p className={cn("text-sm leading-snug ml-3", isUnread ? "font-medium text-primary-foreground" : "text-foreground")}>{notification.message}</p>
-            <div className="flex justify-between w-full ml-3">
+            <p className={cn("text-sm leading-snug ", isUnread ? "font-medium text-primary-foreground" : "text-foreground")}>{notification.message}</p>
+            <div className="flex justify-between w-full">
                 <span className={cn("text-xs", isUnread ? "text-primary-foreground/70" : "text-muted-foreground")}>{timeAgo}</span>
                 {notification.link && (
                     <ExternalLink className={cn("h-3 w-3", isUnread ? "text-primary-foreground/70" : "text-muted-foreground")} />

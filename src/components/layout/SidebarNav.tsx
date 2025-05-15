@@ -77,15 +77,15 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
                     }),
                     "justify-start gap-3 group h-10 font-medium",
                     isActive
-                      ? "bg-[hsl(var(--sidebar-active-background))] text-[hsl(var(--sidebar-active-foreground))] hover:bg-[hsl(var(--sidebar-active-background))] hover:text-[hsl(var(--sidebar-active-foreground))]"
+                      ? "bg-[var(--sidebar-active-background)] text-[var(--sidebar-active-foreground)] hover:bg-[var(--sidebar-active-background)] hover:text-[var(--sidebar-active-foreground)]"
                       : "text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover-background))] hover:text-[hsl(var(--sidebar-foreground))]",
-                    isCollapsed ? "w-10 rounded-md" : "rounded-md px-3"
+                    isCollapsed ? "w-10 rounded-md justify-center" : "rounded-md px-3"
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
                   <item.icon className={cn(
                       "h-5 w-5 shrink-0 transition-colors",
-                      isActive ? "text-[hsl(var(--sidebar-active-foreground))]" : "text-[hsl(var(--sidebar-muted-foreground))] group-hover:text-[hsl(var(--sidebar-foreground))]"
+                      isActive ? "text-[var(--sidebar-active-foreground)]" : "text-[hsl(var(--sidebar-muted-foreground))] group-hover:text-[hsl(var(--sidebar-foreground))]"
                     )} />
                   {!isCollapsed && <span className="truncate">{item.label}</span>}
                 </Link>
