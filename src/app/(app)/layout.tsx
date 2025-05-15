@@ -5,44 +5,27 @@ import type { ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Header } from "@/components/layout/Header";
-import { AppSidebar } from "@/components/layout/AppSidebar";
+import { SidebarNav } from "@/components/layout/SidebarNav";
 import { useAuth } from "@/contexts/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const checkMobile = () => setIsMobile(window.innerWidth < 768); // md breakpoint
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-  return isMobile;
-}
+import { Loader2, Building2 } from "lucide-react";
+import { 
+  SidebarProvider, 
+  Sidebar, 
+  SidebarHeader, 
+  SidebarContent, 
+  SidebarFooter, // Optional, if you need a footer
+  SidebarInset 
+} from "@/components/ui/sidebar";
+import { APP_NAME } from "@/lib/constants";
+import Link from "next/link";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, profile, isLoading: authIsLoading, isApproved } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const isMobile = useIsMobile();
-  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
-
-  useEffect(() => {
-    const storedState = localStorage.getItem("desktop_sidebar_collapsed_state");
-    if (storedState !== null) {
-      setIsDesktopSidebarCollapsed(JSON.parse(storedState));
-    }
-  }, []);
-
-  const toggleDesktopSidebar = () => {
-    const newState = !isDesktopSidebarCollapsed;
-    setIsDesktopSidebarCollapsed(newState);
-    localStorage.setItem("desktop_sidebar_collapsed_state", JSON.stringify(newState));
-  };
 
   useEffect(() => {
     if (!authIsLoading) {
@@ -58,7 +41,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     let timer: NodeJS.Timeout;
     if (pathname && !authIsLoading) {
       setIsTransitioning(true);
-      timer = setTimeout(() => setIsTransitioning(false), 300); // Simulate load time
+      timer = setTimeout(() => setIsTransitioning(false), 300); 
     }
     return () => clearTimeout(timer);
   }, [pathname, authIsLoading]);
@@ -83,25 +66,34 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  const mainContentPadding = isMobile ? "pl-0" : (isDesktopSidebarCollapsed ? "md:pl-16" : "md:pl-60");
-
   return (
-    <div className="flex min-h-screen w-full flex-row bg-muted/40 print:bg-white">
-      {!isMobile && <AppSidebar isCollapsed={isDesktopSidebarCollapsed} />}
-      <div className={cn(
-          "flex flex-col flex-1 transition-all duration-300 ease-in-out print:p-0",
-        )}>
-        <Header isMobile={isMobile} onMenuClick={!isMobile ? toggleDesktopSidebar : undefined}/>
-        <main className="flex-1 p-4 sm:px-6 sm:py-6 md:gap-8 overflow-auto print:overflow-visible">
-          {isTransitioning && !authIsLoading ? (
-            <div className="flex items-center justify-center h-full print:hidden">
-              <Loader2 className="h-10 w-10 animate-spin text-primary" />
-            </div>
-          ) : (
-            children
-          )}
-        </main>
-      </div>
-    </div>
+    <SidebarProvider defaultOpen={true}> {/* Manages open/collapsed state */}
+      <Sidebar> {/* Sidebar component from ui/sidebar */}
+        <SidebarHeader>
+          <Link href="/" className="flex items-center gap-2 font-bold text-lg text-[hsl(var(--sidebar-active-background))] group-data-[state=expanded]/sidebar:ml-2 group-data-[state=collapsed]/sidebar:justify-center">
+            <Building2 className="h-6 w-6 shrink-0" />
+            <span className="group-data-[state=expanded]/sidebar:inline group-data-[state=collapsed]/sidebar:hidden">{APP_NAME}</span>
+          </Link>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarNav /> {/* SidebarNav will use SidebarMenu, SidebarMenuItem */}
+        </SidebarContent>
+        {/* <SidebarFooter>Optional Footer Content</SidebarFooter> */}
+      </Sidebar>
+      <SidebarInset> {/* Wraps the main content area */}
+        <div className={cn("flex flex-col flex-1 transition-all duration-300 ease-in-out print:p-0")}>
+          <Header />
+          <main className="flex-1 p-4 sm:px-6 sm:py-6 md:gap-8 overflow-auto print:overflow-visible">
+            {isTransitioning && !authIsLoading ? (
+              <div className="flex items-center justify-center h-full print:hidden">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+              </div>
+            ) : (
+              children
+            )}
+          </main>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

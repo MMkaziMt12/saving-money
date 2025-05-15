@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -45,55 +46,67 @@ body {
     --chart-5: 27 87% 67%;
 
     /* Sidebar specific colors */
-    --sidebar-background: 220 20% 20%; /* Darker, slightly desaturated blue/gray - original: 220 15% 15%; */
-    --sidebar-foreground: 210 17% 88%; /* Light gray text - original: 210 17% 85%; */
+    --sidebar-background: 220 20% 20%; /* Darker, slightly desaturated blue/gray */
+    --sidebar-foreground: 210 17% 88%; /* Light gray text */
     --sidebar-muted-foreground: 210 15% 65%; /* For less prominent icons/text */
-    --sidebar-border: 220 15% 28%; /* Border for sidebar elements - original: 220 15% 25%; */
-    --sidebar-hover-background: 220 18% 25%; /* Slightly lighter for hover */
-    --sidebar-active-background: hsl(var(--primary)); /* Use primary for active */
-    --sidebar-active-foreground: hsl(var(--primary-foreground));
+    --sidebar-border: 220 15% 28%; /* Border for sidebar elements */
+    
+    /* Variables expected by ui/sidebar.tsx */
+    --sidebar-hover-background: 220 18% 25%; /* Slightly lighter for hover - used by AppSidebar previously */
+    --sidebar-active-background: hsl(var(--primary)); /* Use main theme primary for active links */
+    --sidebar-active-foreground: hsl(var(--primary-foreground)); /* Text color for active links */
+    
+    --sidebar-accent: hsl(var(--sidebar-hover-background)); /* Map to hover for ui/sidebar button hover */
+    --sidebar-accent-foreground: hsl(var(--sidebar-foreground)); /* Text for sidebar accent hover */
+    --sidebar-ring: hsl(var(--primary)); /* Ring color for focus, maps to main primary */
   }
 
   .dark {
-    --background: 210 25% 10%;  /* Slightly darker - original: 210 25% 12%; */
-    --foreground: 210 17% 92%; /* Slightly brighter - original: 210 17% 90%; */
+    --background: 210 25% 10%;  
+    --foreground: 210 17% 92%; 
 
-    --card: 210 25% 13%; /* original: 210 25% 15%; */
-    --card-foreground: 210 17% 92%; /* original: 210 17% 90%; */
+    --card: 210 25% 13%; 
+    --card-foreground: 210 17% 92%; 
 
-    --popover: 210 25% 13%; /* original: 210 25% 15%; */
-    --popover-foreground: 210 17% 92%; /* original: 210 17% 90%; */
+    --popover: 210 25% 13%; 
+    --popover-foreground: 210 17% 92%; 
 
-    --primary: 207 75% 60%; /* Slightly brighter blue for dark mode - original: 207 68% 53%; */
-    --primary-foreground: 210 20% 98%; /* Near white for better contrast - original: 0 0% 100%; */
+    --primary: 207 75% 60%; 
+    --primary-foreground: 210 20% 98%; 
 
-    --secondary: 210 20% 22%; /* original: 210 20% 25%; */
-    --secondary-foreground: 210 17% 92%; /* original: 210 17% 90%; */
+    --secondary: 210 20% 22%; 
+    --secondary-foreground: 210 17% 92%; 
 
-    --muted: 210 20% 18%; /* original: 210 20% 22%; */
-    --muted-foreground: 210 14% 70%;  /* Brighter muted text - original: 210 14% 65%; */
+    --muted: 210 20% 18%; 
+    --muted-foreground: 210 14% 70%;  
 
-    --accent: 145 55% 55%; /* Slightly less saturated green for dark mode - original: 145 63% 49%; */
-    --accent-foreground: 0 0% 100%; /* original: 0 0% 100%; */
+    --accent: 145 55% 55%; 
+    --accent-foreground: 0 0% 100%; 
 
-    --destructive: 0 70% 50%; /* Slightly less intense red - original: 0 62.8% 30.6%; */
+    --destructive: 0 70% 50%; 
     --destructive-foreground: 0 0% 98%;
 
-    --border: 210 20% 25%;  /* original: 210 20% 30%; */
-    --input: 210 20% 25%;   /* original: 210 20% 30%; */
-    --ring: 207 75% 60%;    /* Brighter primary for rings - original: 207 68% 53%; */
+    --border: 210 20% 25%;  
+    --input: 210 20% 25%;   
+    --ring: 207 75% 60%;    
     
     --chart-1: hsl(var(--primary));
     --chart-2: hsl(var(--accent));
 
     /* Sidebar specific colors for dark mode */
-    --sidebar-background: 220 18% 12%; /* Darker, slightly less blue - original: 220 15% 10%;  */
+    --sidebar-background: 220 18% 12%; 
     --sidebar-foreground: 210 17% 90%; 
     --sidebar-muted-foreground: 210 15% 60%;
-    --sidebar-border: 220 15% 18%; /* original: 220 15% 20%;  */
+    --sidebar-border: 220 15% 18%; 
+    
+    /* Variables expected by ui/sidebar.tsx - dark mode */
     --sidebar-hover-background: 220 18% 17%;
-    --sidebar-active-background: hsl(var(--primary)); /* Use primary (dark mode adjusted) for active */
+    --sidebar-active-background: hsl(var(--primary)); 
     --sidebar-active-foreground: hsl(var(--primary-foreground));
+
+    --sidebar-accent: hsl(var(--sidebar-hover-background));
+    --sidebar-accent-foreground: hsl(var(--sidebar-foreground));
+    --sidebar-ring: hsl(var(--primary));
   }
 }
 
