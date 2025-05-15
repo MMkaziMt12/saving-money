@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sidebar";
 import { APP_NAME } from "@/lib/constants";
 import Link from "next/link";
+import { Separator } from "@/components/ui/separator";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, profile, isLoading: authIsLoading, isApproved } = useAuth();
@@ -68,13 +69,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen={true}> {/* Manages open/collapsed state */}
-      <Sidebar> {/* Sidebar component from ui/sidebar */}
+      <Sidebar className="p-2"> {/* Sidebar component from ui/sidebar */}
         <SidebarHeader>
           <Link href="/" className="flex items-center gap-2 font-bold text-lg text-[hsl(var(--sidebar-active-background))] group-data-[state=expanded]/sidebar:ml-2 group-data-[state=collapsed]/sidebar:justify-center">
             <Building2 className="h-6 w-6 shrink-0" />
             <span className="group-data-[state=expanded]/sidebar:inline group-data-[state=collapsed]/sidebar:hidden">{APP_NAME}</span>
           </Link>
         </SidebarHeader>
+        <Separator/>
         <SidebarContent>
           <SidebarNav /> {/* SidebarNav will use SidebarMenu, SidebarMenuItem */}
         </SidebarContent>

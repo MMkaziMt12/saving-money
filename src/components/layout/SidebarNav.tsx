@@ -64,7 +64,6 @@ export function SidebarNav() {
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
               asChild
-              isActive={isActive}
               tooltip={{ children: item.label, side: "right", align: "center" }}
               className={cn(
                 "justify-start gap-3 group/menu-item h-10 font-medium",
