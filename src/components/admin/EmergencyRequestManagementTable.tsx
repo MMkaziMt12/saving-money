@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { EmergencyRequest, Profile } from "@/types";
@@ -86,10 +85,9 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
 
     try {
       await onRecordRepayment(selectedRequestForRepayment.id, data.amountRepaid, data.repaymentDate);
-      setSelectedRequestForRepayment(null); // Close dialog
+      setSelectedRequestForRepayment(null); 
       repaymentForm.reset({ amountRepaid: 0, repaymentDate: new Date() });
     } catch (error) {
-      // Error toast is handled by the mutation in the parent tab
       console.error("Repayment submission error", error);
     }
   };
@@ -114,13 +112,14 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
 
   return (
     <>
+    <div className="overflow-x-auto rounded-md border">
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>User</TableHead>
-          <TableHead>Requested</TableHead>
+          <TableHead className="hidden sm:table-cell">Requested</TableHead>
           <TableHead>Reason</TableHead>
-          <TableHead>Exp. Return</TableHead>
+          <TableHead className="hidden md:table-cell">Exp. Return</TableHead>
           <TableHead className="text-right">Amt. Req.</TableHead>
           <TableHead className="text-right">Amt. Ret.</TableHead>
           <TableHead className="text-center">Status</TableHead>
@@ -138,9 +137,9 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
           requests.map((request) => (
             <TableRow key={request.id}>
               <TableCell className="font-medium">{getUserName(request.user_id)}</TableCell>
-              <TableCell>{format(parseISO(request.requested_at), "MMM dd, yy")}</TableCell>
-              <TableCell className="max-w-[200px] truncate">{request.reason}</TableCell>
-              <TableCell>
+              <TableCell className="hidden sm:table-cell">{format(parseISO(request.requested_at), "MMM dd, yy")}</TableCell>
+              <TableCell className="max-w-[150px] sm:max-w-[200px] truncate">{request.reason}</TableCell>
+              <TableCell className="hidden md:table-cell">
                 {request.return_date ? format(parseISO(request.return_date), "MMM dd, yy") : <span className="text-xs text-muted-foreground">N/A</span>}
               </TableCell>
               <TableCell className="text-right">{CURRENCY_SYMBOL}{request.amount_requested.toLocaleString()}</TableCell>
@@ -194,7 +193,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                   {selectedRequestForView && ( // VIEW DIALOG
+                   {selectedRequestForView && ( 
                     <DialogContent className="sm:max-w-lg">
                       <DialogHeader>
                         <DialogTitle>Emergency Request Details</DialogTitle>
@@ -261,7 +260,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                       </DialogFooter>
                     </DialogContent>
                   )}
-                  {selectedRequestForRepayment && ( // REPAYMENT DIALOG
+                  {selectedRequestForRepayment && ( 
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
                         <DialogTitle>Record Repayment</DialogTitle>
@@ -343,6 +342,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
         )}
       </TableBody>
     </Table>
+    </div>
     </>
   );
 }

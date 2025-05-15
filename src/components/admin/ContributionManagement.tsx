@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { MonthlyContribution, Profile } from "@/types";
@@ -34,7 +33,6 @@ const addContributionSchema = z.object({
   message: `Total amount received must be exactly ${CURRENCY_SYMBOL}${MONTHLY_CONTRIBUTION_AMOUNT} multiplied by the number of months.`,
   path: ["totalAmountReceived"],
 });
-
 
 export type AddContributionFormValues = z.infer<typeof addContributionSchema>;
 
@@ -79,13 +77,9 @@ export function ContributionManagement({ users, contributions, onAddContribution
                 form.setValue("numberOfMonths", calculatedMonths, { shouldValidate: true });
             }
         }
-      } else if (form.getValues("numberOfMonths") !== 1 && form.formState.dirtyFields.totalAmountReceived) {
-        // If total amount is not a multiple, and it was manually changed, reset months to 1 or clear it
-        // This part might need refinement based on desired UX. For now, let's just let validation handle it.
       }
     }
   }, [watchedTotalAmount, form]);
-
 
   async function onSubmit(data: AddContributionFormValues) {
     setIsSubmitting(true);
@@ -129,7 +123,6 @@ export function ContributionManagement({ users, contributions, onAddContribution
 
   const totalContributionPages = Math.ceil(filteredContributions.length / ITEMS_PER_PAGE_CONTRIBUTIONS);
 
-
   return (
     <div className="grid md:grid-cols-3 gap-6">
       <Card className="md:col-span-1 shadow-lg">
@@ -162,7 +155,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
               {form.formState.errors.userId && <p className="text-sm font-medium text-destructive">{form.formState.errors.userId.message}</p>}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="totalAmountReceived">Total Amount Received ({CURRENCY_SYMBOL})</Label>
                 <Input id="totalAmountReceived" type="number" {...form.register("totalAmountReceived")} disabled={isSubmitting} />
@@ -174,7 +167,6 @@ export function ContributionManagement({ users, contributions, onAddContribution
                 {form.formState.errors.numberOfMonths && <p className="text-sm font-medium text-destructive">{form.formState.errors.numberOfMonths.message}</p>}
               </div>
             </div>
-
 
             <div>
               <Label htmlFor="paymentDate">Payment Date</Label>
@@ -211,7 +203,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
               {form.formState.errors.paymentDate && <p className="text-sm font-medium text-destructive">{form.formState.errors.paymentDate.message}</p>}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="month">Starting Month</Label>
                 <Controller
@@ -271,10 +263,10 @@ export function ContributionManagement({ users, contributions, onAddContribution
                 setContributionSearchTerm(e.target.value);
                 setCurrentContributionPage(1);
               }}
-              className="pl-10 w-full"
+              className="pl-10 w-full md:w-2/3 lg:w-1/2"
             />
           </div>
-          <div className="max-h-[500px] overflow-y-auto">
+          <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -282,7 +274,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
                   <TableHead>Payment Date</TableHead>
                   <TableHead>Contribution For (Month/Year)</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Recorded By</TableHead>
+                  <TableHead className="hidden sm:table-cell">Recorded By</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -292,7 +284,7 @@ export function ContributionManagement({ users, contributions, onAddContribution
                     <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
                     <TableCell>{format(new Date(c.year, c.month -1), "MMMM yyyy")}</TableCell>
                     <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                    <TableCell>{c.recorded_by_admin_name || 'Admin'}</TableCell>
+                    <TableCell className="hidden sm:table-cell">{c.recorded_by_admin_name || 'Admin'}</TableCell>
                   </TableRow>
                 ))}
                 {paginatedContributions.length === 0 && (

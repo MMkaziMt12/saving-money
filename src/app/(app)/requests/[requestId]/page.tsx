@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -11,12 +10,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, User, Mail, Phone, Shield, CalendarDays, MessageSquare, ArrowLeft, AlertTriangle, DollarSign, Info, ListChecks, Hash } from "lucide-react";
+import { Loader2, User, Mail, Phone, Shield, CalendarDays, MessageSquare, ArrowLeft, AlertTriangle, DollarSign, Info, ListChecks, Hash, ExternalLink } from "lucide-react";
 import { format, parseISO, formatDistanceToNowStrict, isPast } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import type { VariantProps } from "class-variance-authority"; // Correct import for VariantProps
+import { useEffect } from "react";
 
 const supabase = createClient();
 
@@ -62,10 +63,10 @@ interface InfoItemProps {
 function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
   return (
     <div className="flex items-start py-3 border-b border-muted last:border-b-0">
-      <Icon className="h-5 w-5 text-muted-foreground mr-4 mt-1 shrink-0" />
+      <Icon className="h-5 w-5 text-muted-foreground mr-3 sm:mr-4 mt-1 shrink-0" />
       <div className="flex-1">
-        <span className="font-medium text-foreground/80 block mb-0.5">{label}:</span>
-        <span className={cn("text-foreground break-words", valueClass)}>{value}</span>
+        <span className="font-medium text-foreground/80 block mb-0.5 text-xs sm:text-sm">{label}:</span>
+        <span className={cn("text-foreground break-words text-sm sm:text-base", valueClass)}>{value}</span>
       </div>
     </div>
   );
@@ -73,8 +74,8 @@ function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
 
 const getStatusBadgeVariant = (request: EmergencyRequest | null): VariantProps<typeof Badge>["variant"] => {
     if (!request) return "outline";
-    if (request.is_fully_repaid) return "success";
-    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date))) return "destructive";
+    if (request.is_fully_repaid) return "success"; // Use success variant from badgeVariants
+    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive";
     if (request.status === "approved") return "default"; 
     if (request.status === "rejected") return "destructive";
     if (request.status === "pending") return "secondary"; 
@@ -85,12 +86,11 @@ const getStatusBadgeVariant = (request: EmergencyRequest | null): VariantProps<t
     if (!request) return "Unknown";
     if (request.is_fully_repaid) return "Fully Repaid";
     if (request.status === 'approved') {
-       if (request.return_date && isPast(parseISO(request.return_date))) return "Overdue";
+       if (request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "Overdue";
        return "Outstanding";
     }
     return request.status;
   }
-
 
 export default function EmergencyRequestDetailPage() {
   const params = useParams();
@@ -124,7 +124,7 @@ export default function EmergencyRequestDetailPage() {
     return (names[0][0]?.toUpperCase() || "") + (names[names.length - 1][0]?.toUpperCase() || "");
   };
 
-  if (authLoading || isLoadingRequest || isLoadingNotifications && (!requestDetails || !notifications)) {
+  if (authLoading || (isLoadingRequest && !requestDetails) || (isLoadingNotifications && !notifications)) { // Adjusted loading condition
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -135,7 +135,7 @@ export default function EmergencyRequestDetailPage() {
 
   if (requestError || notificationsError) {
     return (
-      <div className="flex flex-col items-center justify-center h-full py-10">
+      <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <p className="text-destructive mb-2">Error loading request details.</p>
         <p className="text-sm text-muted-foreground mb-4">
@@ -150,7 +150,7 @@ export default function EmergencyRequestDetailPage() {
 
   if (!requestDetails) {
     return (
-      <div className="flex flex-col items-center justify-center h-full py-10">
+      <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <ListChecks className="h-12 w-12 text-muted-foreground mb-4" />
         <p className="text-muted-foreground mb-4">Emergency request not found.</p>
         <Button onClick={() => router.back()} variant="outline">
@@ -178,24 +178,24 @@ export default function EmergencyRequestDetailPage() {
 
       <Card className="shadow-xl">
         <CardHeader className="border-b pb-4">
-          <div className="flex flex-col md:flex-row items-start gap-6">
+          <div className="flex flex-col md:flex-row items-start gap-4 md:gap-6">
             {requesterProfile && (
-                 <Avatar className="h-24 w-24 border-2 border-primary/30 shadow-sm">
+                 <Avatar className="h-20 w-20 md:h-24 md:w-24 border-2 border-primary/30 shadow-sm">
                     <AvatarImage src={requesterProfile.avatar_url || undefined} alt={requesterProfile.full_name || "User"} data-ai-hint="person profile" />
-                    <AvatarFallback className="text-3xl">{getInitials(requesterProfile.full_name)}</AvatarFallback>
+                    <AvatarFallback className="text-2xl md:text-3xl">{getInitials(requesterProfile.full_name)}</AvatarFallback>
                 </Avatar>
             )}
             <div className="flex-1">
-              <CardTitle className="text-2xl font-bold mb-1">Emergency Request Details</CardTitle>
-              <CardDescription className="text-md text-muted-foreground">
+              <CardTitle className="text-xl md:text-2xl font-bold mb-1">Emergency Request Details</CardTitle>
+              <CardDescription className="text-sm md:text-md text-muted-foreground">
                 Submitted by: <span className="font-semibold text-primary">{requesterProfile?.full_name || "Unknown User"}</span>
               </CardDescription>
               <div className="mt-3">
                  <Badge 
                     variant={statusBadgeVariant}
-                    className={cn("capitalize text-sm px-3 py-1",
+                    className={cn("capitalize text-xs sm:text-sm px-3 py-1",
                         {'bg-yellow-500 hover:bg-yellow-600 text-white': statusText === 'pending'},
-                        {'bg-green-500 hover:bg-green-600 text-white': statusText === 'Approved' || statusText === 'Outstanding'},
+                        {'bg-green-500 hover:bg-green-600 text-white': (statusText === 'Approved' || statusText === 'Outstanding') && !(requestDetails.return_date && isPast(parseISO(requestDetails.return_date)) && !requestDetails.is_fully_repaid) },
                         {'bg-green-600 hover:bg-green-700 text-white': statusText === 'Fully Repaid'},
                         {'bg-red-500 hover:bg-red-600 text-white': statusText === 'Rejected' || statusText === 'Overdue' }
                     )}
@@ -206,7 +206,7 @@ export default function EmergencyRequestDetailPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="pt-6 grid md:grid-cols-2 gap-x-8 gap-y-0">
+        <CardContent className="pt-6 grid md:grid-cols-2 gap-x-6 gap-y-0">
             <InfoItem icon={Hash} label="Request ID" value={requestDetails.id.substring(0,8)} />
             <InfoItem icon={User} label="Requested By" value={requesterProfile?.full_name || "N/A"} />
             <InfoItem icon={DollarSign} label="Amount Requested" value={`${CURRENCY_SYMBOL}${requestDetails.amount_requested.toLocaleString()}`} valueClass="font-semibold text-primary" />
@@ -231,7 +231,7 @@ export default function EmergencyRequestDetailPage() {
           {isLoadingNotifications ? (
             <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
           ) : notifications && notifications.length > 0 ? (
-            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2 rounded-md border p-3">
               {notifications.map(notification => (
                 <div key={notification.id} className={cn("p-3 rounded-md border", notification.read_at ? "bg-card hover:bg-muted/30" : "bg-primary/10 border-primary/30")}>
                   <p className={cn("text-sm", !notification.read_at && "font-semibold")}>{notification.message}</p>
@@ -239,9 +239,9 @@ export default function EmergencyRequestDetailPage() {
                     Sent: {formatDistanceToNowStrict(parseISO(notification.created_at!), { addSuffix: true })}
                     {notification.read_at && ` | Read: ${formatDistanceToNowStrict(parseISO(notification.read_at), { addSuffix: true })}`}
                   </p>
-                  {notification.link && notification.link !== `/requests/${requestId}` && ( // Don't show link if it just points to current page
-                     <Link href={notification.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-1 inline-block">
-                        View Details
+                  {notification.link && notification.link !== `/requests/${requestId}` && (
+                     <Link href={notification.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-1 inline-flex items-center gap-1">
+                        View Context <ExternalLink className="h-3 w-3"/>
                     </Link>
                   )}
                 </div>

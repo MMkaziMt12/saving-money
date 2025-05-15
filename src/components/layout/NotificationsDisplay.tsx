@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
@@ -8,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Bell, CheckCheck, Loader2 } from "lucide-react";
+import { Bell, CheckCheck, Loader2, ExternalLink } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,20 +82,18 @@ export function NotificationsDisplay() {
     queryKey: ["userNotifications", user?.id],
     queryFn: () => fetchUserNotifications(user?.id),
     enabled: !!user,
-    refetchInterval: FIVE_MINUTES_IN_MS, // Refetch every 5 minutes
-    refetchOnWindowFocus: true, // Optional: refetch when window gains focus
+    refetchInterval: FIVE_MINUTES_IN_MS,
+    refetchIntervalInBackground: true, // Ensures polling continues even if tab is not active
+    refetchOnWindowFocus: true,
     onSuccess: (data) => {
       console.log("NotificationsDisplay: useQuery onSuccess (initial/polled/refetched), data received:", data?.length || 0);
-      // This will merge new data with existing, prioritizing fresh data from fetch
-      // and trying to keep existing items if they weren't in the fetch (e.g. if limit is hit)
-      // A more sophisticated merge might be needed for large, paginated lists, but for 20 items this is okay.
       setLocalNotifications(prevLocal => {
         const newNotificationsMap = new Map(data.map(n => [n.id, n]));
         const combined = [
-          ...data, // Start with all fresh data
-          ...prevLocal.filter(n => !newNotificationsMap.has(n.id)) // Add old items not in new fetch
+          ...data,
+          ...prevLocal.filter(n => !newNotificationsMap.has(n.id))
         ];
-        return combined.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20); // Re-sort and limit
+        return combined.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20);
       });
     },
     onError: (error) => {
@@ -104,7 +101,6 @@ export function NotificationsDisplay() {
     }
   });
 
-  // Effect to update local state when fetched data changes (e.g., from initial load or polling)
   useEffect(() => {
     if (fetchedNotificationsData) {
         console.log("NotificationsDisplay: useEffect detected change in fetchedNotificationsData, updating localNotifications state with fetched data length:", fetchedNotificationsData.length);
@@ -119,8 +115,6 @@ export function NotificationsDisplay() {
     }
   }, [fetchedNotificationsData]);
 
-
-  // Realtime subscription
   useEffect(() => {
     if (!user?.id) {
         console.log("NotificationsDisplay: Realtime setup skipped, no user ID.");
@@ -197,8 +191,6 @@ export function NotificationsDisplay() {
     },
     onSuccess: (updatedDataFromServer) => {
       console.log("NotificationsDisplay: markAsReadMutation onSuccess, server response for updated notifications:", updatedDataFromServer);
-      // Instead of queryClient.invalidateQueries, directly update local state
-      // This makes the UI update faster and relies on the polled query or next realtime event for eventual consistency if needed.
       if (Array.isArray(updatedDataFromServer) && updatedDataFromServer.length > 0) {
         const updatedIds = updatedDataFromServer.map(n => n.id);
         setLocalNotifications(prev =>
@@ -206,13 +198,12 @@ export function NotificationsDisplay() {
             updatedIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n
           ).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
-      } else if (!updatedDataFromServer) { // This case means mark all as read
+      } else if (!updatedDataFromServer) {
         setLocalNotifications(prev =>
           prev.map(n => n.read_at ? n : { ...n, read_at: new Date().toISOString() })
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
       }
-       // Optionally, still invalidate if you want to be absolutely sure, but it might cause an extra fetch
       queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] });
     },
     onError: (error) => {
@@ -231,7 +222,6 @@ export function NotificationsDisplay() {
     console.log("NotificationsDisplay: Derived readNotifications:", filtered.length, "from localNotifications:", localNotifications.length);
     return filtered;
   }, [localNotifications]);
-
 
   const handleMarkOneAsRead = (notificationId: string) => {
     const notification = localNotifications.find(n => n.id === notificationId);
@@ -332,7 +322,6 @@ export function NotificationsDisplay() {
   );
 }
 
-
 interface NotificationItemProps {
     notification: Notification;
     onMarkAsRead?: (notificationId: string) => void;
@@ -343,31 +332,36 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
     const isUnread = !notification.read_at;
 
     const itemBaseStyle = "flex flex-col items-start gap-1 p-2 rounded-sm w-full text-left relative";
-    const unreadSpecificStyle = isUnread ? "bg-primary/10" : "hover:bg-muted/50";
+    // Ensure unread style has enough contrast and noticeability
+    const unreadSpecificStyle = isUnread ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/50";
 
     const content = (
         <div className={cn(itemBaseStyle, unreadSpecificStyle)}>
-           {isUnread && <span className="absolute left-[3px] top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary ml-0.5"></span>}
-            <p className={cn("text-sm leading-snug pl-4", isUnread ? "font-semibold text-primary-foreground" : "text-foreground")}>{notification.message}</p>
-            <span className={cn("text-xs pl-4", isUnread ? "text-primary-foreground/80" : "text-muted-foreground")}>{timeAgo}</span>
+           {isUnread && <span className="absolute left-1 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-primary"></span>}
+            <p className={cn("text-sm leading-snug ml-3", isUnread ? "font-medium text-primary-foreground" : "text-foreground")}>{notification.message}</p>
+            <div className="flex justify-between w-full ml-3">
+                <span className={cn("text-xs", isUnread ? "text-primary-foreground/70" : "text-muted-foreground")}>{timeAgo}</span>
+                {notification.link && (
+                    <ExternalLink className={cn("h-3 w-3", isUnread ? "text-primary-foreground/70" : "text-muted-foreground")} />
+                )}
+            </div>
         </div>
     );
 
     const handleClickInternal = (e: React.MouseEvent) => {
         if (isUnread && onMarkAsRead) {
-            if (!notification.link) {
-                e.preventDefault(); // Prevent dropdown close only if there's no link and we're just marking as read
+            if (!notification.link) { // Only prevent dropdown close if not navigating
+                e.preventDefault();
+                e.stopPropagation();
             }
             onMarkAsRead(notification.id);
         }
-        // If there is a link, the default behavior of Link component will handle navigation,
-        // and the dropdown might close, which is usually fine for navigation.
     };
 
     if (notification.link) {
         return (
-            <DropdownMenuItem asChild className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50">
-                <Link href={notification.link} onClick={handleClickInternal} className="w-full block" target="_blank" rel="noopener noreferrer">
+            <DropdownMenuItem asChild className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50 rounded-sm">
+                <Link href={notification.link} onClick={handleClickInternal} className="w-full block" target={notification.link.startsWith('/') ? '_self' : '_blank'} rel="noopener noreferrer">
                     {content}
                 </Link>
             </DropdownMenuItem>
@@ -375,10 +369,9 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
     }
 
     return (
-        <DropdownMenuItem onClick={handleClickInternal} className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50">
+        <DropdownMenuItem onClick={handleClickInternal} className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50 rounded-sm">
             {content}
         </DropdownMenuItem>
     );
 });
 NotificationItem.displayName = "NotificationItem";
-

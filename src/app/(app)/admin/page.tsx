@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +8,7 @@ import { EmergencyRequestManagementTab } from "@/components/admin/tabs/Emergency
 import { NotificationSenderTab } from "@/components/admin/tabs/NotificationSenderTab";
 import { useState, useEffect } from "react";
 import { Users, ListChecks, ShieldAlert, BellRing, Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation"; // Import useSearchParams
 import { useAuth } from "@/contexts/AuthContext"; 
 import { useToast } from "@/hooks/use-toast";
 
@@ -17,6 +16,18 @@ export default function AdminPage() {
   const { user, profile, isAdmin, isLoading: authLoading, isApproved } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams(); // Get search params
+  const initialTab = searchParams.get("tab") || "users"; // Get 'tab' query param or default to 'users'
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    // Sync activeTab state if query param changes externally
+    const tabFromQuery = searchParams.get("tab");
+    if (tabFromQuery && tabFromQuery !== activeTab) {
+      setActiveTab(tabFromQuery);
+    }
+  }, [searchParams, activeTab]);
+
 
   useEffect(() => {
     if (!authLoading) {
@@ -50,6 +61,11 @@ export default function AdminPage() {
     );
   }
 
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    router.push(`/admin?tab=${value}`, { scroll: false }); // Update URL without full reload
+  };
+
   return (
     <div className="container mx-auto py-8 px-0">
       <Card className="shadow-xl">
@@ -58,12 +74,12 @@ export default function AdminPage() {
           <CardDescription>Manage users, contributions, emergency requests, and notifications.</CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <Tabs defaultValue="users" className="w-full">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
-              <TabsTrigger value="users"><Users className="mr-2 h-4 w-4 inline-block" />Users</TabsTrigger>
-              <TabsTrigger value="contributions"><ListChecks className="mr-2 h-4 w-4 inline-block" />Contributions</TabsTrigger>
-              <TabsTrigger value="emergency_requests"><ShieldAlert className="mr-2 h-4 w-4 inline-block" />Emergency Requests</TabsTrigger>
-              <TabsTrigger value="notifications"><BellRing className="mr-2 h-4 w-4 inline-block" />Notifications</TabsTrigger>
+              <TabsTrigger value="users"><Users className="mr-1 md:mr-2 h-4 w-4 inline-block" />Users</TabsTrigger>
+              <TabsTrigger value="contributions"><ListChecks className="mr-1 md:mr-2 h-4 w-4 inline-block" />Contributions</TabsTrigger>
+              <TabsTrigger value="emergency_requests"><ShieldAlert className="mr-1 md:mr-2 h-4 w-4 inline-block" />Emergency Requests</TabsTrigger>
+              <TabsTrigger value="notifications"><BellRing className="mr-1 md:mr-2 h-4 w-4 inline-block" />Notifications</TabsTrigger>
             </TabsList>
             
             <TabsContent value="users">
@@ -84,5 +100,3 @@ export default function AdminPage() {
     </div>
   );
 }
-    
-    

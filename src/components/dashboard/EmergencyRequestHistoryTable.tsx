@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { EmergencyRequest } from "@/types";
@@ -7,10 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, CheckCircle2, XCircle, Clock, CalendarDays, Hourglass, DollarSign, AlertTriangle } from "lucide-react";
+import { Loader2, Search, CheckCircle2, XCircle, Clock, CalendarDays, Hourglass, DollarSign, AlertTriangle, Eye } from "lucide-react";
 import { format, parseISO, isPast } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import Link from "next/link"; // Import Link
+import type { VariantProps } from "class-variance-authority"; // Import VariantProps
 
 interface EmergencyRequestHistoryTableProps {
   requests: EmergencyRequest[] | undefined;
@@ -24,7 +25,7 @@ interface EmergencyRequestHistoryTableProps {
   searchTerm: string;
   onSearchChange: (term: string) => void;
   itemsPerPage: number;
-  isGlobalView?: boolean; // New prop to indicate if it's showing all family requests
+  isGlobalView?: boolean;
 }
 
 export function EmergencyRequestHistoryTable({
@@ -39,7 +40,7 @@ export function EmergencyRequestHistoryTable({
   searchTerm,
   onSearchChange,
   itemsPerPage,
-  isGlobalView = false, // Default to false
+  isGlobalView = false,
 }: EmergencyRequestHistoryTableProps) {
   const totalPages = Math.ceil(totalCount / itemsPerPage);
 
@@ -51,7 +52,7 @@ export function EmergencyRequestHistoryTable({
       if (request.return_date && isPast(parseISO(request.return_date))) {
         return { variant: "destructive", text: "Overdue", icon: <AlertTriangle className="h-3 w-3" /> };
       }
-      return { variant: "default", text: "Approved", icon: <CheckCircle2 className="h-3 w-3 text-green-500" /> }; // Use default for approved, not success unless repaid
+      return { variant: "default", text: "Approved", icon: <CheckCircle2 className="h-3 w-3 text-green-500" /> };
     }
     if (request.status === "rejected") {
       return { variant: "destructive", text: "Rejected", icon: <XCircle className="h-3 w-3" /> };
@@ -61,7 +62,6 @@ export function EmergencyRequestHistoryTable({
     }
     return { variant: "outline", text: request.status || "Unknown", icon: <Clock className="h-3 w-3" /> };
   };
-
 
   if (isLoading && (!requests || requests.length === 0) && totalCount === 0) {
     return (
@@ -106,11 +106,12 @@ export function EmergencyRequestHistoryTable({
                 <TableHead>Reason</TableHead>
                 <TableHead>Exp. Return</TableHead>
                 <TableHead className="text-center">Status</TableHead>
+                {isGlobalView && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && requests && requests.length > 0 ? (
-                 <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 7 : 6) : (isGlobalView ? 6 : 5)} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
+                 <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
               ) : requests && requests.length > 0 ? (
                 requests.map((req) => {
                   const statusInfo = getStatusBadgeInfo(req);
@@ -138,11 +139,21 @@ export function EmergencyRequestHistoryTable({
                           {statusInfo.text}
                         </Badge>
                       </TableCell>
+                      {isGlobalView && (
+                        <TableCell className="text-right">
+                          <Button asChild variant="ghost" size="icon" className="h-8 w-8 p-0">
+                            <Link href={`/requests/${req.id}`} title="View Details">
+                              <Eye className="h-4 w-4" />
+                              <span className="sr-only">View Details</span>
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })
               ) : (
-                <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 7 : 6) : (isGlobalView ? 6 : 5)} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

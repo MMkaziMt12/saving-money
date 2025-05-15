@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { Profile } from "@/types";
@@ -8,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, XCircle, Trash2, ShieldCheck, ShieldX, MoreHorizontal, Eye } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-import Link from "next/link"; // Import Link
+import Link from "next/link"; 
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,14 +74,14 @@ export function UserManagementTable({
   };
 
   return (
-    <>
+    <div className="overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Full Name</TableHead>
             <TableHead>Email</TableHead>
-            <TableHead>Phone</TableHead>
-            <TableHead>Created At</TableHead> 
+            <TableHead className="hidden md:table-cell">Phone</TableHead>
+            <TableHead className="hidden sm:table-cell">Created At</TableHead> 
             <TableHead>Role</TableHead>
             <TableHead className="text-center">Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -100,8 +99,8 @@ export function UserManagementTable({
               <TableRow key={user.id}>
                 <TableCell className="font-medium">{user.full_name || 'N/A'}</TableCell>
                 <TableCell>{user.email || 'N/A'}</TableCell>
-                <TableCell>{user.phone || 'N/A'}</TableCell>
-                <TableCell>{user.created_at ? format(parseISO(user.created_at), "MMM dd, yyyy") : 'N/A'}</TableCell>
+                <TableCell className="hidden md:table-cell">{user.phone || 'N/A'}</TableCell>
+                <TableCell className="hidden sm:table-cell">{user.created_at ? format(parseISO(user.created_at), "MMM dd, yyyy") : 'N/A'}</TableCell>
                 <TableCell>
                   <Badge variant={user.role === 'admin' ? 'destructive' : 'secondary'} className="capitalize">{user.role}</Badge>
                 </TableCell>
@@ -189,6 +188,6 @@ export function UserManagementTable({
           )}
         </TableBody>
       </Table>
-    </>
+    </div>
   );
 }

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -51,10 +50,10 @@ interface InfoItemProps {
 function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
   return (
     <div className="flex items-start py-2 border-b border-muted last:border-b-0">
-      <Icon className="h-5 w-5 text-muted-foreground mr-4 mt-1 shrink-0" />
+      <Icon className="h-5 w-5 text-muted-foreground mr-3 sm:mr-4 mt-1 shrink-0" />
       <div className="flex-1">
-        <span className="font-medium text-foreground/80 block mb-0.5">{label}:</span>
-        <span className={cn("text-foreground break-words", valueClass)}>{value}</span>
+        <span className="font-medium text-foreground/80 block mb-0.5 text-xs sm:text-sm">{label}:</span>
+        <span className={cn("text-foreground break-words text-sm sm:text-base", valueClass)}>{value}</span>
       </div>
     </div>
   );
@@ -81,17 +80,16 @@ export default function UserDetailPage() {
     }
   }, [adminUser, isAdmin, authLoading, adminIsApproved, router, toast]);
 
-
   const { data: userProfile, isLoading: isLoadingProfile, error: profileError } = useQuery<Profile | null, Error>({
     queryKey: ["userProfile", userId],
     queryFn: () => fetchUserProfile(userId),
-    enabled: !!userId && isAdmin, // Only fetch if userId is available and current user is admin
+    enabled: !!userId && isAdmin, 
   });
 
   const { data: contributions, isLoading: isLoadingContributions, error: contributionsError } = useQuery<MonthlyContribution[], Error>({
     queryKey: ["userContributions", userId],
     queryFn: () => fetchUserContributions(userId),
-    enabled: !!userId && isAdmin, // Only fetch if userId is available and current user is admin
+    enabled: !!userId && isAdmin, 
   });
 
   const getInitials = (name: string | null | undefined) => {
@@ -129,7 +127,7 @@ export default function UserDetailPage() {
 
   if (profileError || contributionsError) {
     return (
-      <div className="flex flex-col items-center justify-center h-full py-10">
+      <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <p className="text-destructive mb-2">Error loading user details.</p>
         <p className="text-sm text-muted-foreground mb-4">
@@ -144,7 +142,7 @@ export default function UserDetailPage() {
 
   if (!userProfile) {
     return (
-      <div className="flex flex-col items-center justify-center h-full py-10">
+      <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <User className="h-12 w-12 text-muted-foreground mb-4" />
         <p className="text-muted-foreground mb-4">User profile not found.</p>
         <Button onClick={() => router.back()} variant="outline">
@@ -155,26 +153,26 @@ export default function UserDetailPage() {
   }
   
   const totalPaidByUser = contributions?.reduce((sum, c) => sum + c.amount, 0) || 0;
-  const joinedAtDate = userProfile.created_at ? parseISO(userProfile.created_at) : new Date(); // Use created_at
+  const joinedAtDate = userProfile.created_at ? parseISO(userProfile.created_at) : new Date();
   const monthsJoined = Math.max(1, Math.floor((Date.now() - joinedAtDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
   const totalExpected = monthsJoined * MONTHLY_CONTRIBUTION_AMOUNT;
   const pendingAmount = Math.max(0, totalExpected - totalPaidByUser);
 
   return (
-    <div className="container mx-auto py-8 px-0 max-w-4xl">
+    <div className="container mx-auto py-8 px-4 sm:px-0 max-w-4xl">
       <Button onClick={() => router.push("/admin?tab=users")} variant="outline" className="mb-6">
         <ArrowLeft className="mr-2 h-4 w-4" /> Back to User Management
       </Button>
 
       <Card className="shadow-xl mb-8">
-        <CardHeader className="border-b">
-          <div className="flex flex-col md:flex-row items-center gap-6">
-            <Avatar className="h-32 w-32 border-4 border-primary/50 shadow-md">
+        <CardHeader className="border-b pb-4">
+          <div className="flex flex-col md:flex-row items-center gap-4 md:gap-6">
+            <Avatar className="h-24 w-24 md:h-32 md:w-32 border-4 border-primary/50 shadow-md">
               <AvatarImage src={userProfile.avatar_url || undefined} alt={userProfile.full_name || "User"} data-ai-hint={userProfile.avatar_url ? "person profile" : "profile placeholder"}/>
-              <AvatarFallback className="text-4xl">{getInitials(userProfile.full_name)}</AvatarFallback>
+              <AvatarFallback className="text-3xl md:text-4xl">{getInitials(userProfile.full_name)}</AvatarFallback>
             </Avatar>
             <div className="text-center md:text-left">
-              <CardTitle className="text-3xl font-bold">{userProfile.full_name || "N/A"}</CardTitle>
+              <CardTitle className="text-2xl md:text-3xl font-bold">{userProfile.full_name || "N/A"}</CardTitle>
               <CardDescription className="text-md text-muted-foreground mt-1">{userProfile.email}</CardDescription>
               <div className="mt-2 space-x-2">
                 <Badge variant={userProfile.role === 'admin' ? 'destructive' : 'secondary'} className="capitalize">
@@ -187,7 +185,7 @@ export default function UserDetailPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="pt-6 grid md:grid-cols-2 gap-x-8 gap-y-0">
+        <CardContent className="pt-6 grid md:grid-cols-2 gap-x-6 gap-y-0">
             <InfoItem icon={User} label="Full Name" value={userProfile.full_name || "N/A"} />
             <InfoItem icon={Mail} label="Email" value={userProfile.email || "N/A"} />
             <InfoItem icon={Phone} label="Phone" value={userProfile.phone || "N/A"} />
@@ -204,34 +202,36 @@ export default function UserDetailPage() {
           <CardDescription>Overview of this user's monthly contributions.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Payment Date</TableHead>
-                <TableHead>Month/Year of Contribution</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Recorded By</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {contributions && contributions.length > 0 ? (
-                contributions.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
-                    <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
-                    <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                    <TableCell>{c.recorded_by_admin_name || (c.recorded_by_admin_id ? 'Admin' : 'System/User')}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
-                    No contributions found for this user.
-                  </TableCell>
+                  <TableHead>Payment Date</TableHead>
+                  <TableHead>Month/Year of Contribution</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="hidden sm:table-cell">Recorded By</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {contributions && contributions.length > 0 ? (
+                  contributions.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
+                      <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
+                      <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
+                      <TableCell className="hidden sm:table-cell">{c.recorded_by_admin_name || (c.recorded_by_admin_id ? 'Admin' : 'System/User')}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
+                      No contributions found for this user.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

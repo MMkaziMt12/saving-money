@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -79,7 +78,7 @@ export default function ProfilePage() {
     let newAvatarUrl = profile.avatar_url;
     const isGoogleLogin = user?.app_metadata?.provider === 'google';
 
-    if (avatarFile && !isGoogleLogin) { // Only upload if file selected and not Google login
+    if (avatarFile && !isGoogleLogin) {
       const fileExt = avatarFile.name.split('.').pop();
       const filePath = `${user.id}/${Date.now()}.${fileExt}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -105,9 +104,6 @@ export default function ProfilePage() {
       updated_at: new Date().toISOString(),
     };
     
-    // Only update avatar_url if it changed (and not Google login, or if it was initially null for Google login and now has a value)
-    // For Google login, avatar_url is typically set at signup from Google's data.
-    // We generally don't want to overwrite Google's avatar with an upload unless it was never set.
     if (newAvatarUrl !== profile.avatar_url && (!isGoogleLogin || !profile.avatar_url)) {
         updates.avatar_url = newAvatarUrl;
     }
@@ -131,26 +127,26 @@ export default function ProfilePage() {
     setIsSaving(false);
   };
   
-  const joinedAtDate = profile.joined_at ? parseISO(profile.joined_at) : new Date();
+  const joinedAtDate = profile.created_at ? parseISO(profile.created_at) : new Date(); // Use created_at
   const currentAvatarSrc = avatarPreview || formData.avatar_url;
   const isGoogleLogin = user?.app_metadata?.provider === 'google';
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0 max-w-3xl">
       <Card className="shadow-xl">
-        <CardHeader className="border-b">
-          <div className="flex flex-col md:flex-row items-center gap-6">
+        <CardHeader className="border-b pb-4">
+          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
             <div className="relative">
-              <Avatar className="h-32 w-32 border-4 border-primary/50 shadow-md">
+              <Avatar className="h-24 w-24 sm:h-32 sm:w-32 border-4 border-primary/50 shadow-md">
                 <AvatarImage 
                   src={currentAvatarSrc || undefined} 
                   alt={profile.full_name || "User"} 
                   data-ai-hint={currentAvatarSrc ? "person profile" : "profile placeholder"} 
                 />
-                <AvatarFallback className="text-4xl">{getInitials(profile.full_name)}</AvatarFallback>
+                <AvatarFallback className="text-3xl sm:text-4xl">{getInitials(profile.full_name)}</AvatarFallback>
               </Avatar>
-              {isEditing && !isGoogleLogin && ( // Conditionally show Camera icon
-                <Button asChild variant="outline" size="icon" className="absolute bottom-2 right-2 rounded-full bg-background hover:bg-muted h-8 w-8 cursor-pointer">
+              {isEditing && !isGoogleLogin && (
+                <Button asChild variant="outline" size="icon" className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 rounded-full bg-background hover:bg-muted h-8 w-8 cursor-pointer">
                   <Label htmlFor="avatar-upload" className="cursor-pointer">
                     <Camera className="h-4 w-4" />
                     <span className="sr-only">Change photo</span>
@@ -159,15 +155,15 @@ export default function ProfilePage() {
                 </Button>
               )}
             </div>
-            <div className="text-center md:text-left">
-              <CardTitle className="text-3xl font-bold">{profile.full_name || "N/A"}</CardTitle>
+            <div className="text-center sm:text-left flex-1">
+              <CardTitle className="text-2xl sm:text-3xl font-bold">{profile.full_name || "N/A"}</CardTitle>
               <CardDescription className="text-md text-muted-foreground mt-1">{user.email}</CardDescription>
               <Badge variant={profile.role === 'admin' ? 'destructive' : 'secondary'} className="mt-2 capitalize">
                 {profile.role}
               </Badge>
             </div>
             {!isEditing && (
-              <Button variant="outline" onClick={() => setIsEditing(true)} className="ml-auto mt-4 md:mt-0">
+              <Button variant="outline" onClick={() => setIsEditing(true)} className="mt-4 sm:mt-0 sm:ml-auto">
                 <Edit3 className="mr-2 h-4 w-4" /> Edit Profile
               </Button>
             )}
@@ -184,24 +180,24 @@ export default function ProfilePage() {
                 <Label htmlFor="phone" className="flex items-center gap-2 mb-1"><Phone className="h-4 w-4 text-muted-foreground" />Phone</Label>
                 <Input id="phone" name="phone" type="tel" value={formData.phone} onChange={handleInputChange} disabled={isSaving} />
               </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => { setIsEditing(false); setAvatarFile(null); setAvatarPreview(profile.avatar_url || null); }} disabled={isSaving}>Cancel</Button>
-                <Button type="submit" disabled={isSaving}>
+              <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => { setIsEditing(false); setAvatarFile(null); setAvatarPreview(profile.avatar_url || null); }} disabled={isSaving} className="w-full sm:w-auto">Cancel</Button>
+                <Button type="submit" disabled={isSaving} className="w-full sm:w-auto">
                   {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   Save Changes
                 </Button>
               </div>
             </form>
           ) : (
-            <div className="space-y-6 text-sm">
+            <div className="space-y-4 text-sm">
               <InfoItem icon={User} label="Full Name" value={profile.full_name || "N/A"} />
               <InfoItem icon={Mail} label="Email" value={user.email || "N/A"} />
               <InfoItem icon={Phone} label="Phone" value={profile.phone || "N/A"} />
               <InfoItem icon={Shield} label="Account Status" value={profile.is_approved ? "Approved" : "Pending Approval"} valueClass={profile.is_approved ? "text-green-600 font-semibold" : "text-orange-500 font-semibold"} />
               <InfoItem icon={CalendarDays} label="Joined At" value={format(joinedAtDate, "MMMM dd, yyyy")} />
-              {!currentAvatarSrc && !isGoogleLogin && ( // Only show prompt if not Google login and no avatar
-                <div className="flex items-center p-3 bg-muted/50 rounded-md">
-                    <Camera className="h-5 w-5 text-muted-foreground mr-3" />
+              {!currentAvatarSrc && !isGoogleLogin && (
+                <div className="flex items-center p-3 bg-muted/50 rounded-md text-xs">
+                    <Camera className="h-4 w-4 text-muted-foreground mr-2" />
                     <span className="text-muted-foreground">You can add a profile picture by editing your profile.</span>
                 </div>
               )}
@@ -222,13 +218,10 @@ interface InfoItemProps {
 
 function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
   return (
-    <div className="flex items-center">
-      <Icon className="h-5 w-5 text-muted-foreground mr-3" />
-      <span className="font-medium w-32 text-foreground/80">{label}:</span>
-      <span className={cn("text-foreground", valueClass)}>{value}</span>
+    <div className="flex items-center py-2 border-b last:border-b-0">
+      <Icon className="h-5 w-5 text-muted-foreground mr-3 shrink-0" />
+      <span className="font-medium w-28 sm:w-32 text-foreground/80 shrink-0">{label}:</span>
+      <span className={cn("text-foreground break-words", valueClass)}>{value}</span>
     </div>
   );
 }
-
-
-    

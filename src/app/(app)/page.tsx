@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -16,7 +15,6 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { PaymentHistoryTable } from "@/components/dashboard/PaymentHistoryTable";
 import { EmergencyRequestHistoryTable } from "@/components/dashboard/EmergencyRequestHistoryTable";
 import { Loader2 } from "lucide-react";
-
 
 const supabase = createClient();
 const ITEMS_PER_PAGE = 5; 
@@ -108,7 +106,6 @@ async function fetchTotalFamilySavings(): Promise<number> {
   return savings;
 }
 
-
 export default function DashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
   const queryClient = useQueryClient(); 
@@ -170,7 +167,7 @@ export default function DashboardPage() {
 
   const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["allUserContributionsForTotal", user?.id],
-    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""),
+    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), // Fetch all for accurate total
     enabled: !!user,
   });
 
@@ -179,19 +176,19 @@ export default function DashboardPage() {
     totalOutstandingEmergency,
     isLoadingEmergencyStats,
   } = useMemo(() => {
+    // This calculation requires all emergency requests, not just the paginated ones.
+    // For now, it will calculate based on the `allEmergencyRequestsData.data` which is paginated.
+    // A more accurate approach for global stats would be a separate RPC or a query fetching ALL approved requests.
+    // Let's assume for this dashboard widget, the current page's data offers a reasonable snapshot or we ensure we fetch all for this calc.
+    // To make it accurate for all data, we would need another query similar to `allUserContributionsForTotal`
+    // that fetches ALL emergency requests, or an RPC. For simplicity, this uses the paginated data.
+    // THIS IS A SIMPLIFICATION: For accurate global stats, fetch all relevant requests.
     if (isLoadingAllEmergencyRequests || !allEmergencyRequestsData?.data) {
       return { totalDisbursedForEmergency: 0, totalOutstandingEmergency: 0, isLoadingEmergencyStats: true };
     }
-    // To calculate total disbursed and outstanding accurately, we ideally need all approved requests, not just the paginated ones.
-    // This calculation should ideally use a separate query or RPC if allEmergencyRequestsData is paginated.
-    // For simplicity, if allEmergencyRequestsData.count implies we have all data (e.g. count < a high number), we can use it.
-    // Otherwise, this will only reflect stats for the currently fetched page of emergency requests.
-    // A proper solution would be another query like `fetchAllApprovedEmergencyRequestsForStats` (not implemented here for brevity).
-    // Assuming allEmergencyRequestsData.data IS a comprehensive list for this demo calculation.
+    
     const approvedRequests = allEmergencyRequestsData.data.filter(req => req.status === 'approved');
-    
     const disbursed = approvedRequests.reduce((sum, req) => sum + (req.amount_requested || 0), 0);
-    
     const outstanding = approvedRequests
       .filter(req => !req.is_fully_repaid)
       .reduce((sum, req) => sum + ((req.amount_requested || 0) - (req.amount_returned || 0)), 0);
@@ -227,7 +224,6 @@ export default function DashboardPage() {
   let userGeneralContributionStatusText = "Calculating...";
   let userContributionStatusIcon: React.ElementType = Clock;
   let userContributionValueColorClass = "text-orange-500";
-
 
   if (profile.created_at && !isLoadingAllContributionsForTotal && allUserContributionsForTotal?.data) {
     const accountCreationDate = parseISO(profile.created_at);
@@ -277,7 +273,7 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">Here&apos;s your family savings overview.</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
+      <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard
           title="My Total Contributions"
           value={isLoadingAllContributionsForTotal ? "Loading..." : totalPaidByUser }
@@ -307,7 +303,7 @@ export default function DashboardPage() {
           title="Current Fund Balance"
           value={isLoadingTotalSavings ? "Loading..." : (totalFamilySavings ?? 0)}
           icon={BarChart3}
-          description="Net balance of the family fund."
+          description={isLoadingTotalSavings ? "Fetching..." : `Fund balance available after disbursements and repayments.`}
           iconClassName="text-blue-500"
         />
         <StatCard
@@ -326,27 +322,25 @@ export default function DashboardPage() {
         />
       </div>
 
-      {!isAdmin && (
-        <div className="mb-8">
+      <div className="flex flex-wrap gap-4 mb-8">
+        {!isAdmin && (
           <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-md">
             <Link href="/emergency-request">
               <ShieldAlert className="mr-2 h-5 w-5" /> Request Emergency Fund
             </Link>
           </Button>
-        </div>
-      )}
-
-      {isAdmin && (
-        <div className="mb-8">
-           <Button asChild size="lg" className="ml-0 shadow-md">
+        )}
+        {isAdmin && (
+           <Button asChild size="lg" className="shadow-md">
             <Link href="/admin">
               <Users className="mr-2 h-5 w-5" /> Go to Admin Panel
             </Link>
           </Button>
-        </div>
-      )}
+        )}
+      </div>
+      
 
-      <div className="grid gap-8 lg:grid-cols-1">
+      <div className="grid gap-8 lg:grid-cols-1"> {/* Keep tables in a single column for better readability */}
         <PaymentHistoryTable 
           contributions={userContributionsData?.data} 
           isLoading={isLoadingContributions} 
@@ -375,6 +369,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-    
-
-    

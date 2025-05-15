@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -21,22 +20,21 @@ import { format, parseISO } from "date-fns";
 const notificationSchema = z.object({
   messageType: z.enum(["contributionReminder", "emergencyRequestUpdate", "general"]),
   targetUser: z.string().optional(),
-  customSubject: z.string().optional(), // Optional subject line
+  customSubject: z.string().optional(), 
   customMessage: z.string().min(1, "Message content cannot be empty."),
   link: z.string().url({ message: "Please enter a valid URL for the link (e.g., https://example.com)." }).optional().or(z.literal('')),
-  // Fields for AI generation context
-  userName: z.string().optional(), // Populated if specific user is targeted
-  amount: z.coerce.number().optional(), // For contribution reminders
-  selectedEmergencyRequestId: z.string().optional(), // ID of the selected emergency request
-  emergencyRequestDescription: z.string().optional(), // For AI, derived from selected request or manually input
-  status: z.string().optional(), // For AI, status of the emergency request update
+  userName: z.string().optional(), 
+  amount: z.coerce.number().optional(), 
+  selectedEmergencyRequestId: z.string().optional(), 
+  emergencyRequestDescription: z.string().optional(), 
+  status: z.string().optional(), 
 });
 
 export type NotificationFormValues = z.infer<typeof notificationSchema>;
 
 interface NotificationSenderProps {
   users: Profile[];
-  emergencyRequests?: EmergencyRequest[]; // Make this optional
+  emergencyRequests?: EmergencyRequest[];
   onSend: (data: NotificationFormValues) => Promise<void>;
   isSending: boolean;
 }
@@ -56,7 +54,7 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
   });
 
   const selectedMessageType = form.watch("messageType");
-  const selectedEmergencyRequestId = form.watch("selectedEmergencyRequestId");
+  const selectedEmergencyRequestId = form.watch("selectedEmergencyRequestId"); // Watch this field
 
   const handleGenerateMessage = async () => {
     const values = form.getValues();
@@ -78,7 +76,6 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
       const user = users.find(u => u.id === values.targetUser);
       if (user) aiInput.userName = user.full_name;
     } else if (values.messageType === "emergencyRequestUpdate" && values.selectedEmergencyRequestId) {
-      // If specific request is selected, try to get username from that request's user_id
       const request = emergencyRequests?.find(r => r.id === values.selectedEmergencyRequestId);
       if (request) {
         const requestUser = users.find(u => u.id === request.user_id);
@@ -93,13 +90,15 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
             const selectedRequest = emergencyRequests.find(req => req.id === values.selectedEmergencyRequestId);
             if (selectedRequest) {
                  aiInput.emergencyRequestDescription = `request from ${users.find(u=>u.id === selectedRequest.user_id)?.full_name || 'user'} for '${selectedRequest.reason.substring(0,50)}...' (Amount: ${CURRENCY_SYMBOL}${selectedRequest.amount_requested})`;
+                 aiInput.status = values.status || selectedRequest.status || "updated"; // Prioritize form status, then request status
             } else {
                  aiInput.emergencyRequestDescription = values.emergencyRequestDescription || "an emergency fund request";
+                 aiInput.status = values.status || "updated";
             }
         } else {
              aiInput.emergencyRequestDescription = values.emergencyRequestDescription || "an emergency fund request";
+             aiInput.status = values.status || "updated";
         }
-        aiInput.status = values.status || "updated"; // Use status from form if set
     }
     
     setIsGenerating(true);
@@ -117,7 +116,6 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
 
   async function internalFormSubmit(data: NotificationFormValues) {
     await onSend(data);
-    // form.reset(); // Consider if resetting is always desired
   }
 
   const getEmergencyRequestLabel = (request: EmergencyRequest): string => {
@@ -150,8 +148,8 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
                     <Select 
                         onValueChange={(value) => {
                             field.onChange(value);
-                            form.setValue("selectedEmergencyRequestId", undefined); // Reset selected request if type changes
-                            form.setValue("status", undefined); // Reset status too
+                            form.setValue("selectedEmergencyRequestId", undefined); 
+                            form.setValue("status", undefined); 
                         }} 
                         defaultValue={field.value} 
                         disabled={isGenerating || isSending}
@@ -182,7 +180,7 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
                               const user = users.find(u => u.id === value);
                               form.setValue("userName", user?.full_name);
                           } else {
-                              form.setValue("userName", ""); // Clear if "all" or "pending"
+                              form.setValue("userName", ""); 
                           }
                       }} 
                       defaultValue={field.value}
@@ -206,26 +204,29 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
             </div>
             
             {selectedMessageType === "emergencyRequestUpdate" && (
-                 <div className="space-y-6 pt-2 border-t border-border mt-4">
+                 <div className="space-y-6 pt-4 border-t mt-4">
                     <FormField
                         control={form.control}
                         name="selectedEmergencyRequestId"
                         render={({ field }) => (
                         <FormItem>
-                            <FormLabel className="flex items-center gap-1"><ListFilter className="h-4 w-4 text-muted-foreground" />Select Emergency Request (for AI context)</FormLabel>
+                            <FormLabel className="flex items-center gap-1"><ListFilter className="h-4 w-4 text-muted-foreground" />Select Emergency Request (for AI context & Link)</FormLabel>
                             <Select 
                                 onValueChange={(value) => {
                                     field.onChange(value);
                                     const selectedReq = emergencyRequests?.find(r => r.id === value);
                                     if (selectedReq) {
                                         form.setValue("emergencyRequestDescription", `request from ${users.find(u=>u.id === selectedReq.user_id)?.full_name || 'user'} for '${selectedReq.reason.substring(0,50)}...' (Amount: ${CURRENCY_SYMBOL}${selectedReq.amount_requested})`);
-                                        form.setValue("status", selectedReq.status || "updated"); // Default AI status to current request status
+                                        form.setValue("status", selectedReq.status || "updated"); 
+                                        form.setValue("link", `/requests/${selectedReq.id}`); // Auto-populate link
+                                    } else {
+                                        form.setValue("link", ""); // Clear link if no request selected
                                     }
                                 }} 
                                 value={field.value || ""}
                                 disabled={isGenerating || isSending || !emergencyRequests || emergencyRequests.length === 0}
                             >
-                                <FormControl><SelectTrigger><SelectValue placeholder={!emergencyRequests ? "Loading requests..." : "Select a request"} /></SelectTrigger></FormControl>
+                                <FormControl><SelectTrigger><SelectValue placeholder={!emergencyRequests ? "Loading requests..." : "Select a request (optional)"} /></SelectTrigger></FormControl>
                                 <SelectContent className="max-h-60">
                                     {emergencyRequests && emergencyRequests.length > 0 ? emergencyRequests.map(req => (
                                         <SelectItem key={req.id} value={req.id}>
@@ -236,7 +237,7 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
                                     )}
                                 </SelectContent>
                             </Select>
-                            <FormDescription>This provides context for the AI. The "Status of Update" below is also for AI.</FormDescription>
+                            <FormDescription>This provides context for AI and auto-populates the link field below.</FormDescription>
                             <FormMessage />
                         </FormItem>
                         )}
@@ -259,7 +260,7 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
                                     <SelectItem value="updated">Updated</SelectItem>
                                 </SelectContent>
                             </Select>
-                            <FormDescription>Select the status you want the AI to reflect in its message (e.g., "Your request is now approved").</FormDescription>
+                            <FormDescription>Select the status you want the AI to reflect in its message.</FormDescription>
                             <FormMessage />
                         </FormItem>
                         )}
@@ -287,16 +288,25 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
                 <FormItem>
                   <FormLabel className="flex items-center gap-1"><LinkIcon className="h-4 w-4 text-muted-foreground" />Link (Optional)</FormLabel>
                   <FormControl>
-                    <Input type="url" placeholder="https://example.com/relevant-page" {...field} disabled={isGenerating || isSending} />
+                    <Input 
+                      type="url" 
+                      placeholder={selectedMessageType === 'emergencyRequestUpdate' && selectedEmergencyRequestId ? `e.g., /requests/${selectedEmergencyRequestId}` : "https://example.com/relevant-page"} 
+                      {...field} 
+                      disabled={isGenerating || isSending || (selectedMessageType === 'emergencyRequestUpdate' && !!selectedEmergencyRequestId)} // Disable if auto-populated
+                    />
                   </FormControl>
-                  <FormDescription>If provided, the notification can link to this URL.</FormDescription>
+                  <FormDescription>
+                    {selectedMessageType === 'emergencyRequestUpdate' && selectedEmergencyRequestId 
+                      ? "Auto-populated from selected request. Clear selection to edit manually." 
+                      : "If provided, the notification can link to this URL."}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
             {selectedMessageType !== 'general' && (
-                <Button type="button" variant="outline" onClick={handleGenerateMessage} disabled={isGenerating || isSending || (selectedMessageType === "emergencyRequestUpdate" && !emergencyRequests)} className="w-full md:w-auto">
+                <Button type="button" variant="outline" onClick={handleGenerateMessage} disabled={isGenerating || isSending || (selectedMessageType === "emergencyRequestUpdate" && !emergencyRequests)} className="w-full sm:w-auto">
                 {isGenerating ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -325,7 +335,7 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
               )}
             />
 
-            <Button type="submit" className="w-full md:w-auto" disabled={isGenerating || isSending || form.formState.isSubmitting}>
+            <Button type="submit" className="w-full sm:w-auto" disabled={isGenerating || isSending || form.formState.isSubmitting}>
               {isSending || form.formState.isSubmitting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
