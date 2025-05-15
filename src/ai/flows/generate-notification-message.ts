@@ -1,3 +1,4 @@
+
 // src/ai/flows/generate-notification-message.ts
 'use server';
 
@@ -24,13 +25,13 @@ const GenerateNotificationMessageInputSchema = z.object({
   messageType: z
     .enum(['contributionReminder', 'emergencyRequestUpdate'])
     .describe('The type of notification message to generate.'),
-  userName: z.string().optional().describe('The name of the user to include in the message.'),
-  amount: z.number().optional().describe('The amount related to the notification.'),
+  userName: z.string().optional().describe('The name of the user the notification is primarily about or for. Used for personalization.'),
+  amount: z.number().optional().describe('The monetary amount relevant to the notification (e.g., contribution due, request amount).'),
   emergencyRequestDescription: z
     .string()
     .optional()
-    .describe('The description of the emergency request.'),
-  status: z.string().optional().describe('The status of the emergency request'),
+    .describe('A brief description or summary of the emergency request. Example: "request for medical bills" or "request ID #123 for urgent travel".'),
+  status: z.string().optional().describe('The status of the item being notified about (e.g., for an emergency request: "approved", "rejected", "pending_information").'),
 });
 
 export type GenerateNotificationMessageInput = z.infer<
@@ -43,7 +44,7 @@ export type GenerateNotificationMessageInput = z.infer<
 const GenerateNotificationMessageOutputSchema = z.object({
   notificationMessage: z
     .string()
-    .describe('The AI-generated notification message for admins.'),
+    .describe('The AI-generated notification message.'),
 });
 
 export type GenerateNotificationMessageOutput = z.infer<
@@ -65,24 +66,29 @@ const generateNotificationMessagePrompt = ai.definePrompt({
   name: 'generateNotificationMessagePrompt',
   input: {schema: GenerateNotificationMessageInputSchema},
   output: {schema: GenerateNotificationMessageOutputSchema},
-  prompt: `You are an AI assistant specialized in generating notification messages for a family saving application.
+  prompt: `You are an AI assistant specialized in generating concise and clear notification messages for a family fund application.
 
-    Based on the message type, generate a clear and effective notification message for the admin.
+Based on the provided details, generate a suitable notification message.
 
-    If the message type is 'contributionReminder', remind the user to make their monthly contribution.
-    Include the user's name and the amount due if provided.
+Common Details:
+- User Name (if applicable for personalization): {{{userName}}}
 
-    If the message type is 'emergencyRequestUpdate', inform the admin about the status update of an emergency request.
-    Include the description of the emergency request and the current status if provided. Make sure to thank the admin for their work.
+Message Type Specifics:
 
-    Here are the details:
-    Message Type: {{{messageType}}}
-    User Name: {{{userName}}}
-    Amount: {{{amount}}}
-    Emergency Request Description: {{{emergencyRequestDescription}}}
-    Status: {{{status}}}
+1. If 'messageType' is 'contributionReminder':
+   - Remind the user to make their monthly contribution.
+   - Include the amount due if provided: {{{amount}}}.
+   - Example: "Hi {{{userName}}}, this is a friendly reminder that your monthly contribution of $USD{{{amount}}} is due. Thank you!"
 
-    Notification Message:`,
+2. If 'messageType' is 'emergencyRequestUpdate':
+   - Inform the user about an update to their emergency request.
+   - Use the 'emergencyRequestDescription' to refer to the specific request: "{{{emergencyRequestDescription}}}".
+   - Clearly state the 'status' of the request: "{{{status}}}".
+   - Example for approved: "Hi {{{userName}}}, good news! Your {{{emergencyRequestDescription}}} has been {{{status}}}."
+   - Example for rejected: "Hi {{{userName}}}, we'd like to inform you that your {{{emergencyRequestDescription}}} has been {{{status}}}."
+   - Example for more info needed: "Hi {{{userName}}}, regarding your {{{emergencyRequestDescription}}}, we need some more information. The status is currently {{{status}}}."
+
+Generated Notification Message:`,
 });
 
 /**
@@ -96,6 +102,10 @@ const generateNotificationMessageFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await generateNotificationMessagePrompt(input);
-    return output!;
+    if (!output) {
+      throw new Error('AI failed to generate a notification message.');
+    }
+    return output;
   }
 );
+
