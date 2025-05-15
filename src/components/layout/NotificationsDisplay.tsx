@@ -26,38 +26,42 @@ import { cn } from "@/lib/utils";
 const supabase = createClient();
 
 async function fetchUserNotifications(userId: string): Promise<Notification[]> {
+  console.log(`NotificationsDisplay: Fetching initial notifications for user ${userId}`);
   if (!userId) return [];
   const { data, error } = await supabase
     .from("notifications")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
-    .limit(20); // Fetch recent 20 notifications initially
+    .limit(20);
 
   if (error) {
-    console.error("Error fetching notifications:", error);
+    console.error("NotificationsDisplay: Error fetching initial notifications:", error);
     throw new Error(error.message);
   }
+  console.log(`NotificationsDisplay: Initial notifications for user ${userId} fetched:`, data);
   return data || [];
 }
 
 async function markNotificationsAsRead(userId: string, notificationIds?: string[]): Promise<any> {
+  console.log(`NotificationsDisplay: Marking notifications as read for user ${userId}. IDs:`, notificationIds || "all unread");
   let query = supabase
     .from("notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("user_id", userId)
-    .is("read_at", null); // Only update unread notifications
+    .is("read_at", null);
 
   if (notificationIds && notificationIds.length > 0) {
     query = query.in("id", notificationIds);
   }
 
-  const { data, error } = await query.select(); // select() to get back updated rows
+  const { data, error } = await query.select();
   
   if (error) {
-    console.error("Error marking notifications as read:", error);
+    console.error("NotificationsDisplay: Error marking notifications as read:", error);
     throw new Error(error.message);
   }
+  console.log("NotificationsDisplay: Notifications marked as read, response:", data);
   return data;
 }
 
@@ -72,6 +76,7 @@ export function NotificationsDisplay() {
     queryFn: () => fetchUserNotifications(user!.id),
     enabled: !!user,
     onSuccess: (data) => {
+      console.log("NotificationsDisplay: onSuccess initial fetch, setting localNotifications:", data);
       setLocalNotifications(data);
     }
   });
@@ -79,41 +84,49 @@ export function NotificationsDisplay() {
   useEffect(() => {
     if (!user) return;
 
+    console.log(`NotificationsDisplay: Setting up Realtime subscription for user ${user.id}`);
     const channel = supabase
       .channel(`notifications:${user.id}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
-          console.log("New notification received via realtime:", payload.new);
+          console.log("NotificationsDisplay: Realtime INSERT event received:", payload);
           const newNotification = payload.new as Notification;
-          setLocalNotifications(prev => [newNotification, ...prev].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() ));
-          // No need to invalidate query here if local state is updated directly and comprehensively.
-          // If we wanted to ensure fresh data from DB always: queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] });
+          console.log("NotificationsDisplay: New notification data from Realtime:", newNotification);
+          setLocalNotifications(prev => {
+            const newState = [newNotification, ...prev].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() );
+            console.log("NotificationsDisplay: localNotifications state updated after INSERT:", newState);
+            return newState;
+          });
         }
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
-             console.log("Notification updated via realtime:", payload.new);
+             console.log("NotificationsDisplay: Realtime UPDATE event received:", payload);
              const updatedNotification = payload.new as Notification;
-             setLocalNotifications(prev => 
-                prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
-                .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() )
-             );
+             console.log("NotificationsDisplay: Updated notification data from Realtime:", updatedNotification);
+             setLocalNotifications(prev => {
+                const newState = prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
+                                 .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() );
+                console.log("NotificationsDisplay: localNotifications state updated after UPDATE:", newState);
+                return newState;
+             });
         }
       )
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') {
-          console.log('Subscribed to notifications channel for user:', user.id);
+          console.log(`NotificationsDisplay: Successfully SUBSCRIBED to notifications channel for user: ${user.id}`);
         }
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.error('Realtime subscription error:', status, err);
+          console.error(`NotificationsDisplay: Realtime subscription error. Status: ${status}`, err);
         }
       });
 
     return () => {
+      console.log(`NotificationsDisplay: Removing Realtime channel subscription for user ${user.id}`);
       supabase.removeChannel(channel);
     };
   }, [user, queryClient]);
@@ -121,18 +134,20 @@ export function NotificationsDisplay() {
   const markAsReadMutation = useMutation<any, Error, { notificationIds?: string[] }>({
     mutationFn: ({ notificationIds }) => markNotificationsAsRead(user!.id, notificationIds),
     onSuccess: (updatedNotificationsData) => {
-      // Optimistically update local state or refetch
-      // queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] });
-      // For a more responsive UI, update local state directly
+      console.log("NotificationsDisplay: markAsReadMutation onSuccess, server response:", updatedNotificationsData);
       if (Array.isArray(updatedNotificationsData)) {
           const updatedIds = updatedNotificationsData.map(n => n.id);
-          setLocalNotifications(prev => 
-            prev.map(n => updatedIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n)
-          );
+          setLocalNotifications(prev => {
+            const newState = prev.map(n => updatedIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n);
+            console.log("NotificationsDisplay: localNotifications state updated after marking as read (optimistic/from server):", newState);
+            return newState;
+          });
       }
+       // Optionally, refetch to ensure full consistency, though optimistic update is often enough
+       // queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] });
     },
     onError: (error) => {
-      console.error("Failed to mark notifications as read:", error);
+      console.error("NotificationsDisplay: Failed to mark notifications as read via mutation:", error);
     },
   });
 
@@ -148,20 +163,29 @@ export function NotificationsDisplay() {
   const handleMarkOneAsRead = (notificationId: string) => {
     const notification = localNotifications.find(n => n.id === notificationId);
     if (notification && !notification.read_at) {
+        console.log(`NotificationsDisplay: Handling mark one as read for ID: ${notificationId}`);
         markAsReadMutation.mutate({ notificationIds: [notificationId] });
     }
   };
 
   const handleMarkAllAsRead = () => {
     if (unreadNotifications.length > 0) {
-      markAsReadMutation.mutate({}); // No specific IDs means mark all unread for the user
+      console.log("NotificationsDisplay: Handling mark all as read.");
+      markAsReadMutation.mutate({});
     }
   };
 
   if (!user) return null;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => {
+      if (open && unreadNotifications.length > 0) {
+        // Optionally mark notifications as read when the dropdown is opened
+        // This is a UX choice. Some prefer explicit "mark as read".
+        // console.log("NotificationsDisplay: Dropdown opened with unread notifications.");
+        // handleMarkAllAsRead(); // Uncomment to mark as read on open
+      }
+    }}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative rounded-full">
           <Bell className="h-5 w-5" />
@@ -179,7 +203,7 @@ export function NotificationsDisplay() {
       <DropdownMenuContent align="end" className="w-80 sm:w-96">
         <DropdownMenuLabel className="flex justify-between items-center">
           <span>Notifications</span>
-          {isLoadingNotifications && <Loader2 className="h-4 w-4 animate-spin" />}
+          {isLoadingNotifications && localNotifications.length === 0 && <Loader2 className="h-4 w-4 animate-spin" />}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {localNotifications.length === 0 && !isLoadingNotifications && (
@@ -187,7 +211,7 @@ export function NotificationsDisplay() {
             No new notifications
           </DropdownMenuItem>
         )}
-        {(localNotifications.length > 0 || isLoadingNotifications) && (
+        {(localNotifications.length > 0 || (isLoadingNotifications && localNotifications.length === 0) ) && (
           <ScrollArea className="h-[300px] sm:h-[400px]">
              {isLoadingNotifications && localNotifications.length === 0 && (
                 <div className="flex justify-center items-center h-full">
@@ -236,22 +260,24 @@ const NotificationItem = ({ notification, onMarkAsRead }: NotificationItemProps)
     const isUnread = !notification.read_at;
 
     const content = (
-        <div className={cn("flex flex-col items-start gap-1 p-2 hover:bg-muted/50 rounded-sm", isUnread && "bg-primary/5 font-medium")}>
-            <p className="text-sm leading-snug">{notification.message}</p>
+        <div className={cn("flex flex-col items-start gap-1 p-2 hover:bg-muted/50 rounded-sm w-full text-left", isUnread && "bg-primary/5")}>
+           {isUnread && <span className="absolute left-1 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-primary"></span>}
+            <p className={cn("text-sm leading-snug", isUnread && "font-semibold")}>{notification.message}</p>
             <span className="text-xs text-muted-foreground">{timeAgo}</span>
         </div>
     );
 
-    const handleClick = () => {
+    const handleClickInternal = () => {
         if (isUnread && onMarkAsRead) {
             onMarkAsRead(notification.id);
         }
+        // If there's a link, navigation will be handled by the Link component itself.
     };
 
     if (notification.link) {
         return (
-            <DropdownMenuItem asChild className="p-0 cursor-pointer">
-                <Link href={notification.link} onClick={handleClick} className="w-full">
+            <DropdownMenuItem asChild className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50">
+                <Link href={notification.link} onClick={handleClickInternal} className="w-full block" target="_blank" rel="noopener noreferrer">
                     {content}
                 </Link>
             </DropdownMenuItem>
@@ -259,7 +285,8 @@ const NotificationItem = ({ notification, onMarkAsRead }: NotificationItemProps)
     }
 
     return (
-        <DropdownMenuItem onClick={handleClick} className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50">
+        // Make the item itself clickable to mark as read if no link
+        <DropdownMenuItem onClick={handleClickInternal} className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50">
             {content}
         </DropdownMenuItem>
     );

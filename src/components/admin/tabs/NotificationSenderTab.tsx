@@ -15,7 +15,6 @@ async function fetchUsersForNotifications(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, email, is_approved')
-    // .eq('is_approved', true) // Fetch all to let admin decide, filtering can happen if needed
     .order('full_name', { ascending: true });
   if (error) throw new Error(`Error fetching users for notifications: ${error.message}`);
   return data || [];
@@ -25,8 +24,8 @@ interface SendNotificationPayload {
   targetUserIds: string[];
   message: string;
   type?: string;
-  link?: string | null; // Link can be null if not provided
-  subject?: string | null; // Subject/Title can be null
+  link?: string | null;
+  subject?: string | null;
 }
 
 export function NotificationSenderTab() {
@@ -34,30 +33,33 @@ export function NotificationSenderTab() {
   const queryClient = useQueryClient();
 
   const { data: users, isLoading: isLoadingUsers, error: usersError } = useQuery<Profile[], Error>({
-    queryKey: ['allUsersForNotifications'], // Changed queryKey to reflect fetching all users
+    queryKey: ['allUsersForNotifications'],
     queryFn: fetchUsersForNotifications,
   });
 
-  const sendNotificationMutation = useMutation<unknown, Error, SendNotificationPayload>({
+  const sendNotificationMutation = useMutation<any, Error, SendNotificationPayload>({
     mutationFn: async (payload) => {
-      console.log("NotificationSenderTab: Invoking 'send-app-notification' Edge Function with payload:", payload);
+      console.log("NotificationSenderTab: Invoking 'send-app-notification' Edge Function with payload:", JSON.stringify(payload, null, 2));
       const { data, error } = await supabase.functions.invoke('send-app-notification', {
         body: payload,
       });
+
+      console.log("NotificationSenderTab: Edge Function response raw:", { data, error });
 
       if (error) {
         console.error("NotificationSenderTab: Error invoking 'send-app-notification' function:", error);
         throw new Error(error.message || "Failed to send notification via Edge Function.");
       }
-      console.log("NotificationSenderTab: Edge Function response data:", data);
-      return data; // Return data which might include { success: true, createdNotifications: [...] }
+      console.log("NotificationSenderTab: Edge Function response data (parsed):", data);
+      console.log("NotificationSenderTab: Specifically, createdNotifications:", data?.createdNotifications); // Log the specific part
+      return data;
     },
-    onSuccess: (data: any) => { // Added type for data
+    onSuccess: (data: any) => {
+      const createdCount = data?.createdNotifications?.length || 0;
       toast({
         title: "Notification Sent!",
-        description: `Notifications dispatched. ${data?.createdNotifications?.length || 0} notifications created.`,
+        description: `Notifications dispatched. ${createdCount} notification(s) potentially created.`,
       });
-      // queryClient.invalidateQueries({ queryKey: ['adminNotifications'] }); // Optional
     },
     onError: (error: Error) => {
       toast({
@@ -79,10 +81,11 @@ export function NotificationSenderTab() {
     const selectedTarget = formData.targetUser;
 
     console.log("NotificationSenderTab: Preparing to send notification. Form data:", formData);
-    console.log("NotificationSenderTab: Available users for targeting (raw):", users);
+    console.log("NotificationSenderTab: Available users for targeting:", users.map(u => ({id: u.id, name: u.full_name, approved: u.is_approved})));
+
 
     if (selectedTarget === "all_users") {
-      targetUserIds = users.filter(u => u.is_approved).map(u => u.id); // Send only to approved users for "all_users"
+      targetUserIds = users.filter(u => u.is_approved).map(u => u.id);
       console.log("NotificationSenderTab: Targeting all *approved* users. IDs:", targetUserIds);
     } else if (selectedTarget === "all_pending_contribution") {
       toast({ title: "Info", description: "Targeting 'Users with Pending Contributions' is not yet implemented.", variant: "default" });
@@ -99,7 +102,7 @@ export function NotificationSenderTab() {
       }
     }
 
-    if (targetUserIds.length === 0 && selectedTarget !== "all_pending_contribution") { // Avoid error if pending feature is selected
+    if (targetUserIds.length === 0 && selectedTarget !== "all_pending_contribution") {
       toast({ title: "No Targets", description: "No valid users selected or found for notification.", variant: "destructive" });
       console.warn("NotificationSenderTab: No target user IDs determined. Notification not sent.");
       return;
@@ -116,17 +119,16 @@ export function NotificationSenderTab() {
       targetUserIds,
       message: messageToSend,
       type: formData.messageType,
-      link: formData.link || null, // Pass the link, ensure it's null if empty string
-      subject: formData.customSubject || null, // Pass subject
+      link: formData.link || null,
+      subject: formData.customSubject || null,
     };
     
-    console.log("NotificationSenderTab: Final payload for Edge Function:", payload);
+    console.log("NotificationSenderTab: Final payload for Edge Function:", JSON.stringify(payload, null, 2));
 
     try {
       await sendNotificationMutation.mutateAsync(payload);
     } catch (error) {
       console.error("NotificationSenderTab: Error caught during sendNotificationMutation.mutateAsync call:", error);
-      // Toast is handled by mutation's onError
     }
   };
 
@@ -150,5 +152,3 @@ export function NotificationSenderTab() {
 
   return <NotificationSender users={users || []} onSend={handleSendNotification} isSending={sendNotificationMutation.isPending} />;
 }
-
-    
