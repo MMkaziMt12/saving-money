@@ -13,6 +13,7 @@ import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import Link from "next/link"; 
 import type { VariantProps } from "class-variance-authority"; 
+import React from "react";
 
 interface EmergencyRequestHistoryTableProps {
   requests: EmergencyRequest[] | undefined;
@@ -29,7 +30,7 @@ interface EmergencyRequestHistoryTableProps {
   isGlobalView?: boolean;
 }
 
-export function EmergencyRequestHistoryTable({
+export const EmergencyRequestHistoryTable = React.memo(function EmergencyRequestHistoryTable({
   requests,
   isLoading,
   title,
@@ -96,69 +97,69 @@ export function EmergencyRequestHistoryTable({
             disabled={isLoading && requests && requests.length > 0}
           />
         </div>
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {showUserName && <TableHead>Requested By</TableHead>}
-                <TableHead>Requested At</TableHead>
-                <TableHead>Amount Req.</TableHead>
-                {isGlobalView && <TableHead>Amount Ret.</TableHead>}
-                <TableHead>Reason</TableHead>
-                <TableHead>Exp. Return</TableHead>
-                <TableHead className="text-center">Status</TableHead>
-                {isGlobalView && <TableHead className="text-right">Actions</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading && requests && requests.length > 0 ? (
-                 <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
-              ) : requests && requests.length > 0 ? (
-                requests.map((req) => {
-                  const statusInfo = getStatusBadgeInfo(req);
-                  return (
-                    <TableRow key={req.id}>
-                      {showUserName && <TableCell>{req.user_name || req.user_id}</TableCell>}
-                      <TableCell>{format(parseISO(req.requested_at), "MMM dd, yy HH:mm")}</TableCell>
-                      <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
-                      {isGlobalView && <TableCell>{CURRENCY_SYMBOL}{(req.amount_returned || 0).toLocaleString()}</TableCell>}
-                      <TableCell className="max-w-xs truncate">{req.reason}</TableCell>
-                      <TableCell>
-                        {req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground">N/A</span>}
+        {/* ShadCN Table component handles its own overflow internally. No extra wrapper needed. */}
+        {/* The CardContent provides the visual boundary. */}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {showUserName && <TableHead>Requested By</TableHead>}
+              <TableHead>Requested At</TableHead>
+              <TableHead>Amount Req.</TableHead>
+              {isGlobalView && <TableHead>Amount Ret.</TableHead>}
+              <TableHead>Reason</TableHead>
+              <TableHead>Exp. Return</TableHead>
+              <TableHead className="text-center">Status</TableHead>
+              {isGlobalView && <TableHead className="text-right">Actions</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading && requests && requests.length > 0 ? (
+               <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
+            ) : requests && requests.length > 0 ? (
+              requests.map((req) => {
+                const statusInfo = getStatusBadgeInfo(req);
+                return (
+                  <TableRow key={req.id}>
+                    {showUserName && <TableCell className="break-words">{req.user_name || req.user_id}</TableCell>}
+                    <TableCell>{format(parseISO(req.requested_at), "MMM dd, yy HH:mm")}</TableCell>
+                    <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
+                    {isGlobalView && <TableCell>{CURRENCY_SYMBOL}{(req.amount_returned || 0).toLocaleString()}</TableCell>}
+                    <TableCell className="max-w-xs truncate break-words">{req.reason}</TableCell>
+                    <TableCell>
+                      {req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground">N/A</span>}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge 
+                        variant={statusInfo.variant} 
+                        className={cn("capitalize flex items-center justify-center gap-1.5 min-w-[110px]",
+                          {'bg-yellow-500 hover:bg-yellow-600 text-white': statusInfo.text === 'Pending'},
+                          {'bg-blue-500 hover:bg-blue-600 text-white': statusInfo.text === 'Approved'},
+                          {'bg-green-600 hover:bg-green-700 text-white': statusInfo.text === 'Fully Repaid'},
+                          {'bg-red-500 hover:bg-red-600 text-white': statusInfo.text === 'Rejected' || statusInfo.text === 'Overdue' }
+                        )}
+                      >
+                        {statusInfo.icon}
+                        {statusInfo.text}
+                      </Badge>
+                    </TableCell>
+                    {isGlobalView && (
+                      <TableCell className="text-right">
+                        <Button asChild variant="ghost" size="icon" className="h-8 w-8 p-0">
+                          <Link href={`/requests/${req.id}`} title="View Details">
+                            <Eye className="h-4 w-4" />
+                            <span className="sr-only">View Details</span>
+                          </Link>
+                        </Button>
                       </TableCell>
-                      <TableCell className="text-center">
-                        <Badge 
-                          variant={statusInfo.variant} 
-                          className={cn("capitalize flex items-center justify-center gap-1.5 min-w-[110px]",
-                            {'bg-yellow-500 hover:bg-yellow-600 text-white': statusInfo.text === 'Pending'},
-                            {'bg-blue-500 hover:bg-blue-600 text-white': statusInfo.text === 'Approved'},
-                            {'bg-green-600 hover:bg-green-700 text-white': statusInfo.text === 'Fully Repaid'},
-                            {'bg-red-500 hover:bg-red-600 text-white': statusInfo.text === 'Rejected' || statusInfo.text === 'Overdue' }
-                          )}
-                        >
-                          {statusInfo.icon}
-                          {statusInfo.text}
-                        </Badge>
-                      </TableCell>
-                      {isGlobalView && (
-                        <TableCell className="text-right">
-                          <Button asChild variant="ghost" size="icon" className="h-8 w-8 p-0">
-                            <Link href={`/requests/${req.id}`} title="View Details">
-                              <Eye className="h-4 w-4" />
-                              <span className="sr-only">View Details</span>
-                            </Link>
-                          </Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })
-              ) : (
-                <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                    )}
+                  </TableRow>
+                );
+              })
+            ) : (
+              <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
         {totalPages > 1 && (
           <div className="flex items-center justify-end space-x-2 pt-2">
             <Button
@@ -185,4 +186,5 @@ export function EmergencyRequestHistoryTable({
       </CardContent>
     </Card>
   );
-}
+});
+EmergencyRequestHistoryTable.displayName = "EmergencyRequestHistoryTable";

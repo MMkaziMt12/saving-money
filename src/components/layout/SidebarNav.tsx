@@ -15,7 +15,6 @@ import {
   SidebarMenu, 
   SidebarMenuItem, 
   SidebarMenuButton,
-  // useSidebar // Not strictly needed if SidebarMenuButton handles collapsed state rendering
 } from "@/components/ui/sidebar";
 
 interface NavItem {
@@ -34,16 +33,11 @@ const navItems: NavItem[] = [
   { href: "/admin", label: "Admin Panel", icon: Users, adminOnly: true, requiresApproval: true },
 ];
 
-// Removed isCollapsed prop as SidebarMenuButton will use context from ui/sidebar
-// Removed onLinkClick prop as SidebarMenuButton from ui/sidebar should handle mobile sheet closing
 export function SidebarNav() {
   const pathname = usePathname();
   const { user, isAdmin, isApproved, isLoading } = useAuth();
-  // const { state } = useSidebar(); // from @/components/ui/sidebar
-  // const isUiSidebarCollapsed = state === 'collapsed';
 
   if (isLoading && !user) {
-    // Placeholder for loading state, can be expanded
     return (
       <div className="p-2 space-y-1">
         {[...Array(3)].map((_, i) => (
@@ -54,10 +48,9 @@ export function SidebarNav() {
   }
 
   const filteredNavItems = navItems.filter(item => {
-    if (!user) return false; // Must be logged in
-    if (item.requiresApproval && !isApproved) return false; // Must be approved if item requires it
-    if (item.adminOnly && !isAdmin) return false; // Must be admin if item is admin only
-    // item.userOnly is not strictly enforced here, more of a hint
+    if (!user) return false; 
+    if (item.requiresApproval && !isApproved) return false; 
+    if (item.adminOnly && !isAdmin) return false; 
     return true;
   });
 
@@ -71,21 +64,20 @@ export function SidebarNav() {
           <SidebarMenuItem key={item.href}>
             <Link href={item.href} passHref legacyBehavior>
               <SidebarMenuButton
-                as="a" // Render as an anchor tag due to Link with legacyBehavior
+                as="a" 
                 icon={<IconComponent className={cn(
-                  "h-5 w-5 shrink-0", // Default icon classes
-                  isActive ? "text-[var(--sidebar-active-foreground)]" : "text-[var(--sidebar-muted-foreground)] group-hover/menu-item:text-[var(--sidebar-foreground)]"
+                  "shrink-0", // Size will be controlled by SidebarMenuButton's internal [&>svg]:size-4
+                  isActive 
+                    ? "text-[var(--sidebar-active-foreground)]" 
+                    : "text-[var(--sidebar-muted-foreground)] group-hover/menu-item:text-[var(--sidebar-accent-foreground)]"
                 )} />}
                 isActive={isActive}
-                tooltip={{ children: item.label, side: "right", align: "center" }} // Tooltip for collapsed state
+                tooltip={{ children: item.label, side: "right", align: "center" }} 
                 className={cn(
                   "justify-start gap-3 group/menu-item h-10 font-medium",
-                  // Active styles are primarily handled by data-[active=true] in ui/sidebar's buttonVariants
-                  // but we can add more specific overrides if needed
                    isActive && "bg-[var(--sidebar-active-background)] text-[var(--sidebar-active-foreground)] hover:bg-[var(--sidebar-active-background)] hover:text-[var(--sidebar-active-foreground)]"
                 )}
               >
-                {/* Label is the child for SidebarMenuButton, it handles collapsed/expanded display */}
                 {item.label}
               </SidebarMenuButton>
             </Link>

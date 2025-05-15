@@ -35,7 +35,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger as ConfirmDialogTrigger, // Renamed to avoid clash
+  AlertDialogTrigger as ConfirmDialogTrigger, 
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -47,12 +47,12 @@ import { z } from "zod";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { VariantProps } from "class-variance-authority";
+import React from "react";
 
 interface EmergencyRequestManagementTableProps {
   requests: EmergencyRequest[];
   users: Profile[];
-  onApproveRequest: (requestId: string) => void;
-  onRejectRequest: (requestId: string) => void;
+  onApproveRequest: (requestId: string, status: 'approved' | 'rejected') => void; // Combined for simplicity
   onRecordRepayment: (requestId: string, amountRepaid: number, repaymentDate: Date) => Promise<void>;
 }
 
@@ -63,7 +63,7 @@ const repaymentSchema = z.object({
 type RepaymentFormValues = z.infer<typeof repaymentSchema>;
 
 
-export function EmergencyRequestManagementTable({ requests, users, onApproveRequest, onRejectRequest, onRecordRepayment }: EmergencyRequestManagementTableProps) {
+export const EmergencyRequestManagementTable = React.memo(function EmergencyRequestManagementTable({ requests, users, onApproveRequest, onRecordRepayment }: EmergencyRequestManagementTableProps) {
   const [selectedRequestForView, setSelectedRequestForView] = useState<EmergencyRequest | null>(null);
   const [selectedRequestForRepayment, setSelectedRequestForRepayment] = useState<EmergencyRequest | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ type: 'approve' | 'reject'; request: EmergencyRequest | null }>({ type: 'approve', request: null });
@@ -91,11 +91,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
 
   const executeConfirmedAction = () => {
     if (confirmAction.request) {
-      if (confirmAction.type === 'approve') {
-        onApproveRequest(confirmAction.request.id);
-      } else if (confirmAction.type === 'reject') {
-        onRejectRequest(confirmAction.request.id);
-      }
+      onApproveRequest(confirmAction.request.id, confirmAction.type);
     }
     setIsConfirmDialogOpen(false);
     setConfirmAction({ type: 'approve', request: null });
@@ -116,12 +112,13 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
       repaymentForm.reset({ amountRepaid: 0, repaymentDate: new Date() });
     } catch (error) {
       console.error("Repayment submission error", error);
+      // Toast for error can be handled in the parent tab component
     }
   };
 
   const getStatusBadgeVariant = (request: EmergencyRequest): VariantProps<typeof Badge>["variant"] => {
     if (request.is_fully_repaid) return "success";
-    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive"; // Updated condition
+    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive"; 
     if (request.status === "approved") return "default";
     if (request.status === "rejected") return "destructive";
     if (request.status === "pending") return "secondary";
@@ -139,7 +136,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
 
   return (
     <>
-    <div className="overflow-x-auto rounded-md border">
+    {/* ShadCN Table handles its own overflow. No extra wrapper needed here. */}
     <Table>
       <TableHeader>
         <TableRow>
@@ -163,9 +160,9 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
         ) : (
           requests.map((request) => (
             <TableRow key={request.id}>
-              <TableCell className="font-medium">{getUserName(request.user_id)}</TableCell>
+              <TableCell className="font-medium break-words">{getUserName(request.user_id)}</TableCell>
               <TableCell className="hidden sm:table-cell">{format(parseISO(request.requested_at), "MMM dd, yy")}</TableCell>
-              <TableCell className="max-w-[150px] sm:max-w-[200px] truncate">{request.reason}</TableCell>
+              <TableCell className="max-w-[150px] sm:max-w-[200px] truncate break-words">{request.reason}</TableCell>
               <TableCell className="hidden md:table-cell">
                 {request.return_date ? format(parseISO(request.return_date), "MMM dd, yy") : <span className="text-xs text-muted-foreground">N/A</span>}
               </TableCell>
@@ -176,7 +173,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                   variant={getStatusBadgeVariant(request)}
                   className={cn("capitalize min-w-[100px] text-center justify-center",
                     {'bg-yellow-500 hover:bg-yellow-600 text-white': request.status === 'pending'},
-                    {'bg-green-500 hover:bg-green-600 text-white': request.status === 'approved' && !request.is_fully_repaid && !(request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) }, // Adjusted to not clash with overdue
+                    {'bg-green-500 hover:bg-green-600 text-white': request.status === 'approved' && !request.is_fully_repaid && !(request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) }, 
                     {'bg-green-600 hover:bg-green-700 text-white': request.is_fully_repaid},
                     {'bg-red-500 hover:bg-red-600 text-white': request.status === 'rejected' || (request.status === 'approved' && !request.is_fully_repaid && request.return_date && isPast(parseISO(request.return_date))) }
                   )}
@@ -243,11 +240,11 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                         />
                          <div className="grid grid-cols-4 items-start gap-4">
                           <Label className="text-right col-span-1 pt-1 text-muted-foreground">Reason:</Label>
-                          <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto">{selectedRequestForView.reason}</p>
+                          <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto break-words">{selectedRequestForView.reason}</p>
                         </div>
                          <div className="grid grid-cols-4 items-start gap-4">
                           <Label className="text-right col-span-1 pt-1 text-muted-foreground">Admin Notes:</Label>
-                          <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto">
+                          <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto break-words">
                             {selectedRequestForView.admin_notes || <span className="italic text-muted-foreground">No notes yet.</span>}
                           </p>
                         </div>
@@ -377,8 +374,6 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
         )}
       </TableBody>
     </Table>
-    </div>
-    {/* Confirmation Dialog for Approve/Reject */}
     <AlertDialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -402,7 +397,9 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
     </AlertDialog>
     </>
   );
-}
+});
+EmergencyRequestManagementTable.displayName = "EmergencyRequestManagementTable";
+
 
 const Label = ({className, ...props}: React.ComponentPropsWithoutRef<"label">) => (
   <label className={cn("text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70", className)} {...props} />

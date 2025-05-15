@@ -39,7 +39,6 @@ async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefine
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    // Optimized: Select specific columns
     .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned")
     .eq("user_id", userId)
     .in("status", ["pending", "approved"]) 
@@ -73,37 +72,36 @@ async function fetchTotalFamilySavingsRPC(): Promise<number> {
 const RequestTableDisplay = React.memo(({ requests }: { requests: EmergencyRequest[] }) => {
   if (!requests || requests.length === 0) return null;
   return (
-    <div className="overflow-x-auto rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Amount</TableHead>
-            <TableHead className="hidden sm:table-cell">Reason</TableHead>
-            <TableHead>Requested On</TableHead>
-            <TableHead>Expected Return</TableHead>
-            <TableHead className="text-center">Status</TableHead>
+    // ShadCN Table handles its own overflow.
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Amount</TableHead>
+          <TableHead className="hidden sm:table-cell">Reason</TableHead>
+          <TableHead>Requested On</TableHead>
+          <TableHead>Expected Return</TableHead>
+          <TableHead className="text-center">Status</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {requests.map(req => (
+          <TableRow key={req.id}>
+            <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
+            <TableCell className="hidden sm:table-cell max-w-xs truncate text-ellipsis whitespace-nowrap overflow-hidden break-words">{req.reason}</TableCell>
+            <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy")}</TableCell>
+            <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : "N/A"}</TableCell>
+            <TableCell className="text-center">
+                <Badge
+                    variant={req.status === 'approved' ? (req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'destructive' : 'success') : req.status === 'pending' ? 'secondary' : 'outline'}
+                    className="capitalize"
+                >
+                    {req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'Overdue' : req.status}
+                </Badge>
+            </TableCell>
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {requests.map(req => (
-            <TableRow key={req.id}>
-              <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
-              <TableCell className="hidden sm:table-cell max-w-xs truncate text-ellipsis whitespace-nowrap overflow-hidden">{req.reason}</TableCell>
-              <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy")}</TableCell>
-              <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : "N/A"}</TableCell>
-              <TableCell className="text-center">
-                  <Badge
-                      variant={req.status === 'approved' ? (req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'destructive' : 'success') : req.status === 'pending' ? 'secondary' : 'outline'}
-                      className="capitalize"
-                  >
-                      {req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'Overdue' : req.status}
-                  </Badge>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+        ))}
+      </TableBody>
+    </Table>
   );
 });
 RequestTableDisplay.displayName = "RequestTableDisplay";
@@ -179,8 +177,8 @@ export default function EmergencyRequestPage() {
       status: 'pending',
       requested_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      created_at: new Date().toISOString(), // Ensure this is included if not DB default
-    }).select('id').single(); // Select only id after insert
+      created_at: new Date().toISOString(), 
+    }).select('id').single(); 
 
     if (error) {
       toast({
@@ -236,7 +234,9 @@ export default function EmergencyRequestPage() {
             {pendingRequests.length > 0 && (
               <div>
                 <h3 className="text-lg font-semibold mb-2 text-foreground/90">Pending Requests ({pendingRequests.length})</h3>
-                <RequestTableDisplay requests={pendingRequests} />
+                <div className="rounded-md border"> {/* Added border wrapper for table */}
+                  <RequestTableDisplay requests={pendingRequests} />
+                </div>
               </div>
             )}
             {pendingRequests.length > 0 && approvedOutstandingRequests.length > 0 && (
@@ -245,7 +245,9 @@ export default function EmergencyRequestPage() {
             {approvedOutstandingRequests.length > 0 && (
               <div>
                 <h3 className="text-lg font-semibold mb-2 text-foreground/90">Approved & Outstanding Requests ({approvedOutstandingRequests.length})</h3>
-                <RequestTableDisplay requests={approvedOutstandingRequests} />
+                <div className="rounded-md border"> {/* Added border wrapper for table */}
+                  <RequestTableDisplay requests={approvedOutstandingRequests} />
+                </div>
                 {totalOutstandingAmount > 0 && (
                     <p className="mt-4 text-sm font-medium text-muted-foreground">
                         Total outstanding from approved requests: <span className="font-semibold text-primary">{CURRENCY_SYMBOL}{totalOutstandingAmount.toLocaleString()}</span>

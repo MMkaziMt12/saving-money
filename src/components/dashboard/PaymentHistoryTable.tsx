@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Loader2, Search } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
+import React from "react";
 
 interface PaymentHistoryTableProps {
   contributions: MonthlyContribution[] | undefined;
@@ -21,7 +22,7 @@ interface PaymentHistoryTableProps {
   itemsPerPage: number;
 }
 
-export function PaymentHistoryTable({
+export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
   contributions,
   isLoading,
   totalCount,
@@ -33,7 +34,6 @@ export function PaymentHistoryTable({
 }: PaymentHistoryTableProps) {
   const totalPages = Math.ceil(totalCount / itemsPerPage);
 
-  // Initial loading state for the entire card before first data or if explicitly loading all
   if (isLoading && (!contributions || contributions.length === 0) && totalCount === 0) {
     return (
       <Card className="shadow-lg">
@@ -63,35 +63,35 @@ export function PaymentHistoryTable({
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="pl-10 w-full md:w-1/2"
-            disabled={isLoading && contributions && contributions.length > 0} // Disable input if loading new data but old data is shown
+            disabled={isLoading && contributions && contributions.length > 0} 
           />
         </div>
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Payment Date</TableHead>
-                <TableHead>Contribution For (Month/Year)</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading && contributions && contributions.length > 0 ? ( // Spinner for subsequent loads
-                <TableRow><TableCell colSpan={3} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
-              ) : contributions && contributions.length > 0 ? (
-                contributions.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
-                    <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
-                    <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No payments made yet.' : 'No results for your search.'}</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+        {/* ShadCN Table component handles its own overflow internally. No extra wrapper needed. */}
+        {/* The CardContent provides the visual boundary. */}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Payment Date</TableHead>
+              <TableHead>Contribution For (Month/Year)</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading && contributions && contributions.length > 0 ? ( 
+              <TableRow><TableCell colSpan={3} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
+            ) : contributions && contributions.length > 0 ? (
+              contributions.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
+                  <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
+                  <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No payments made yet.' : 'No results for your search.'}</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
         {totalPages > 1 && (
           <div className="flex items-center justify-end space-x-2 pt-2">
             <Button
@@ -118,4 +118,6 @@ export function PaymentHistoryTable({
       </CardContent>
     </Card>
   );
-}
+});
+PaymentHistoryTable.displayName = "PaymentHistoryTable";
+

@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { MonthlyContribution, Profile } from "@/types";
@@ -18,6 +19,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, DollarSign, Loader2, Layers, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import React from "react";
 
 const addContributionSchema = z.object({
   userId: z.string().min(1, "User selection is required."),
@@ -48,7 +50,7 @@ const months = Array.from({length: 12}, (_, i) => ({ value: i + 1, label: format
 
 const ITEMS_PER_PAGE_CONTRIBUTIONS = 10;
 
-export function ContributionManagement({ users, contributions, onAddContribution }: ContributionManagementProps) {
+export const ContributionManagement = React.memo(function ContributionManagement({ users, contributions, onAddContribution }: ContributionManagementProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [contributionSearchTerm, setContributionSearchTerm] = useState("");
@@ -266,35 +268,35 @@ export function ContributionManagement({ users, contributions, onAddContribution
               className="pl-10 w-full md:w-2/3 lg:w-1/2"
             />
           </div>
-          <div className="overflow-x-auto rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Payment Date</TableHead>
-                  <TableHead>Contribution For (Month/Year)</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="hidden sm:table-cell">Recorded By</TableHead>
+          {/* ShadCN Table handles its own overflow. No extra wrapper needed here. */}
+          {/* The CardContent provides the visual boundary. */}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Payment Date</TableHead>
+                <TableHead>Contribution For (Month/Year)</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="hidden sm:table-cell">Recorded By</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {paginatedContributions.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell className="break-words">{c.user_name || users.find(u => u.id === c.user_id)?.full_name || 'Unknown User'}</TableCell>
+                  <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
+                  <TableCell>{format(new Date(c.year, c.month -1), "MMMM yyyy")}</TableCell>
+                  <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
+                  <TableCell className="hidden sm:table-cell break-words">{c.recorded_by_admin_name || 'Admin'}</TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedContributions.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell>{c.user_name || users.find(u => u.id === c.user_id)?.full_name || 'Unknown User'}</TableCell>
-                    <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
-                    <TableCell>{format(new Date(c.year, c.month -1), "MMMM yyyy")}</TableCell>
-                    <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                    <TableCell className="hidden sm:table-cell">{c.recorded_by_admin_name || 'Admin'}</TableCell>
-                  </TableRow>
-                ))}
-                {paginatedContributions.length === 0 && (
-                  <TableRow><TableCell colSpan={5} className="text-center h-24">
-                    {contributions.length > 0 ? 'No contributions match your search.' : 'No contributions recorded yet.'}
-                  </TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+              ))}
+              {paginatedContributions.length === 0 && (
+                <TableRow><TableCell colSpan={5} className="text-center h-24">
+                  {contributions.length > 0 ? 'No contributions match your search.' : 'No contributions recorded yet.'}
+                </TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
           {totalContributionPages > 1 && (
             <div className="flex items-center justify-end space-x-2 pt-2">
               <Button
@@ -322,4 +324,5 @@ export function ContributionManagement({ users, contributions, onAddContribution
       </Card>
     </div>
   );
-}
+});
+ContributionManagement.displayName = "ContributionManagement";

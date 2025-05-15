@@ -51,14 +51,14 @@ body {
     --sidebar-muted-foreground: 210 15% 65%; /* For less prominent icons/text */
     --sidebar-border: 220 15% 28%; /* Border for sidebar elements */
     
-    /* Variables expected by ui/sidebar.tsx */
-    --sidebar-hover-background: 220 18% 25%; /* Slightly lighter for hover - used by AppSidebar previously */
-    --sidebar-active-background: hsl(var(--primary)); /* Use main theme primary for active links */
-    --sidebar-active-foreground: hsl(var(--primary-foreground)); /* Text color for active links */
+    --sidebar-hover-background: 220 18% 25%; 
+    --sidebar-active-background: hsl(var(--primary)); 
+    --sidebar-active-foreground: hsl(var(--primary-foreground)); 
     
-    --sidebar-accent: hsl(var(--sidebar-hover-background)); /* Map to hover for ui/sidebar button hover */
-    --sidebar-accent-foreground: hsl(var(--sidebar-foreground)); /* Text for sidebar accent hover */
-    --sidebar-ring: hsl(var(--primary)); /* Ring color for focus, maps to main primary */
+    /* Updated for better hover contrast on icons/text */
+    --sidebar-accent: hsl(var(--sidebar-hover-background)); 
+    --sidebar-accent-foreground: hsl(var(--primary-foreground)); /* Changed to primary-foreground for better hover pop */
+    --sidebar-ring: hsl(var(--primary)); 
   }
 
   .dark {
@@ -99,13 +99,13 @@ body {
     --sidebar-muted-foreground: 210 15% 60%;
     --sidebar-border: 220 15% 18%; 
     
-    /* Variables expected by ui/sidebar.tsx - dark mode */
     --sidebar-hover-background: 220 18% 17%;
     --sidebar-active-background: hsl(var(--primary)); 
     --sidebar-active-foreground: hsl(var(--primary-foreground));
 
+    /* Updated for better hover contrast on icons/text - dark mode */
     --sidebar-accent: hsl(var(--sidebar-hover-background));
-    --sidebar-accent-foreground: hsl(var(--sidebar-foreground));
+    --sidebar-accent-foreground: hsl(var(--primary-foreground)); /* Changed to primary-foreground */
     --sidebar-ring: hsl(var(--primary));
   }
 }

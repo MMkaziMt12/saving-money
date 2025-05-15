@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { EmergencyRequest, Notification as AppNotification, Profile } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge, badgeVariants } from "@/components/ui/badge"; // Import badgeVariants
+import { Badge, badgeVariants } from "@/components/ui/badge"; 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,7 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import type { VariantProps } from "class-variance-authority";
-import React, { useEffect } from "react"; // Ensure React is imported
+import React, { useEffect } from "react"; 
 
 const supabase = createClient();
 
@@ -26,7 +26,6 @@ async function fetchEmergencyRequestDetails(requestId: string): Promise<Emergenc
   if (!requestId) return null;
   const { data, error } = await supabase
     .from("emergency_requests")
-    // Optimized: Select specific columns and from joined tables
     .select(`
       id, user_id, amount_requested, reason, status, requested_at, return_date,
       amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
@@ -39,14 +38,13 @@ async function fetchEmergencyRequestDetails(requestId: string): Promise<Emergenc
     console.error("Error fetching emergency request details:", error);
     throw new Error(error.message);
   }
-  return data as EmergencyRequest | null; // Cast as some joined fields are partial
+  return data as EmergencyRequest | null; 
 }
 
 async function fetchRelatedNotifications(requestId: string): Promise<AppNotification[]> {
   if (!requestId) return [];
   const { data, error } = await supabase
     .from("notifications")
-    // Optimized: Select specific columns
     .select("id, message, created_at, read_at, link")
     .eq("related_request_id", requestId)
     .order("created_at", { ascending: false });
@@ -199,7 +197,7 @@ export default function EmergencyRequestDetailPage() {
                  <Badge 
                     variant={statusBadgeVariant}
                     className={cn("capitalize text-xs sm:text-sm px-3 py-1",
-                        {'bg-yellow-500 hover:bg-yellow-600 text-white': statusText === 'pending' || statusText === 'Pending' }, // Handle case variations
+                        {'bg-yellow-500 hover:bg-yellow-600 text-white': statusText === 'pending' || statusText === 'Pending' }, 
                         {'bg-green-500 hover:bg-green-600 text-white': (statusText === 'Approved' || statusText === 'Outstanding') && !(requestDetails.return_date && isPast(parseISO(requestDetails.return_date)) && !requestDetails.is_fully_repaid) },
                         {'bg-green-600 hover:bg-green-700 text-white': statusText === 'Fully Repaid'},
                         {'bg-red-500 hover:bg-red-600 text-white': statusText === 'Rejected' || statusText === 'Overdue' }
@@ -223,8 +221,8 @@ export default function EmergencyRequestDetailPage() {
             {reviewedAtDate && !adminProfile && requestDetails.reviewed_by_admin_id && <InfoItem icon={Shield} label="Reviewed By Admin ID" value={requestDetails.reviewed_by_admin_id.substring(0,8)} />}
         </CardContent>
         <CardFooter className="flex-col items-start pt-4 border-t">
-            <InfoItem icon={Info} label="Reason for Request" value={<p className="whitespace-pre-wrap">{requestDetails.reason}</p>} />
-            {requestDetails.admin_notes && <InfoItem icon={MessageSquare} label="Admin Notes" value={<p className="whitespace-pre-wrap bg-muted/50 p-3 rounded-md">{requestDetails.admin_notes}</p>} />}
+            <InfoItem icon={Info} label="Reason for Request" value={<p className="whitespace-pre-wrap break-words">{requestDetails.reason}</p>} />
+            {requestDetails.admin_notes && <InfoItem icon={MessageSquare} label="Admin Notes" value={<p className="whitespace-pre-wrap break-words bg-muted/50 p-3 rounded-md">{requestDetails.admin_notes}</p>} />}
         </CardFooter>
       </Card>
 
@@ -240,7 +238,7 @@ export default function EmergencyRequestDetailPage() {
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2 rounded-md border p-3">
               {notifications.map(notification => (
                 <div key={notification.id} className={cn("p-3 rounded-md border", notification.read_at ? "bg-card hover:bg-muted/30" : "bg-primary/10 border-primary/30")}>
-                  <p className={cn("text-sm", !notification.read_at && "font-semibold")}>{notification.message}</p>
+                  <p className={cn("text-sm break-words", !notification.read_at && "font-semibold")}>{notification.message}</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     Sent: {notification.created_at ? format(parseISO(notification.created_at), "MMM dd, yyyy HH:mm") : 'N/A'}
                     {notification.read_at && ` | Read: ${formatDistanceToNowStrict(parseISO(notification.read_at), { addSuffix: true })}`}

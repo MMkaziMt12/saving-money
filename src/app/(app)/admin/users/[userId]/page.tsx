@@ -16,7 +16,7 @@ import { format, parseISO } from "date-fns";
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import React, { useEffect } from "react"; // Ensure React is imported
+import React, { useEffect } from "react"; 
 
 const supabase = createClient();
 
@@ -24,7 +24,6 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
     .from("profiles")
-    // Optimized: Select specific columns
     .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at')
     .eq("id", userId)
     .single();
@@ -36,7 +35,6 @@ async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContr
   if (!userId) return [];
   const { data, error } = await supabase
     .from("monthly_contributions")
-    // Optimized: Select specific columns
     .select("id, payment_date, month, year, amount, recorded_by_admin_name, recorded_by_admin_id")
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
@@ -208,36 +206,36 @@ export default function UserDetailPage() {
           <CardDescription>Overview of this user's monthly contributions.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Payment Date</TableHead>
-                  <TableHead>Month/Year of Contribution</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="hidden sm:table-cell">Recorded By</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {contributions && contributions.length > 0 ? (
-                  contributions.map((c) => (
-                    <TableRow key={c.id}>
-                      <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
-                      <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
-                      <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                      <TableCell className="hidden sm:table-cell">{c.recorded_by_admin_name || (c.recorded_by_admin_id ? 'Admin' : 'System/User')}</TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
-                      No contributions found for this user.
-                    </TableCell>
+          {/* ShadCN Table handles its own overflow. No extra wrapper needed here. */}
+          {/* The CardContent provides the visual boundary. */}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Payment Date</TableHead>
+                <TableHead>Month/Year of Contribution</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="hidden sm:table-cell">Recorded By</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {contributions && contributions.length > 0 ? (
+                contributions.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
+                    <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
+                    <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
+                    <TableCell className="hidden sm:table-cell break-words">{c.recorded_by_admin_name || (c.recorded_by_admin_id ? 'Admin' : 'System/User')}</TableCell>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
+                    No contributions found for this user.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
