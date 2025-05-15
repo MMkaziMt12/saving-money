@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Profile } from "@/types";
@@ -6,8 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, XCircle, Trash2, ShieldCheck, ShieldX, MoreHorizontal, Eye } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { useToast } from "@/hooks/use-toast";
-import Link from "next/link"; 
+import Link from "next/link";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,50 +27,37 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useState } from "react";
 
 interface UserManagementTableProps {
   users: Profile[];
   onApproveUser: (userId: string) => void;
-  onRejectUser: (userId: string) => void; 
+  onRejectUser: (userId: string) => void;
   onMakeAdmin?: (userId: string) => void;
   onRevokeAdmin?: (userId: string) => void;
   onDeleteUser?: (userId: string) => void;
 }
 
-export function UserManagementTable({ 
-    users, 
-    onApproveUser, 
+export function UserManagementTable({
+    users,
+    onApproveUser,
     onRejectUser,
     onMakeAdmin,
     onRevokeAdmin,
     onDeleteUser,
  }: UserManagementTableProps) {
-  const { toast } = useToast();
 
-  const handleApprove = (userId: string, userName: string) => {
-    onApproveUser(userId);
+  const [dialogState, setDialogState] = useState<{ [key: string]: boolean }>({});
+  const [actionUser, setActionUser] = useState<Profile | null>(null);
+
+  const openDialog = (action: string, user: Profile) => {
+    setActionUser(user);
+    setDialogState(prev => ({ ...prev, [action]: true }));
   };
 
-  const handleReject = (userId: string, userName: string) => { 
-    onRejectUser(userId);
-  };
-  
-  const handleMakeAdmin = (userId: string, userName: string) => {
-    if(onMakeAdmin) {
-      onMakeAdmin(userId);
-    }
-  };
-  
-  const handleRevokeAdmin = (userId: string, userName: string) => {
-    if(onRevokeAdmin) {
-      onRevokeAdmin(userId);
-    }
-  };
-  
-  const handleDelete = (userId: string, userName: string) => {
-    if(onDeleteUser) {
-      onDeleteUser(userId);
-    }
+  const closeDialog = (action: string) => {
+    setDialogState(prev => ({ ...prev, [action]: false }));
+    setActionUser(null);
   };
 
   return (
@@ -81,7 +68,7 @@ export function UserManagementTable({
             <TableHead>Full Name</TableHead>
             <TableHead>Email</TableHead>
             <TableHead className="hidden md:table-cell">Phone</TableHead>
-            <TableHead className="hidden sm:table-cell">Created At</TableHead> 
+            <TableHead className="hidden sm:table-cell">Created At</TableHead>
             <TableHead>Role</TableHead>
             <TableHead className="text-center">Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -130,28 +117,109 @@ export function UserManagementTable({
                           <Eye className="mr-2 h-4 w-4" /> View Details
                         </Link>
                       </DropdownMenuItem>
+
                       {!user.is_approved && (
-                        <DropdownMenuItem onClick={() => handleApprove(user.id, user.full_name || user.email || user.id)}>
-                          <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" /> Approve User
-                        </DropdownMenuItem>
+                        <AlertDialog open={dialogState[`approve-${user.id}`]} onOpenChange={(open) => !open && closeDialog(`approve-${user.id}`)}>
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={(e) => { e.preventDefault(); openDialog(`approve-${user.id}`, user); }}>
+                              <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" /> Approve User
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Approve User?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to approve {actionUser?.full_name || actionUser?.email}?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel onClick={() => closeDialog(`approve-${user.id}`)}>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => { onApproveUser(user.id); closeDialog(`approve-${user.id}`); }}>Approve</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       )}
-                      {user.is_approved && user.role !== 'admin' && ( 
-                        <DropdownMenuItem onClick={() => handleReject(user.id, user.full_name || user.email || user.id)}>
-                          <XCircle className="mr-2 h-4 w-4 text-orange-500" /> Unapprove User
-                        </DropdownMenuItem>
+
+                      {user.is_approved && user.role !== 'admin' && (
+                        <AlertDialog open={dialogState[`reject-${user.id}`]} onOpenChange={(open) => !open && closeDialog(`reject-${user.id}`)}>
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={(e) => { e.preventDefault(); openDialog(`reject-${user.id}`, user); }}>
+                              <XCircle className="mr-2 h-4 w-4 text-orange-500" /> Unapprove User
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Unapprove User?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to unapprove {actionUser?.full_name || actionUser?.email}? Their access will be restricted.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel onClick={() => closeDialog(`reject-${user.id}`)}>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className={buttonVariants({ variant: "destructive" })}
+                                onClick={() => { onRejectUser(user.id); closeDialog(`reject-${user.id}`); }}
+                              >
+                                Unapprove
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       )}
+
                       <DropdownMenuSeparator />
+
                       {user.role !== 'admin' && onMakeAdmin && (
-                        <DropdownMenuItem onClick={() => handleMakeAdmin(user.id, user.full_name || user.email || user.id)}>
-                          <ShieldCheck className="mr-2 h-4 w-4 text-blue-500" /> Make Admin
-                        </DropdownMenuItem>
+                         <AlertDialog open={dialogState[`makeAdmin-${user.id}`]} onOpenChange={(open) => !open && closeDialog(`makeAdmin-${user.id}`)}>
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={(e) => { e.preventDefault(); openDialog(`makeAdmin-${user.id}`, user); }}>
+                              <ShieldCheck className="mr-2 h-4 w-4 text-blue-500" /> Make Admin
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Make Admin?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to grant admin privileges to {actionUser?.full_name || actionUser?.email}?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel onClick={() => closeDialog(`makeAdmin-${user.id}`)}>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => { onMakeAdmin(user.id); closeDialog(`makeAdmin-${user.id}`); }}>Make Admin</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       )}
-                      {user.role === 'admin' && onRevokeAdmin && users.filter(u => u.role === 'admin').length > 1 && ( 
-                        <DropdownMenuItem onClick={() => handleRevokeAdmin(user.id, user.full_name || user.email || user.id)} className="text-orange-600 focus:text-orange-600 focus:bg-orange-50">
-                          <ShieldX className="mr-2 h-4 w-4" /> Revoke Admin
-                        </DropdownMenuItem>
+
+                      {user.role === 'admin' && onRevokeAdmin && users.filter(u => u.role === 'admin').length > 1 && (
+                        <AlertDialog open={dialogState[`revokeAdmin-${user.id}`]} onOpenChange={(open) => !open && closeDialog(`revokeAdmin-${user.id}`)}>
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={(e) => { e.preventDefault(); openDialog(`revokeAdmin-${user.id}`, user); }} className="text-orange-600 focus:text-orange-600 focus:bg-orange-50">
+                              <ShieldX className="mr-2 h-4 w-4" /> Revoke Admin
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Revoke Admin?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to revoke admin privileges from {actionUser?.full_name || actionUser?.email}?
+                                {(users.filter(u => u.role === 'admin').length <= 1) && <p className="mt-2 text-destructive-foreground bg-destructive p-2 rounded-md">Warning: This is the last admin. Revoking will leave no admins.</p>}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel onClick={() => closeDialog(`revokeAdmin-${user.id}`)}>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className={buttonVariants({ variant: "destructive" })}
+                                onClick={() => { onRevokeAdmin(user.id); closeDialog(`revokeAdmin-${user.id}`); }}
+                              >
+                                Revoke Admin
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       )}
-                      {onDeleteUser && user.role !== 'admin' && ( 
+
+                      {onDeleteUser && user.role !== 'admin' && (
                         <>
                           <DropdownMenuSeparator />
                           <AlertDialog>
@@ -170,7 +238,7 @@ export function UserManagementTable({
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                                 <AlertDialogAction
-                                  onClick={() => handleDelete(user.id, user.full_name || user.email || user.id)}
+                                  onClick={() => onDeleteUser(user.id)}
                                   className={buttonVariants({variant: "destructive"})}
                                 >
                                   Delete Profile
@@ -191,3 +259,4 @@ export function UserManagementTable({
     </div>
   );
 }
+

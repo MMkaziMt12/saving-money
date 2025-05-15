@@ -1,12 +1,12 @@
+
 "use client";
 
 import type { EmergencyRequest, Profile } from "@/types";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, XCircle, MoreHorizontal, Eye, CalendarDays, TrendingUp, History, HandCoins, CalendarIcon } from "lucide-react";
 import { format, formatDistanceToNow, parseISO, isPast } from "date-fns";
-import { useToast } from "@/hooks/use-toast";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import {
   DropdownMenu,
@@ -26,6 +26,17 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger as ConfirmDialogTrigger, // Renamed to avoid clash
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -39,7 +50,7 @@ import { VariantProps } from "class-variance-authority";
 
 interface EmergencyRequestManagementTableProps {
   requests: EmergencyRequest[];
-  users: Profile[]; 
+  users: Profile[];
   onApproveRequest: (requestId: string) => void;
   onRejectRequest: (requestId: string) => void;
   onRecordRepayment: (requestId: string, amountRepaid: number, repaymentDate: Date) => Promise<void>;
@@ -53,10 +64,11 @@ type RepaymentFormValues = z.infer<typeof repaymentSchema>;
 
 
 export function EmergencyRequestManagementTable({ requests, users, onApproveRequest, onRejectRequest, onRecordRepayment }: EmergencyRequestManagementTableProps) {
-  const { toast } = useToast();
   const [selectedRequestForView, setSelectedRequestForView] = useState<EmergencyRequest | null>(null);
   const [selectedRequestForRepayment, setSelectedRequestForRepayment] = useState<EmergencyRequest | null>(null);
-  
+  const [confirmAction, setConfirmAction] = useState<{ type: 'approve' | 'reject'; request: EmergencyRequest | null }>({ type: 'approve', request: null });
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+
   const repaymentForm = useForm<RepaymentFormValues>({
     resolver: zodResolver(repaymentSchema),
     defaultValues: {
@@ -68,12 +80,27 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
   const getUserName = (userId: string) => users.find(u => u.id === userId)?.full_name || "Unknown User";
 
   const handleApprove = (request: EmergencyRequest) => {
-    onApproveRequest(request.id);
+    setConfirmAction({ type: 'approve', request });
+    setIsConfirmDialogOpen(true);
   };
 
   const handleReject = (request: EmergencyRequest) => {
-    onRejectRequest(request.id);
+    setConfirmAction({ type: 'reject', request });
+    setIsConfirmDialogOpen(true);
   };
+
+  const executeConfirmedAction = () => {
+    if (confirmAction.request) {
+      if (confirmAction.type === 'approve') {
+        onApproveRequest(confirmAction.request.id);
+      } else if (confirmAction.type === 'reject') {
+        onRejectRequest(confirmAction.request.id);
+      }
+    }
+    setIsConfirmDialogOpen(false);
+    setConfirmAction({ type: 'approve', request: null });
+  };
+
 
   const handleRepaymentSubmit = async (data: RepaymentFormValues) => {
     if (!selectedRequestForRepayment) return;
@@ -85,26 +112,26 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
 
     try {
       await onRecordRepayment(selectedRequestForRepayment.id, data.amountRepaid, data.repaymentDate);
-      setSelectedRequestForRepayment(null); 
+      setSelectedRequestForRepayment(null);
       repaymentForm.reset({ amountRepaid: 0, repaymentDate: new Date() });
     } catch (error) {
       console.error("Repayment submission error", error);
     }
   };
-  
+
   const getStatusBadgeVariant = (request: EmergencyRequest): VariantProps<typeof Badge>["variant"] => {
     if (request.is_fully_repaid) return "success";
-    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date))) return "destructive";
-    if (request.status === "approved") return "default"; 
+    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive"; // Updated condition
+    if (request.status === "approved") return "default";
     if (request.status === "rejected") return "destructive";
-    if (request.status === "pending") return "secondary"; 
+    if (request.status === "pending") return "secondary";
     return "outline";
   };
 
   const getRepaymentStatusText = (request: EmergencyRequest) => {
     if (request.is_fully_repaid) return "Fully Repaid";
     if (request.status === 'approved') {
-       if (request.return_date && isPast(parseISO(request.return_date))) return "Overdue";
+       if (request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "Overdue";
        return "Outstanding";
     }
     return request.status;
@@ -145,11 +172,11 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
               <TableCell className="text-right">{CURRENCY_SYMBOL}{request.amount_requested.toLocaleString()}</TableCell>
               <TableCell className="text-right">{CURRENCY_SYMBOL}{(request.amount_returned || 0).toLocaleString()}</TableCell>
               <TableCell className="text-center">
-                <Badge 
-                  variant={getStatusBadgeVariant(request)} 
+                <Badge
+                  variant={getStatusBadgeVariant(request)}
                   className={cn("capitalize min-w-[100px] text-center justify-center",
                     {'bg-yellow-500 hover:bg-yellow-600 text-white': request.status === 'pending'},
-                    {'bg-green-500 hover:bg-green-600 text-white': request.status === 'approved' && !request.is_fully_repaid && !(request.return_date && isPast(parseISO(request.return_date)))},
+                    {'bg-green-500 hover:bg-green-600 text-white': request.status === 'approved' && !request.is_fully_repaid && !(request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) }, // Adjusted to not clash with overdue
                     {'bg-green-600 hover:bg-green-700 text-white': request.is_fully_repaid},
                     {'bg-red-500 hover:bg-red-600 text-white': request.status === 'rejected' || (request.status === 'approved' && !request.is_fully_repaid && request.return_date && isPast(parseISO(request.return_date))) }
                   )}
@@ -176,12 +203,16 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                       {request.status === "pending" && (
                         <>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleApprove(request)} className="text-green-600 focus:text-green-600 focus:bg-green-50">
-                            <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleReject(request)} className="text-red-600 focus:text-red-600 focus:bg-red-50">
-                            <XCircle className="mr-2 h-4 w-4" /> Reject
-                          </DropdownMenuItem>
+                          <ConfirmDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={(e) => { e.preventDefault(); handleApprove(request);}} className="text-green-600 focus:text-green-600 focus:bg-green-50">
+                              <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+                            </DropdownMenuItem>
+                          </ConfirmDialogTrigger>
+                          <ConfirmDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={(e) => { e.preventDefault(); handleReject(request);}} className="text-red-600 focus:text-red-600 focus:bg-red-50">
+                              <XCircle className="mr-2 h-4 w-4" /> Reject
+                            </DropdownMenuItem>
+                          </ConfirmDialogTrigger>
                         </>
                       )}
                        {request.status === "approved" && !request.is_fully_repaid && (
@@ -193,7 +224,7 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                   {selectedRequestForView && ( 
+                   {selectedRequestForView && (
                     <DialogContent className="sm:max-w-lg">
                       <DialogHeader>
                         <DialogTitle>Emergency Request Details</DialogTitle>
@@ -206,11 +237,11 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                         <InfoRow label="Amount Requested:" value={`${CURRENCY_SYMBOL}${selectedRequestForView.amount_requested.toLocaleString()}`} />
                         <InfoRow label="Amount Returned:" value={`${CURRENCY_SYMBOL}${(selectedRequestForView.amount_returned || 0).toLocaleString()}`} />
                         <InfoRow label="Requested At:" value={format(parseISO(selectedRequestForView.requested_at), "MMM dd, yyyy HH:mm")} />
-                        <InfoRow 
-                          label="Expected Return:" 
-                          value={selectedRequestForView.return_date ? format(parseISO(selectedRequestForView.return_date), "MMM dd, yyyy") : "Not specified"} 
+                        <InfoRow
+                          label="Expected Return:"
+                          value={selectedRequestForView.return_date ? format(parseISO(selectedRequestForView.return_date), "MMM dd, yyyy") : "Not specified"}
                         />
-                        <div className="grid grid-cols-4 items-start gap-4">
+                         <div className="grid grid-cols-4 items-start gap-4">
                           <Label className="text-right col-span-1 pt-1 text-muted-foreground">Reason:</Label>
                           <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto">{selectedRequestForView.reason}</p>
                         </div>
@@ -222,11 +253,11 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                           <Label className="text-right col-span-1 text-muted-foreground">Status:</Label>
-                           <Badge 
-                            variant={getStatusBadgeVariant(selectedRequestForView)} 
+                           <Badge
+                            variant={getStatusBadgeVariant(selectedRequestForView)}
                             className={cn("capitalize col-span-3 w-fit justify-center",
                               {'bg-yellow-500 hover:bg-yellow-600 text-white': selectedRequestForView.status === 'pending'},
-                              {'bg-green-500 hover:bg-green-600 text-white': selectedRequestForView.status === 'approved' && !selectedRequestForView.is_fully_repaid && !(selectedRequestForView.return_date && isPast(parseISO(selectedRequestForView.return_date)))},
+                              {'bg-green-500 hover:bg-green-600 text-white': selectedRequestForView.status === 'approved' && !selectedRequestForView.is_fully_repaid && !(selectedRequestForView.return_date && isPast(parseISO(selectedRequestForView.return_date)) && !selectedRequestForView.is_fully_repaid)},
                               {'bg-green-600 hover:bg-green-700 text-white': selectedRequestForView.is_fully_repaid},
                               {'bg-red-500 hover:bg-red-600 text-white': selectedRequestForView.status === 'rejected' || (selectedRequestForView.status === 'approved' && !selectedRequestForView.is_fully_repaid && selectedRequestForView.return_date && isPast(parseISO(selectedRequestForView.return_date))) }
                             )}
@@ -235,15 +266,15 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                           </Badge>
                         </div>
                         {selectedRequestForView.reviewed_at && (
-                           <InfoRow 
-                            label="Reviewed:" 
-                            value={`${format(parseISO(selectedRequestForView.reviewed_at), "MMM dd, yyyy HH:mm")} by ${selectedRequestForView.reviewed_by_admin_name || 'Admin'}`} 
+                           <InfoRow
+                            label="Reviewed:"
+                            value={`${format(parseISO(selectedRequestForView.reviewed_at), "MMM dd, yyyy HH:mm")} by ${selectedRequestForView.reviewed_by_admin_name || 'Admin'}`}
                            />
                         )}
                         {selectedRequestForView.last_return_date && (
-                           <InfoRow 
-                            label="Last Repayment:" 
-                            value={format(parseISO(selectedRequestForView.last_return_date), "MMM dd, yyyy HH:mm")} 
+                           <InfoRow
+                            label="Last Repayment:"
+                            value={format(parseISO(selectedRequestForView.last_return_date), "MMM dd, yyyy HH:mm")}
                            />
                         )}
                       </div>
@@ -253,14 +284,18 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
                          </DialogClose>
                         {selectedRequestForView.status === "pending" && (
                           <>
-                            <Button type="button" variant="destructive" onClick={() => {handleReject(selectedRequestForView!); (document.querySelector('[data-radix-dialog-default-close][type="button"]') as HTMLElement)?.click();}}>Reject</Button>
-                            <Button type="button" onClick={() => {handleApprove(selectedRequestForView!); (document.querySelector('[data-radix-dialog-default-close][type="button"]') as HTMLElement)?.click();}}>Approve</Button>
+                           <ConfirmDialogTrigger asChild>
+                              <Button type="button" variant="destructive" onClick={() => handleReject(selectedRequestForView)}>Reject</Button>
+                            </ConfirmDialogTrigger>
+                            <ConfirmDialogTrigger asChild>
+                              <Button type="button" onClick={() => handleApprove(selectedRequestForView)}>Approve</Button>
+                            </ConfirmDialogTrigger>
                           </>
                         )}
                       </DialogFooter>
                     </DialogContent>
                   )}
-                  {selectedRequestForRepayment && ( 
+                  {selectedRequestForRepayment && (
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
                         <DialogTitle>Record Repayment</DialogTitle>
@@ -343,6 +378,28 @@ export function EmergencyRequestManagementTable({ requests, users, onApproveRequ
       </TableBody>
     </Table>
     </div>
+    {/* Confirmation Dialog for Approve/Reject */}
+    <AlertDialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {confirmAction.type === 'approve' ? 'Approve Request?' : 'Reject Request?'}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to {confirmAction.type} the request from {confirmAction.request ? getUserName(confirmAction.request.user_id) : ''} for {CURRENCY_SYMBOL}{confirmAction.request?.amount_requested.toLocaleString()} (Reason: {confirmAction.request?.reason.substring(0, 50)}...)?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setIsConfirmDialogOpen(false)}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className={buttonVariants({ variant: confirmAction.type === 'reject' ? "destructive" : "default" })}
+            onClick={executeConfirmedAction}
+          >
+            {confirmAction.type === 'approve' ? 'Approve' : 'Reject'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }
@@ -357,3 +414,4 @@ const InfoRow = ({ label, value }: { label: string, value: string | React.ReactN
     <span className="col-span-3 font-medium">{value}</span>
   </div>
 );
+
