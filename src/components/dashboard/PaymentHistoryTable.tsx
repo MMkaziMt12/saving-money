@@ -66,7 +66,7 @@ export function PaymentHistoryTable({
             disabled={isLoading && contributions && contributions.length > 0} // Disable input if loading new data but old data is shown
           />
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>

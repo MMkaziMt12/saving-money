@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { EmergencyRequest } from "@/types";
@@ -10,8 +11,8 @@ import { Loader2, Search, CheckCircle2, XCircle, Clock, CalendarDays, Hourglass,
 import { format, parseISO, isPast } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import Link from "next/link"; // Import Link
-import type { VariantProps } from "class-variance-authority"; // Import VariantProps
+import Link from "next/link"; 
+import type { VariantProps } from "class-variance-authority"; 
 
 interface EmergencyRequestHistoryTableProps {
   requests: EmergencyRequest[] | undefined;
@@ -95,7 +96,7 @@ export function EmergencyRequestHistoryTable({
             disabled={isLoading && requests && requests.length > 0}
           />
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
