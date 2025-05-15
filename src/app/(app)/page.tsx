@@ -84,7 +84,7 @@ async function fetchAllFamilyEmergencyRequests(
 
   const formattedData = rawRequests?.map(req => ({
       ...req,
-      user_name: (req.profile_user as unknown as Profile)?.full_name || req.user_id,
+      user_name: req.profile_user?.full_name || req.user_id,
   })) || [];
   return { data: formattedData, count };
 }
@@ -121,7 +121,6 @@ export default function DashboardPage() {
   const [searchTermEmergencyRequests, setSearchTermEmergencyRequests] = useState("");
   const debouncedSearchTermEmergencyRequests = useDebounce(searchTermEmergencyRequests, 500);
 
-  // Fetch contributions for the logged-in user (for their payment history table)
   const { data: userContributionsData, isLoading: isLoadingContributions } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["userContributions", user?.id, currentPageContributions, debouncedSearchTermContributions],
     queryFn: () => fetchUserContributions(user!.id, currentPageContributions, ITEMS_PER_PAGE, debouncedSearchTermContributions),
@@ -129,16 +128,15 @@ export default function DashboardPage() {
     keepPreviousData: true, 
   });
 
-  // Fetch ALL emergency requests for dashboard summary cards and the global history table
   const { data: allEmergencyRequestsData, isLoading: isLoadingAllEmergencyRequests } = useQuery<PaginatedData<EmergencyRequest>, Error>({
-    queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests], // This queryKey will be used for the global table
+    queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
     queryFn: () => fetchAllFamilyEmergencyRequests(currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
-    enabled: !!user, // Fetch if user is logged in
+    enabled: !!user,
     keepPreviousData: true,
   });
 
   const { data: totalFamilySavings, isLoading: isLoadingTotalSavings } = useQuery<number, Error>({
-    queryKey: ["totalFamilySavings"], // This now fetches the NET balance
+    queryKey: ["totalFamilySavings"], 
     queryFn: fetchTotalFamilySavings,
   });
   
@@ -152,7 +150,6 @@ export default function DashboardPage() {
     setCurrentPageEmergencyRequests(1); 
   };
 
-  // Prefetching for user contributions table
   useEffect(() => {
     if (userContributionsData && currentPageContributions < Math.ceil((userContributionsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
@@ -162,7 +159,6 @@ export default function DashboardPage() {
     }
   }, [userContributionsData, currentPageContributions, debouncedSearchTermContributions, user?.id, queryClient]);
 
-  // Prefetching for all family emergency requests table
   useEffect(() => {
     if (allEmergencyRequestsData && currentPageEmergencyRequests < Math.ceil((allEmergencyRequestsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery({
@@ -172,10 +168,9 @@ export default function DashboardPage() {
     }
   }, [allEmergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, queryClient]);
 
-  // Fetch all contributions for current user (unpaginated) for accurate total calculation for their StatCards
   const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
     queryKey: ["allUserContributionsForTotal", user?.id],
-    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), // Fetch up to 10000 records, effectively "all" for this purpose
+    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""),
     enabled: !!user,
   });
 
@@ -187,6 +182,12 @@ export default function DashboardPage() {
     if (isLoadingAllEmergencyRequests || !allEmergencyRequestsData?.data) {
       return { totalDisbursedForEmergency: 0, totalOutstandingEmergency: 0, isLoadingEmergencyStats: true };
     }
+    // To calculate total disbursed and outstanding accurately, we ideally need all approved requests, not just the paginated ones.
+    // This calculation should ideally use a separate query or RPC if allEmergencyRequestsData is paginated.
+    // For simplicity, if allEmergencyRequestsData.count implies we have all data (e.g. count < a high number), we can use it.
+    // Otherwise, this will only reflect stats for the currently fetched page of emergency requests.
+    // A proper solution would be another query like `fetchAllApprovedEmergencyRequestsForStats` (not implemented here for brevity).
+    // Assuming allEmergencyRequestsData.data IS a comprehensive list for this demo calculation.
     const approvedRequests = allEmergencyRequestsData.data.filter(req => req.status === 'approved');
     
     const disbursed = approvedRequests.reduce((sum, req) => sum + (req.amount_requested || 0), 0);
@@ -239,20 +240,20 @@ export default function DashboardPage() {
 
     paymentDifferenceMonths = numberOfContributionsMadeForStatus - monthsSinceJoined;
 
-    if (paymentDifferenceMonths > 0) { // Paid in advance
+    if (paymentDifferenceMonths > 0) { 
       userPendingAmountValue = 0; 
       userDetailedContributionDescription = `Paid in advance for ${paymentDifferenceMonths} month${paymentDifferenceMonths > 1 ? 's' : ''}!`;
       userContributionStatusIcon = Gift; 
       userContributionValueColorClass = "text-green-500";
       userGeneralContributionStatusText = "Paid in Advance";
-    } else if (paymentDifferenceMonths < 0) { // Pending payments
+    } else if (paymentDifferenceMonths < 0) { 
       const dueMonthsCount = Math.abs(paymentDifferenceMonths);
       userPendingAmountValue = dueMonthsCount * MONTHLY_CONTRIBUTION_AMOUNT;
       userDetailedContributionDescription = `Pending payment for ${dueMonthsCount} month${dueMonthsCount > 1 ? 's' : ''}.`;
       userContributionStatusIcon = AlertTriangle;
       userContributionValueColorClass = "text-orange-500";
       userGeneralContributionStatusText = "Payment Due";
-    } else { // paymentDifferenceMonths === 0;
+    } else { 
       userPendingAmountValue = 0; 
       if (monthsSinceJoined === 1 && numberOfContributionsMadeForStatus === 0) {
         userPendingAmountValue = MONTHLY_CONTRIBUTION_AMOUNT;

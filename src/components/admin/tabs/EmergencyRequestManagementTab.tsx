@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { format, formatDistanceToNow, parseISO, isPast } from "date-fns";
+
 const supabase = createClient();
 const ITEMS_PER_PAGE_REQUESTS = 10;
 
@@ -37,8 +38,8 @@ async function fetchAdminEmergencyRequests(): Promise<EmergencyRequest[]> {
   
   return rawRequests?.map(req => ({
       ...req,
-      user_name: (req.profile_user as unknown as Profile)?.full_name || req.user_id,
-      reviewed_by_admin_name: (req.profile_admin as unknown as Profile)?.full_name || req.reviewed_by_admin_id,
+      user_name: req.profile_user?.full_name || req.user_id,
+      reviewed_by_admin_name: req.profile_admin?.full_name || req.reviewed_by_admin_id,
   })) || [];
 }
 
@@ -94,8 +95,6 @@ async function recordRepayment({ requestId, amountRepaid, repaymentDate, adminPr
       last_return_date: repaymentDate.toISOString(),
       is_fully_repaid: isFullyRepaid,
       updated_at: new Date().toISOString(),
-      // Optionally, if fully repaid, you might want to update status too, e.g., to 'repaid'
-      // status: isFullyRepaid ? 'repaid' : existingRequest.status, 
     })
     .eq('id', requestId)
     .select()
@@ -129,6 +128,9 @@ export function EmergencyRequestManagementTab() {
     mutationFn: updateEmergencyRequestStatus,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] }); // For dashboard
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] }); // For dashboard
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] }); // For request page
       toast({ title: "Success", description: `Emergency request ${data.status}.` });
     },
     onError: (error: Error) => {
@@ -138,9 +140,13 @@ export function EmergencyRequestManagementTab() {
 
   const recordRepaymentMutation = useMutation<EmergencyRequest, Error, RecordRepaymentPayload>({
     mutationFn: recordRepayment,
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
-      toast({ title: "Success", description: `Repayment of ${CURRENCY_SYMBOL}${data.amount_returned && data.amount_returned > (requests?.find(r=>r.id === data.id)?.amount_returned || 0) ? data.amount_returned - (requests?.find(r=>r.id === data.id)?.amount_returned || 0) : 'amount'} recorded.` });
+      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] }); // For dashboard
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] }); // For dashboard
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] }); // For request page
+       const repaidThisTime = variables.amountRepaid;
+      toast({ title: "Success", description: `Repayment of ${CURRENCY_SYMBOL}${repaidThisTime.toLocaleString()} recorded.` });
     },
     onError: (error: Error) => {
       toast({ title: "Error recording repayment", description: error.message, variant: "destructive" });
@@ -203,7 +209,7 @@ export function EmergencyRequestManagementTab() {
      return (
       <div className="flex flex-col items-center justify-center py-10">
         <p className="text-destructive">Error: {queryError.message}</p>
-        <button onClick={() => queryClient.invalidateQueries()} className="mt-2 text-blue-500">Try again</button>
+        <button onClick={() => queryClient.invalidateQueries({queryKey: ['adminProfilesForEmergency', 'adminEmergencyRequests']})} className="mt-2 text-primary hover:underline">Try again</button>
       </div>
     );
   }

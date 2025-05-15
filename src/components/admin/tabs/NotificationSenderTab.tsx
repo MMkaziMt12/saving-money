@@ -23,15 +23,17 @@ async function fetchUsersForNotifications(): Promise<Profile[]> {
 async function fetchAllEmergencyRequestsForNotifications(): Promise<EmergencyRequest[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
-    .select('id, user_id, reason, amount_requested, status, requested_at, profiles (full_name)') // Fetch profile name for display
+    .select('id, user_id, reason, amount_requested, status, requested_at, profile_user:profiles!emergency_requests_user_id_fkey(full_name)')
     .order('requested_at', { ascending: false });
-  if (error) throw new Error(`Error fetching emergency requests for notifications: ${error.message}`);
+
+  if (error) {
+    console.error("Error fetching emergency requests for notifications:", error);
+    throw new Error(`Error fetching emergency requests for notifications: ${error.message}`);
+  }
   
-  // Map to include user_name directly if profile is expanded
   return rawRequests?.map(req => ({
     ...req,
-    // @ts-ignore // Supabase type might not directly show nested profile
-    user_name: req.profiles?.full_name || 'Unknown User', 
+    user_name: req.profile_user?.full_name || req.user_id || 'Unknown User', 
   })) || [];
 }
 
@@ -42,7 +44,7 @@ interface SendNotificationPayload {
   type?: string;
   link?: string | null;
   subject?: string | null;
-  relatedRequestId?: string | null; // Added for linking notification to a request
+  relatedRequestId?: string | null;
 }
 
 export function NotificationSenderTab() {
@@ -136,8 +138,8 @@ export function NotificationSenderTab() {
 
 
     if (targetUserIds.length === 0 && selectedTarget !== "all_pending_contribution") {
-      toast({ title: "No Targets", description: "No valid users selected or found for notification.", variant: "destructive" });
-      console.warn("NotificationSenderTab: No target user IDs determined. Notification not sent.");
+      console.warn("NotificationSenderTab: No target user IDs determined. Notification not sent. Selected target was:", selectedTarget);
+      toast({ title: "No Targets", description: "No valid users selected or found for notification. Please check the target audience.", variant: "destructive" });
       return;
     }
 
@@ -152,7 +154,7 @@ export function NotificationSenderTab() {
     let relatedRequestId: string | null = null;
 
     if (formData.messageType === 'emergencyRequestUpdate' && formData.selectedEmergencyRequestId) {
-        finalLink = `/requests/${formData.selectedEmergencyRequestId}`; // Auto-generate link for request detail page
+        finalLink = `/requests/${formData.selectedEmergencyRequestId}`;
         relatedRequestId = formData.selectedEmergencyRequestId;
     }
 
@@ -163,15 +165,21 @@ export function NotificationSenderTab() {
       type: formData.messageType,
       link: finalLink,
       subject: formData.customSubject || null,
-      relatedRequestId: relatedRequestId, // Pass the related request ID
+      relatedRequestId: relatedRequestId, 
     };
     
     console.log("NotificationSenderTab: Final payload for Edge Function:", JSON.stringify(payload, null, 2));
 
+    if (payload.targetUserIds.length === 0) {
+      toast({ title: "No Targets", description: "No users to send the notification to.", variant: "destructive" });
+      return;
+    }
+    
     try {
       await sendNotificationMutation.mutateAsync(payload);
     } catch (error) {
       console.error("NotificationSenderTab: Error caught during sendNotificationMutation.mutateAsync call:", error);
+      // Toast for error is handled by the mutation's onError.
     }
   };
 
