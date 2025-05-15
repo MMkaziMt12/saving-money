@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,8 @@ async function fetchUserContributions(
 
   let query = supabase
     .from("monthly_contributions")
-    .select("*", { count: "exact" })
+    // Optimized: select specific columns
+    .select("id, payment_date, month, year, amount", { count: "exact" })
     .eq("user_id", userId);
 
   if (searchTerm) {
@@ -66,7 +68,8 @@ async function fetchAllFamilyEmergencyRequests(
 
   let query = supabase
     .from("emergency_requests")
-    .select("*, profile_user:profiles!emergency_requests_user_id_fkey(full_name)", { count: "exact" });
+    // Optimized: select specific columns and specific columns from joined profile
+    .select("id, user_id, amount_requested, reason, requested_at, return_date, status, amount_returned, is_fully_repaid, profile_user:profiles!emergency_requests_user_id_fkey(full_name)", { count: "exact" });
   
   if (searchTerm) {
     query = query.or(
@@ -105,6 +108,18 @@ async function fetchTotalFamilySavings(): Promise<number> {
   }
   return savings;
 }
+
+// Fetch all contributions for a user for accurate total/status (not paginated for this specific calculation)
+async function fetchAllUserContributionsForStatus(userId: string): Promise<Pick<MonthlyContribution, 'amount'>[]> {
+  if (!userId) return [];
+  const { data, error } = await supabase
+    .from("monthly_contributions")
+    .select("amount") // Only need amount for sum
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
 
 export default function DashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
@@ -165,9 +180,9 @@ export default function DashboardPage() {
     }
   }, [allEmergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, queryClient]);
 
-  const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<PaginatedData<MonthlyContribution>, Error>({
+  const { data: allUserContributionsForTotal, isLoading: isLoadingAllContributionsForTotal } = useQuery<Pick<MonthlyContribution, 'amount'>[], Error>({
     queryKey: ["allUserContributionsForTotal", user?.id],
-    queryFn: () => fetchUserContributions(user!.id, 1, 10000, ""), // Fetch all for accurate total
+    queryFn: () => fetchAllUserContributionsForStatus(user!.id),
     enabled: !!user,
   });
 
@@ -176,13 +191,6 @@ export default function DashboardPage() {
     totalOutstandingEmergency,
     isLoadingEmergencyStats,
   } = useMemo(() => {
-    // This calculation requires all emergency requests, not just the paginated ones.
-    // For now, it will calculate based on the `allEmergencyRequestsData.data` which is paginated.
-    // A more accurate approach for global stats would be a separate RPC or a query fetching ALL approved requests.
-    // Let's assume for this dashboard widget, the current page's data offers a reasonable snapshot or we ensure we fetch all for this calc.
-    // To make it accurate for all data, we would need another query similar to `allUserContributionsForTotal`
-    // that fetches ALL emergency requests, or an RPC. For simplicity, this uses the paginated data.
-    // THIS IS A SIMPLIFICATION: For accurate global stats, fetch all relevant requests.
     if (isLoadingAllEmergencyRequests || !allEmergencyRequestsData?.data) {
       return { totalDisbursedForEmergency: 0, totalOutstandingEmergency: 0, isLoadingEmergencyStats: true };
     }
@@ -214,8 +222,8 @@ export default function DashboardPage() {
      );
   }
   
-  const totalPaidByUser = allUserContributionsForTotal?.data?.reduce((sum, c) => sum + c.amount, 0) || 0;
-  const numberOfContributionsMadeForStatus = allUserContributionsForTotal?.data?.length || 0;
+  const totalPaidByUser = allUserContributionsForTotal?.reduce((sum, c) => sum + c.amount, 0) || 0;
+  const numberOfContributionsMadeForStatus = allUserContributionsForTotal?.length || 0;
 
   let monthsSinceJoined = 0;
   let userPendingAmountValue = 0;
@@ -225,7 +233,7 @@ export default function DashboardPage() {
   let userContributionStatusIcon: React.ElementType = Clock;
   let userContributionValueColorClass = "text-orange-500";
 
-  if (profile.created_at && !isLoadingAllContributionsForTotal && allUserContributionsForTotal?.data) {
+  if (profile.created_at && !isLoadingAllContributionsForTotal && allUserContributionsForTotal) {
     const accountCreationDate = parseISO(profile.created_at);
     const currentDate = new Date();
     const startMonthDate = new Date(getYear(accountCreationDate), getMonth(accountCreationDate), 1);
@@ -340,7 +348,7 @@ export default function DashboardPage() {
       </div>
       
 
-      <div className="grid gap-8 lg:grid-cols-1"> {/* Keep tables in a single column for better readability */}
+      <div className="grid gap-8 lg:grid-cols-1">
         <PaymentHistoryTable 
           contributions={userContributionsData?.data} 
           isLoading={isLoadingContributions} 

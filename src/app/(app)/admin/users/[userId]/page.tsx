@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -15,7 +16,7 @@ import { format, parseISO } from "date-fns";
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { useEffect } from "react";
+import React, { useEffect } from "react"; // Ensure React is imported
 
 const supabase = createClient();
 
@@ -23,18 +24,20 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
     .from("profiles")
-    .select("*")
+    // Optimized: Select specific columns
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at')
     .eq("id", userId)
     .single();
   if (error) throw new Error(error.message);
   return data;
 }
 
-async function fetchUserContributions(userId: string): Promise<MonthlyContribution[]> {
+async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("monthly_contributions")
-    .select("*")
+    // Optimized: Select specific columns
+    .select("id, payment_date, month, year, amount, recorded_by_admin_name, recorded_by_admin_id")
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
   if (error) throw new Error(error.message);
@@ -48,7 +51,7 @@ interface InfoItemProps {
   valueClass?: string;
 }
 
-function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
+const InfoItem = React.memo(({ icon: Icon, label, value, valueClass }: InfoItemProps) => {
   return (
     <div className="flex items-start py-2 border-b border-muted last:border-b-0">
       <Icon className="h-5 w-5 text-muted-foreground mr-3 sm:mr-4 mt-1 shrink-0" />
@@ -58,7 +61,9 @@ function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
       </div>
     </div>
   );
-}
+});
+InfoItem.displayName = 'InfoItem';
+
 
 export default function UserDetailPage() {
   const params = useParams();
@@ -87,7 +92,7 @@ export default function UserDetailPage() {
     enabled: !!userId && isAdmin, 
   });
 
-  const { data: contributions, isLoading: isLoadingContributions, error: contributionsError } = useQuery<MonthlyContribution[], Error>({
+  const { data: contributions, isLoading: isLoadingContributions, error: contributionsError } = useQuery<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[], Error>({
     queryKey: ["userContributions", userId],
     queryFn: () => fetchUserContributions(userId),
     enabled: !!userId && isAdmin, 

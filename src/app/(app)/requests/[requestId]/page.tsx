@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { EmergencyRequest, Notification as AppNotification, Profile } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { Badge, badgeVariants } from "@/components/ui/badge"; // Import badgeVariants
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,8 +17,8 @@ import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import type { VariantProps } from "class-variance-authority"; // Correct import for VariantProps
-import { useEffect } from "react";
+import type { VariantProps } from "class-variance-authority";
+import React, { useEffect } from "react"; // Ensure React is imported
 
 const supabase = createClient();
 
@@ -26,8 +26,10 @@ async function fetchEmergencyRequestDetails(requestId: string): Promise<Emergenc
   if (!requestId) return null;
   const { data, error } = await supabase
     .from("emergency_requests")
+    // Optimized: Select specific columns and from joined tables
     .select(`
-      *,
+      id, user_id, amount_requested, reason, status, requested_at, return_date,
+      amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
       profile_user:profiles!emergency_requests_user_id_fkey(full_name, avatar_url),
       profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
     `)
@@ -37,14 +39,15 @@ async function fetchEmergencyRequestDetails(requestId: string): Promise<Emergenc
     console.error("Error fetching emergency request details:", error);
     throw new Error(error.message);
   }
-  return data as EmergencyRequest | null;
+  return data as EmergencyRequest | null; // Cast as some joined fields are partial
 }
 
 async function fetchRelatedNotifications(requestId: string): Promise<AppNotification[]> {
   if (!requestId) return [];
   const { data, error } = await supabase
     .from("notifications")
-    .select("*")
+    // Optimized: Select specific columns
+    .select("id, message, created_at, read_at, link")
     .eq("related_request_id", requestId)
     .order("created_at", { ascending: false });
   if (error) {
@@ -61,7 +64,7 @@ interface InfoItemProps {
   valueClass?: string;
 }
 
-function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
+const InfoItem = React.memo(({ icon: Icon, label, value, valueClass }: InfoItemProps) => {
   return (
     <div className="flex items-start py-3 border-b border-muted last:border-b-0">
       <Icon className="h-5 w-5 text-muted-foreground mr-3 sm:mr-4 mt-1 shrink-0" />
@@ -71,11 +74,12 @@ function InfoItem({ icon: Icon, label, value, valueClass }: InfoItemProps) {
       </div>
     </div>
   );
-}
+});
+InfoItem.displayName = 'InfoItem';
 
 const getStatusBadgeVariant = (request: EmergencyRequest | null): VariantProps<typeof Badge>["variant"] => {
     if (!request) return "outline";
-    if (request.is_fully_repaid) return "success"; // Use success variant from badgeVariants
+    if (request.is_fully_repaid) return "success";
     if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive";
     if (request.status === "approved") return "default"; 
     if (request.status === "rejected") return "destructive";
@@ -125,7 +129,7 @@ export default function EmergencyRequestDetailPage() {
     return (names[0][0]?.toUpperCase() || "") + (names[names.length - 1][0]?.toUpperCase() || "");
   };
 
-  if (authLoading || (isLoadingRequest && !requestDetails) || (isLoadingNotifications && !notifications)) { // Adjusted loading condition
+  if (authLoading || (isLoadingRequest && !requestDetails) || (isLoadingNotifications && !notifications)) {
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -195,7 +199,7 @@ export default function EmergencyRequestDetailPage() {
                  <Badge 
                     variant={statusBadgeVariant}
                     className={cn("capitalize text-xs sm:text-sm px-3 py-1",
-                        {'bg-yellow-500 hover:bg-yellow-600 text-white': statusText === 'pending'},
+                        {'bg-yellow-500 hover:bg-yellow-600 text-white': statusText === 'pending' || statusText === 'Pending' }, // Handle case variations
                         {'bg-green-500 hover:bg-green-600 text-white': (statusText === 'Approved' || statusText === 'Outstanding') && !(requestDetails.return_date && isPast(parseISO(requestDetails.return_date)) && !requestDetails.is_fully_repaid) },
                         {'bg-green-600 hover:bg-green-700 text-white': statusText === 'Fully Repaid'},
                         {'bg-red-500 hover:bg-red-600 text-white': statusText === 'Rejected' || statusText === 'Overdue' }
@@ -216,6 +220,7 @@ export default function EmergencyRequestDetailPage() {
             {returnDate && <InfoItem icon={CalendarDays} label="Expected Return Date" value={format(returnDate, "MMMM dd, yyyy")} />}
             {lastReturnDate && <InfoItem icon={CalendarDays} label="Last Repayment Date" value={format(lastReturnDate, "MMMM dd, yyyy HH:mm")} />}
             {reviewedAtDate && adminProfile && <InfoItem icon={Shield} label="Reviewed By" value={`${adminProfile.full_name} on ${format(reviewedAtDate, "MMMM dd, yyyy HH:mm")}`} />}
+            {reviewedAtDate && !adminProfile && requestDetails.reviewed_by_admin_id && <InfoItem icon={Shield} label="Reviewed By Admin ID" value={requestDetails.reviewed_by_admin_id.substring(0,8)} />}
         </CardContent>
         <CardFooter className="flex-col items-start pt-4 border-t">
             <InfoItem icon={Info} label="Reason for Request" value={<p className="whitespace-pre-wrap">{requestDetails.reason}</p>} />
@@ -256,4 +261,3 @@ export default function EmergencyRequestDetailPage() {
     </div>
   );
 }
-

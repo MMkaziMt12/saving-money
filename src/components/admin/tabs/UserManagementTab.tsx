@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import type { Profile } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -18,7 +18,8 @@ const ITEMS_PER_PAGE = 10;
 async function fetchUsers(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('*')
+    // Optimized: Select specific columns
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, is_active')
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
   return data || [];
@@ -29,7 +30,8 @@ async function updateUserProfile(userId: string, updates: Partial<Profile>): Pro
     .from('profiles')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', userId)
-    .select()
+    // Optimized: Select specific columns after update
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, is_active')
     .single();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("User profile not found after update.");
@@ -133,6 +135,13 @@ export function UserManagementTab() {
 
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
 
+  const handleApproveUser = useCallback((userId: string) => approveUserMutation.mutate(userId), [approveUserMutation]);
+  const handleRejectUser = useCallback((userId: string) => rejectUserMutation.mutate(userId), [rejectUserMutation]);
+  const handleMakeAdmin = useCallback((userId: string) => makeAdminMutation.mutate(userId), [makeAdminMutation]);
+  const handleRevokeAdmin = useCallback((userId: string) => revokeAdminMutation.mutate(userId), [revokeAdminMutation]);
+  const handleDeleteUser = useCallback((userId: string) => deleteUserMutation.mutate(userId), [deleteUserMutation]);
+
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-10">
@@ -161,18 +170,18 @@ export function UserManagementTab() {
           value={searchTerm}
           onChange={(e) => {
             setSearchTerm(e.target.value);
-            setCurrentPage(1); // Reset to first page on search
+            setCurrentPage(1);
           }}
           className="pl-10 w-full md:w-1/2 lg:w-1/3"
         />
       </div>
       <UserManagementTable 
         users={paginatedUsers} 
-        onApproveUser={(userId) => approveUserMutation.mutate(userId)}
-        onRejectUser={(userId) => rejectUserMutation.mutate(userId)}
-        onMakeAdmin={(userId) => makeAdminMutation.mutate(userId)}
-        onRevokeAdmin={(userId) => revokeAdminMutation.mutate(userId)}
-        onDeleteUser={(userId) => deleteUserMutation.mutate(userId)}
+        onApproveUser={handleApproveUser}
+        onRejectUser={handleRejectUser}
+        onMakeAdmin={handleMakeAdmin}
+        onRevokeAdmin={handleRevokeAdmin}
+        onDeleteUser={handleDeleteUser}
       />
       {totalPages > 1 && (
         <div className="flex items-center justify-end space-x-2 pt-4">

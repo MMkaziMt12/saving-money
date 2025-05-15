@@ -35,35 +35,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return null;
     }
     try {
+      // Optimized: Select only necessary profile fields
       const { data, error, status } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active, last_login')
         .eq('id', userId)
         .single();
 
       if (error) {
         if (status === 406) {
-          // 406: "Not Acceptable", Supabase uses this when .single() finds no rows.
-          console.warn(`Profile not found for user ID: ${userId}. Status: ${status}. This can be normal for new users if profile creation is pending or failed, or if RLS prevents access.`);
-          // Intentionally not showing a global error toast for "not found" as it might be an expected state.
+          console.warn(`Profile not found for user ID: ${userId}. Status: ${status}.`);
         } else {
-          console.error(`Error fetching profile for user ID: ${userId}. Status: ${status}. Message: ${error.message}. Details: ${error.details || 'N/A'}. Hint: ${error.hint || 'N/A'}`);
+          console.error(`Error fetching profile for user ID: ${userId}. Status: ${status}. Message: ${error.message}.`);
           toast({
             title: `Profile Fetch Error (Status ${status})`,
             description: `Failed to load profile: ${error.message}`,
             variant: "destructive",
           });
         }
-        return null; // Return null on any database error
-      }
-      
-      // Even if no DB error, data could be null if RLS returns 0 rows without erroring.
-      if (!data) {
-        console.warn(`No profile data returned for user ID: ${userId}, even without a database error (status ${status}). This might indicate an RLS issue or the profile genuinely does not exist.`);
         return null;
       }
-
-      return data; // Successfully fetched profile data
+      
+      if (!data) {
+        console.warn(`No profile data returned for user ID: ${userId}, even without a database error (status ${status}).`);
+        return null;
+      }
+      return data;
     } catch (catchedError: any) {
       console.error(`Exception during fetchProfile for user ID: ${userId}:`, catchedError.message, catchedError);
       toast({
@@ -73,7 +70,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
       return null;
     }
-  }, [supabase, toast]); // Added supabase to dependencies
+  }, [toast]); // Removed supabase from dependencies as it's stable from createClient()
 
   useEffect(() => {
     setIsLoading(true);
@@ -93,7 +90,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     );
 
-    // Initial check
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       console.log('Initial getSession:', session);
       if (session) {
@@ -104,11 +100,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoading(false);
     });
     
-
     return () => {
       subscription?.unsubscribe();
     };
-  }, [fetchProfile]); // fetchProfile is a dependency
+  }, [fetchProfile]);
 
   const signOut = async () => {
     setIsLoading(true);

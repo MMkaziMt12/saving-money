@@ -8,21 +8,24 @@ import { NotificationSender } from "@/components/admin/NotificationSender";
 import { Loader2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { NotificationFormValues } from "@/components/admin/NotificationSender";
+import { useCallback } from "react";
 
 const supabase = createClient();
 
-async function fetchUsersForNotifications(): Promise<Profile[]> {
+async function fetchUsersForNotifications(): Promise<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[]> {
   const { data, error } = await supabase
     .from('profiles')
+    // Optimized: Select specific columns
     .select('id, full_name, email, is_approved')
     .order('full_name', { ascending: true });
   if (error) throw new Error(`Error fetching users for notifications: ${error.message}`);
   return data || [];
 }
 
-async function fetchAllEmergencyRequestsForNotifications(): Promise<EmergencyRequest[]> {
+async function fetchAllEmergencyRequestsForNotifications(): Promise<Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user?: Pick<Profile, 'full_name'> | null }[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
+    // Optimized: Select specific columns and from joined profile
     .select('id, user_id, reason, amount_requested, status, requested_at, profile_user:profiles!emergency_requests_user_id_fkey(full_name)')
     .order('requested_at', { ascending: false });
 
@@ -44,19 +47,19 @@ interface SendNotificationPayload {
   type?: string;
   link?: string | null;
   subject?: string | null;
-  relatedRequestId?: string | null; // Ensure this is part of the payload type
+  relatedRequestId?: string | null;
 }
 
 export function NotificationSenderTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: users, isLoading: isLoadingUsers, error: usersError } = useQuery<Profile[], Error>({
+  const { data: users, isLoading: isLoadingUsers, error: usersError } = useQuery<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[], Error>({
     queryKey: ['allUsersForNotifications'],
     queryFn: fetchUsersForNotifications,
   });
 
-  const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests, error: emergencyRequestsError } = useQuery<EmergencyRequest[], Error>({
+  const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests, error: emergencyRequestsError } = useQuery<Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user?: Pick<Profile, 'full_name'> | null }[], Error>({
     queryKey: ['allEmergencyRequestsForNotifications'],
     queryFn: fetchAllEmergencyRequestsForNotifications,
   });
@@ -95,7 +98,7 @@ export function NotificationSenderTab() {
     },
   });
 
-  const handleSendNotification = async (formData: NotificationFormValues) => {
+  const handleSendNotification = useCallback(async (formData: NotificationFormValues) => {
     if (!users) {
       toast({ title: "Error", description: "User list not loaded yet. Cannot send notification.", variant: "destructive" });
       console.error("NotificationSenderTab: Users array is not available.");
@@ -154,8 +157,8 @@ export function NotificationSenderTab() {
     let relatedRequestIdValue: string | null = null;
 
     if (formData.messageType === 'emergencyRequestUpdate' && formData.selectedEmergencyRequestId) {
-        finalLink = `/requests/${formData.selectedEmergencyRequestId}`; // Auto-generate link
-        relatedRequestIdValue = formData.selectedEmergencyRequestId; // Set relatedRequestId
+        finalLink = `/requests/${formData.selectedEmergencyRequestId}`;
+        relatedRequestIdValue = formData.selectedEmergencyRequestId;
         console.log(`NotificationSenderTab: Emergency request selected. Link: ${finalLink}, Related Request ID: ${relatedRequestIdValue}`);
     }
 
@@ -166,7 +169,7 @@ export function NotificationSenderTab() {
       type: formData.messageType,
       link: finalLink,
       subject: formData.customSubject || null,
-      relatedRequestId: relatedRequestIdValue, // Pass the related request ID
+      relatedRequestId: relatedRequestIdValue,
     };
     
     console.log("NotificationSenderTab: Final payload for Edge Function:", JSON.stringify(payload, null, 2));
@@ -180,9 +183,8 @@ export function NotificationSenderTab() {
       await sendNotificationMutation.mutateAsync(payload);
     } catch (error) {
       console.error("NotificationSenderTab: Error caught during sendNotificationMutation.mutateAsync call:", error);
-      // Toast for error is handled by the mutation's onError.
     }
-  };
+  }, [users, emergencyRequests, sendNotificationMutation, toast]);
 
   const isLoading = isLoadingUsers || isLoadingEmergencyRequests || sendNotificationMutation.isPending;
   const queryError = usersError || emergencyRequestsError;
@@ -213,10 +215,10 @@ export function NotificationSenderTab() {
   return (
     <NotificationSender 
         users={users || []} 
-        emergencyRequests={emergencyRequests || []}
+        // Optimized: Pass only necessary fields from emergency requests
+        emergencyRequests={emergencyRequests?.map(er => ({ id: er.id, user_id: er.user_id, reason: er.reason, amount_requested: er.amount_requested, status: er.status, requested_at: er.requested_at, profile_user: er.profile_user })) || []}
         onSend={handleSendNotification} 
         isSending={sendNotificationMutation.isPending} 
     />
   );
 }
-

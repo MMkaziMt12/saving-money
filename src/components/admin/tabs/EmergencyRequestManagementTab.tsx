@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import type { EmergencyRequest, Profile } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -17,9 +17,10 @@ import { format, formatDistanceToNow, parseISO, isPast } from "date-fns";
 const supabase = createClient();
 const ITEMS_PER_PAGE_REQUESTS = 10;
 
-async function fetchAdminProfilesForEmergency(): Promise<Profile[]> {
+async function fetchAdminProfilesForEmergency(): Promise<Pick<Profile, 'id' | 'full_name'>[]> {
   const { data, error } = await supabase
     .from('profiles')
+    // Optimized: Select only id and full_name
     .select('id, full_name');
   if (error) throw new Error(`Error fetching users: ${error.message}`);
   return data || [];
@@ -28,8 +29,10 @@ async function fetchAdminProfilesForEmergency(): Promise<Profile[]> {
 async function fetchAdminEmergencyRequests(): Promise<EmergencyRequest[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
+    // Optimized: Select specific columns and from joined tables
     .select(`
-      *,
+      id, user_id, amount_requested, reason, status, requested_at, return_date,
+      amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at,
       profile_user:profiles!emergency_requests_user_id_fkey(full_name),
       profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
     `)
@@ -38,8 +41,8 @@ async function fetchAdminEmergencyRequests(): Promise<EmergencyRequest[]> {
   
   return rawRequests?.map(req => ({
       ...req,
-      user_name: req.profile_user?.full_name || req.user_id,
-      reviewed_by_admin_name: req.profile_admin?.full_name || req.reviewed_by_admin_id,
+      user_name: (req.profile_user as Pick<Profile, 'full_name'>)?.full_name || req.user_id, // Type assertion
+      reviewed_by_admin_name: (req.profile_admin as Pick<Profile, 'full_name'>)?.full_name || req.reviewed_by_admin_id, // Type assertion
   })) || [];
 }
 
@@ -59,23 +62,25 @@ async function updateEmergencyRequestStatus({ requestId, status, adminProfileId 
       updated_at: new Date().toISOString() 
     })
     .eq('id', requestId)
-    .select()
+    // Optimized: select specific columns after update
+    .select('id, status, reviewed_by_admin_id, reviewed_at, updated_at')
     .single();
   if (error) throw new Error(`Error updating request: ${error.message}`);
   if (!data) throw new Error("Failed to update request, no data returned.");
-  return data as EmergencyRequest;
+  return data as EmergencyRequest; // Cast needed as select is partial
 }
 
 type RecordRepaymentPayload = {
   requestId: string;
   amountRepaid: number;
   repaymentDate: Date;
-  adminProfileId: string;
+  adminProfileId: string; // Though not directly used in update, good for context/logging if needed
 };
 
-async function recordRepayment({ requestId, amountRepaid, repaymentDate, adminProfileId }: RecordRepaymentPayload): Promise<EmergencyRequest> {
+async function recordRepayment({ requestId, amountRepaid, repaymentDate }: RecordRepaymentPayload): Promise<EmergencyRequest> {
   const { data: existingRequest, error: fetchError } = await supabase
     .from('emergency_requests')
+    // Optimized: Select only needed fields
     .select('amount_requested, amount_returned')
     .eq('id', requestId)
     .single();
@@ -97,12 +102,13 @@ async function recordRepayment({ requestId, amountRepaid, repaymentDate, adminPr
       updated_at: new Date().toISOString(),
     })
     .eq('id', requestId)
-    .select()
+    // Optimized: select specific columns after update
+    .select('id, amount_returned, last_return_date, is_fully_repaid, updated_at')
     .single();
 
   if (error) throw new Error(`Error recording repayment: ${error.message}`);
   if (!data) throw new Error("Failed to record repayment, no data returned.");
-  return data as EmergencyRequest;
+  return data as EmergencyRequest; // Cast needed as select is partial
 }
 
 
@@ -114,7 +120,7 @@ export function EmergencyRequestManagementTab() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: users, isLoading: isLoadingUsers, error: usersError } = useQuery<Profile[], Error>({
+  const { data: users, isLoading: isLoadingUsers, error: usersError } = useQuery<Pick<Profile, 'id' | 'full_name'>[], Error>({
     queryKey: ['adminProfilesForEmergency'],
     queryFn: fetchAdminProfilesForEmergency,
   });
@@ -128,9 +134,10 @@ export function EmergencyRequestManagementTab() {
     mutationFn: updateEmergencyRequestStatus,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
-      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] }); // For dashboard
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] }); // For dashboard
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] }); // For request page
+      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] });
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] });
+      queryClient.invalidateQueries({ queryKey: ['currentUserActiveEmergencyRequests']}); // Invalidate user's active requests on their form page
       toast({ title: "Success", description: `Emergency request ${data.status}.` });
     },
     onError: (error: Error) => {
@@ -142,9 +149,10 @@ export function EmergencyRequestManagementTab() {
     mutationFn: recordRepayment,
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
-      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] }); // For dashboard
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] }); // For dashboard
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] }); // For request page
+      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] });
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] });
+      queryClient.invalidateQueries({ queryKey: ['currentUserActiveEmergencyRequests']});
        const repaidThisTime = variables.amountRepaid;
       toast({ title: "Success", description: `Repayment of ${CURRENCY_SYMBOL}${repaidThisTime.toLocaleString()} recorded.` });
     },
@@ -153,22 +161,21 @@ export function EmergencyRequestManagementTab() {
     },
   });
 
-
-  const handleUpdateRequest = (requestId: string, status: 'approved' | 'rejected') => {
+  const handleUpdateRequest = useCallback((requestId: string, status: 'approved' | 'rejected') => {
     if (!adminProfile?.id) {
       toast({ title: "Error", description: "Admin profile not found.", variant: "destructive"});
       return;
     }
     updateRequestMutation.mutate({ requestId, status, adminProfileId: adminProfile.id });
-  };
+  }, [adminProfile, updateRequestMutation, toast]);
 
-  const handleRecordRepayment = async (requestId: string, amountRepaid: number, repaymentDate: Date) => {
+  const handleRecordRepayment = useCallback(async (requestId: string, amountRepaid: number, repaymentDate: Date) => {
     if (!adminProfile?.id) {
       toast({ title: "Error", description: "Admin profile not found.", variant: "destructive" });
       throw new Error("Admin profile not found");
     }
     await recordRepaymentMutation.mutateAsync({ requestId, amountRepaid, repaymentDate, adminProfileId: adminProfile.id });
-  };
+  }, [adminProfile, recordRepaymentMutation, toast]);
 
 
   const filteredRequests = useMemo(() => {
@@ -232,8 +239,8 @@ export function EmergencyRequestManagementTab() {
       <EmergencyRequestManagementTable 
         requests={paginatedRequests} 
         users={users || []} 
-        onApproveRequest={(requestId) => handleUpdateRequest(requestId, 'approved')} 
-        onRejectRequest={(requestId) => handleUpdateRequest(requestId, 'rejected')} 
+        onApproveRequest={handleUpdateRequest} 
+        onRejectRequest={handleUpdateRequest} 
         onRecordRepayment={handleRecordRepayment}
       />
       {totalPages > 1 && (

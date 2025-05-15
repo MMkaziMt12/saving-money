@@ -1,6 +1,7 @@
+
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Notification } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,7 +34,8 @@ async function fetchUserNotifications(userId: string | undefined): Promise<Notif
   console.log(`NotificationsDisplay: Fetching notifications for user ${userId} (initial or polled)`);
   const { data, error } = await supabase
     .from("notifications")
-    .select("*")
+    // Optimized: Select specific columns
+    .select("id, message, created_at, read_at, link, type")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(20);
@@ -62,7 +64,7 @@ async function markNotificationsAsRead(userId: string, notificationIds?: string[
     query = query.in("id", notificationIds);
   }
 
-  const { data, error } = await query.select();
+  const { data, error } = await query.select('id, read_at'); // Select only what's needed
 
   if (error) {
     console.error("NotificationsDisplay: Error marking notifications as read:", error);
@@ -83,7 +85,7 @@ export function NotificationsDisplay() {
     queryFn: () => fetchUserNotifications(user?.id),
     enabled: !!user,
     refetchInterval: FIVE_MINUTES_IN_MS,
-    refetchIntervalInBackground: true, // Ensures polling continues even if tab is not active
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     onSuccess: (data) => {
       console.log("NotificationsDisplay: useQuery onSuccess (initial/polled/refetched), data received:", data?.length || 0);
@@ -198,7 +200,8 @@ export function NotificationsDisplay() {
             updatedIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n
           ).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
-      } else if (!updatedDataFromServer) {
+      } else if (!updatedDataFromServer || (Array.isArray(updatedDataFromServer) && updatedDataFromServer.length === 0 && markAsReadMutation.latestVariables?.notificationIds === undefined) ) {
+        // If no specific IDs were passed (mark all) and server returns empty/null, update all local unread
         setLocalNotifications(prev =>
           prev.map(n => n.read_at ? n : { ...n, read_at: new Date().toISOString() })
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
@@ -223,20 +226,20 @@ export function NotificationsDisplay() {
     return filtered;
   }, [localNotifications]);
 
-  const handleMarkOneAsRead = (notificationId: string) => {
+  const handleMarkOneAsRead = useCallback((notificationId: string) => {
     const notification = localNotifications.find(n => n.id === notificationId);
-    if (notification && !notification.read_at) {
+    if (notification && !notification.read_at && user?.id) {
         console.log(`NotificationsDisplay: Handling mark one as read for ID: ${notificationId}`);
         markAsReadMutation.mutate({ notificationIds: [notificationId] });
     }
-  };
+  }, [localNotifications, user?.id, markAsReadMutation]);
 
-  const handleMarkAllAsRead = () => {
-    if (unreadNotifications.length > 0) {
+  const handleMarkAllAsRead = useCallback(() => {
+    if (unreadNotifications.length > 0 && user?.id) {
       console.log("NotificationsDisplay: Handling mark all as read.");
-      markAsReadMutation.mutate({});
+      markAsReadMutation.mutate({}); // No specific IDs means mark all unread for the user
     }
-  };
+  }, [unreadNotifications.length, user?.id, markAsReadMutation]);
 
   if (!user) {
     console.log("NotificationsDisplay: No user, rendering null.");
@@ -246,9 +249,7 @@ export function NotificationsDisplay() {
   console.log("NotificationsDisplay: Rendering. isLoadingNotifications:", isLoadingNotifications, "localNotifications count:", localNotifications.length);
 
   return (
-    <DropdownMenu onOpenChange={(open) => {
-      // Logic for when dropdown opens/closes can go here
-    }}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative rounded-full">
           <Bell className="h-5 w-5" />
@@ -332,35 +333,35 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
     const isUnread = !notification.read_at;
 
     const itemBaseStyle = "flex flex-col items-start gap-1 p-2 rounded-sm w-full text-left relative";
-    // Ensure unread style has enough contrast and noticeability
-    const unreadSpecificStyle = isUnread ? "bg-primary/90 ring-1 ring-primary/30" : "hover:bg-muted/50";
+    const unreadSpecificStyle = isUnread ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/50";
+
 
     const content = (
-        <div className={cn(itemBaseStyle, unreadSpecificStyle)}>
-           {isUnread && <span className="absolute left-1 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-primary"></span>}
-            <p className={cn("text-sm leading-snug ", isUnread ? "font-medium text-primary-foreground" : "text-foreground")}>{notification.message}</p>
-            <div className="flex justify-between w-full">
-                <span className={cn("text-xs", isUnread ? "text-primary-foreground/70" : "text-muted-foreground")}>{timeAgo}</span>
+        <div className={cn(itemBaseStyle, unreadSpecificStyle, isUnread ? "pl-4" : "")}>
+           {isUnread && <span className="absolute left-1.5 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-primary"></span>}
+            <p className={cn("text-sm leading-snug", isUnread ? "font-medium text-foreground" : "text-foreground")}>{notification.message}</p>
+            <div className="flex justify-between w-full items-center">
+                <span className={cn("text-xs", isUnread ? "text-primary/80" : "text-muted-foreground")}>{timeAgo}</span>
                 {notification.link && (
-                    <ExternalLink className={cn("h-3 w-3", isUnread ? "text-primary-foreground/70" : "text-muted-foreground")} />
+                    <ExternalLink className={cn("h-3 w-3", isUnread ? "text-primary/70" : "text-muted-foreground")} />
                 )}
             </div>
         </div>
     );
 
-    const handleClickInternal = (e: React.MouseEvent) => {
-        if (isUnread && onMarkAsRead) {
-            if (!notification.link) { // Only prevent dropdown close if not navigating
-                e.preventDefault();
-                e.stopPropagation();
-            }
-            onMarkAsRead(notification.id);
-        }
+    const handleClickInternal = (e: React.MouseEvent<HTMLAnchorElement | HTMLDivElement>) => {
+      if (isUnread && onMarkAsRead) {
+          if (!notification.link) { // Only prevent dropdown close if not navigating and simply marking as read
+              e.preventDefault();
+              e.stopPropagation();
+          }
+          onMarkAsRead(notification.id);
+      }
     };
 
     if (notification.link) {
         return (
-            <DropdownMenuItem asChild className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50 rounded-sm">
+            <DropdownMenuItem asChild className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-transparent rounded-sm">
                 <Link href={notification.link} onClick={handleClickInternal} className="w-full block" target={notification.link.startsWith('/') ? '_self' : '_blank'} rel="noopener noreferrer">
                     {content}
                 </Link>
@@ -369,7 +370,7 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
     }
 
     return (
-        <DropdownMenuItem onClick={handleClickInternal} className="p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-muted/50 rounded-sm">
+        <DropdownMenuItem onClick={handleClickInternal} className={cn("p-0 cursor-pointer focus:bg-transparent data-[highlighted]:bg-transparent rounded-sm", isUnread ? "data-[highlighted]:bg-primary/10" : "data-[highlighted]:bg-muted/50")}>
             {content}
         </DropdownMenuItem>
     );

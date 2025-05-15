@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -38,9 +39,10 @@ async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefine
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    .select("*")
+    // Optimized: Select specific columns
+    .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned")
     .eq("user_id", userId)
-    .in("status", ["pending", "approved"]) // Fetch only pending or approved
+    .in("status", ["pending", "approved"]) 
     .order("requested_at", { ascending: false });
 
   if (error) {
@@ -68,7 +70,7 @@ async function fetchTotalFamilySavingsRPC(): Promise<number> {
   return savings;
 }
 
-const RequestTableDisplay = ({ requests }: { requests: EmergencyRequest[] }) => {
+const RequestTableDisplay = React.memo(({ requests }: { requests: EmergencyRequest[] }) => {
   if (!requests || requests.length === 0) return null;
   return (
     <div className="overflow-x-auto rounded-md border">
@@ -103,7 +105,9 @@ const RequestTableDisplay = ({ requests }: { requests: EmergencyRequest[] }) => 
       </Table>
     </div>
   );
-};
+});
+RequestTableDisplay.displayName = "RequestTableDisplay";
+
 
 export default function EmergencyRequestPage() {
   const { toast } = useToast();
@@ -175,8 +179,8 @@ export default function EmergencyRequestPage() {
       status: 'pending',
       requested_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-    });
+      created_at: new Date().toISOString(), // Ensure this is included if not DB default
+    }).select('id').single(); // Select only id after insert
 
     if (error) {
       toast({
