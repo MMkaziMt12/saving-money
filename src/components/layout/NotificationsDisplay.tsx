@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react"; // Explicitly import React
+import React, { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Notification } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
@@ -15,7 +15,8 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuGroup
+  DropdownMenuGroup,
+  DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { formatDistanceToNowStrict } from 'date-fns';
 import Link from "next/link";
@@ -23,29 +24,34 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 const supabase = createClient();
+const FIVE_MINUTES_IN_MS = 5 * 60 * 1000;
 
 async function fetchUserNotifications(userId: string | undefined): Promise<Notification[]> {
   if (!userId) {
     console.log("NotificationsDisplay: fetchUserNotifications called with no userId. Returning empty array.");
     return [];
   }
-  console.log(`NotificationsDisplay: Fetching initial notifications for user ${userId}`);
+  console.log(`NotificationsDisplay: Fetching notifications for user ${userId} (initial or polled)`);
   const { data, error } = await supabase
     .from("notifications")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
-    .limit(20); // Fetch a reasonable limit
+    .limit(20);
 
   if (error) {
-    console.error("NotificationsDisplay: Error fetching initial notifications:", error);
+    console.error("NotificationsDisplay: Error fetching notifications:", error);
     throw new Error(error.message);
   }
-  console.log(`NotificationsDisplay: Initial notifications for user ${userId} fetched:`, data);
+  console.log(`NotificationsDisplay: Notifications for user ${userId} fetched:`, data?.length || 0);
   return data || [];
 }
 
 async function markNotificationsAsRead(userId: string, notificationIds?: string[]): Promise<any> {
+  if (!userId) {
+    console.error("NotificationsDisplay: markAsReadMutation cannot run, user ID missing.");
+    return Promise.reject(new Error("User ID missing"));
+  }
   console.log(`NotificationsDisplay: Marking notifications as read for user ${userId}. IDs:`, notificationIds || "all unread");
   let query = supabase
     .from("notifications")
@@ -57,7 +63,7 @@ async function markNotificationsAsRead(userId: string, notificationIds?: string[
     query = query.in("id", notificationIds);
   }
 
-  const { data, error } = await query.select(); // Important to .select() to get the updated rows back for optimistic updates if needed
+  const { data, error } = await query.select();
 
   if (error) {
     console.error("NotificationsDisplay: Error marking notifications as read:", error);
@@ -73,27 +79,48 @@ export function NotificationsDisplay() {
   const queryClient = useQueryClient();
   const [localNotifications, setLocalNotifications] = useState<Notification[]>([]);
 
-  const { data: initialFetchedNotifications, isLoading: isLoadingNotifications } = useQuery<Notification[], Error>({
+  const { data: fetchedNotificationsData, isLoading: isLoadingNotifications } = useQuery<Notification[], Error>({
     queryKey: ["userNotifications", user?.id],
     queryFn: () => fetchUserNotifications(user?.id),
     enabled: !!user,
+    refetchInterval: FIVE_MINUTES_IN_MS, // Refetch every 5 minutes
+    refetchOnWindowFocus: true, // Optional: refetch when window gains focus
     onSuccess: (data) => {
-      console.log("NotificationsDisplay: useQuery onSuccess, initial data received:", data);
-      setLocalNotifications(data);
+      console.log("NotificationsDisplay: useQuery onSuccess (initial/polled/refetched), data received:", data?.length || 0);
+      // This will merge new data with existing, prioritizing fresh data from fetch
+      // and trying to keep existing items if they weren't in the fetch (e.g. if limit is hit)
+      // A more sophisticated merge might be needed for large, paginated lists, but for 20 items this is okay.
+      setLocalNotifications(prevLocal => {
+        const newNotificationsMap = new Map(data.map(n => [n.id, n]));
+        const combined = [
+          ...data, // Start with all fresh data
+          ...prevLocal.filter(n => !newNotificationsMap.has(n.id)) // Add old items not in new fetch
+        ];
+        return combined.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20); // Re-sort and limit
+      });
     },
     onError: (error) => {
-      console.error("NotificationsDisplay: useQuery onError fetching initial notifications:", error);
+      console.error("NotificationsDisplay: useQuery onError fetching notifications:", error);
     }
   });
 
+  // Effect to update local state when fetched data changes (e.g., from initial load or polling)
   useEffect(() => {
-    if (initialFetchedNotifications) {
-        console.log("NotificationsDisplay: useEffect detected change in initialFetchedNotifications, updating localNotifications state.", initialFetchedNotifications);
-        setLocalNotifications(initialFetchedNotifications);
+    if (fetchedNotificationsData) {
+        console.log("NotificationsDisplay: useEffect detected change in fetchedNotificationsData, updating localNotifications state with fetched data length:", fetchedNotificationsData.length);
+        setLocalNotifications(prevLocal => {
+           const newNotificationsMap = new Map(fetchedNotificationsData.map(n => [n.id, n]));
+            const combined = [
+              ...fetchedNotificationsData,
+              ...prevLocal.filter(n => !newNotificationsMap.has(n.id))
+            ];
+            return combined.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20);
+        });
     }
-  }, [initialFetchedNotifications]);
+  }, [fetchedNotificationsData]);
 
 
+  // Realtime subscription
   useEffect(() => {
     if (!user?.id) {
         console.log("NotificationsDisplay: Realtime setup skipped, no user ID.");
@@ -102,13 +129,13 @@ export function NotificationsDisplay() {
 
     console.log(`NotificationsDisplay: Setting up Realtime subscription for user ${user.id} on 'notifications' table.`);
     const channel = supabase
-      .channel(`notifications-user-${user.id}`) 
-      .on<Notification>( 
+      .channel(`notifications-user-${user.id}`)
+      .on<Notification>(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
           console.log("NotificationsDisplay: Realtime INSERT event received:", payload);
-          const newNotification = payload.new;
+          const newNotification = payload.new as Notification;
           console.log("NotificationsDisplay: New notification data from Realtime:", newNotification);
           if (newNotification && typeof newNotification === 'object' && 'id' in newNotification) {
             setLocalNotifications(prev => {
@@ -116,8 +143,8 @@ export function NotificationsDisplay() {
                 console.log("NotificationsDisplay: New notification from Realtime already exists in local state. Ignoring to prevent duplicate.", newNotification.id);
                 return prev;
               }
-              const newState = [newNotification, ...prev].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() );
-              console.log("NotificationsDisplay: localNotifications state updated after Realtime INSERT:", newState);
+              const newState = [newNotification, ...prev].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() ).slice(0, 20);
+              console.log("NotificationsDisplay: localNotifications state updated after Realtime INSERT:", newState.length);
               return newState;
             });
           } else {
@@ -130,13 +157,13 @@ export function NotificationsDisplay() {
         { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
              console.log("NotificationsDisplay: Realtime UPDATE event received:", payload);
-             const updatedNotification = payload.new;
+             const updatedNotification = payload.new as Notification;
              console.log("NotificationsDisplay: Updated notification data from Realtime:", updatedNotification);
              if (updatedNotification && typeof updatedNotification === 'object' && 'id' in updatedNotification) {
                 setLocalNotifications(prev => {
                     const newState = prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
-                                     .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() );
-                    console.log("NotificationsDisplay: localNotifications state updated after Realtime UPDATE:", newState);
+                                     .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() ).slice(0, 20);
+                    console.log("NotificationsDisplay: localNotifications state updated after Realtime UPDATE:", newState.length);
                     return newState;
                 });
              } else {
@@ -158,7 +185,7 @@ export function NotificationsDisplay() {
       console.log(`NotificationsDisplay: Removing Realtime channel subscription for user ${user.id}`);
       supabase.removeChannel(channel).catch(err => console.error("NotificationsDisplay: Error removing channel", err));
     };
-  }, [user?.id]); 
+  }, [user?.id]);
 
   const markAsReadMutation = useMutation<any, Error, { notificationIds?: string[] }>({
     mutationFn: ({ notificationIds }) => {
@@ -170,19 +197,23 @@ export function NotificationsDisplay() {
     },
     onSuccess: (updatedDataFromServer) => {
       console.log("NotificationsDisplay: markAsReadMutation onSuccess, server response for updated notifications:", updatedDataFromServer);
-      queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] });
+      // Instead of queryClient.invalidateQueries, directly update local state
+      // This makes the UI update faster and relies on the polled query or next realtime event for eventual consistency if needed.
       if (Array.isArray(updatedDataFromServer) && updatedDataFromServer.length > 0) {
         const updatedIds = updatedDataFromServer.map(n => n.id);
         setLocalNotifications(prev =>
           prev.map(n =>
             updatedIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n
-          )
+          ).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
-      } else if (!updatedDataFromServer) { 
+      } else if (!updatedDataFromServer) { // This case means mark all as read
         setLocalNotifications(prev =>
           prev.map(n => n.read_at ? n : { ...n, read_at: new Date().toISOString() })
+          .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
       }
+       // Optionally, still invalidate if you want to be absolutely sure, but it might cause an extra fetch
+      queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] });
     },
     onError: (error) => {
       console.error("NotificationsDisplay: Failed to mark notifications as read via mutation:", error);
@@ -191,13 +222,13 @@ export function NotificationsDisplay() {
 
   const unreadNotifications = useMemo(() => {
     const filtered = localNotifications.filter(n => !n.read_at);
-    console.log("NotificationsDisplay: Derived unreadNotifications:", filtered, "from localNotifications:", localNotifications);
+    console.log("NotificationsDisplay: Derived unreadNotifications:", filtered.length, "from localNotifications:", localNotifications.length);
     return filtered;
   }, [localNotifications]);
 
   const readNotifications = useMemo(() => {
     const filtered = localNotifications.filter(n => !!n.read_at);
-    console.log("NotificationsDisplay: Derived readNotifications:", filtered, "from localNotifications:", localNotifications);
+    console.log("NotificationsDisplay: Derived readNotifications:", filtered.length, "from localNotifications:", localNotifications.length);
     return filtered;
   }, [localNotifications]);
 
@@ -213,7 +244,7 @@ export function NotificationsDisplay() {
   const handleMarkAllAsRead = () => {
     if (unreadNotifications.length > 0) {
       console.log("NotificationsDisplay: Handling mark all as read.");
-      markAsReadMutation.mutate({}); 
+      markAsReadMutation.mutate({});
     }
   };
 
@@ -226,9 +257,7 @@ export function NotificationsDisplay() {
 
   return (
     <DropdownMenu onOpenChange={(open) => {
-      if (open && unreadNotifications.length > 0) {
-        // console.log("NotificationsDisplay: Dropdown opened with unread notifications.");
-      }
+      // Logic for when dropdown opens/closes can go here
     }}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative rounded-full">
@@ -313,24 +342,26 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
     const timeAgo = formatDistanceToNowStrict(new Date(notification.created_at), { addSuffix: true });
     const isUnread = !notification.read_at;
 
-    const itemBaseStyle = "flex flex-col items-start gap-1 p-2 rounded-sm w-full text-left relative"; 
-    const unreadSpecificStyle = isUnread ? "bg-primary/10" : "hover:bg-muted/50"; // Removed font-medium from unread for consistency with read item hover
+    const itemBaseStyle = "flex flex-col items-start gap-1 p-2 rounded-sm w-full text-left relative";
+    const unreadSpecificStyle = isUnread ? "bg-primary/10" : "hover:bg-muted/50";
 
     const content = (
         <div className={cn(itemBaseStyle, unreadSpecificStyle)}>
-           {isUnread && <span className="absolute left-[1px] top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-primary ml-0"></span>} {/* Adjusted dot positioning */}
-            <p className={cn("text-sm leading-snug pl-3", isUnread ? "font-semibold text-primary-foreground" : "text-foreground")}>{notification.message}</p> {/* Increased left padding for text */}
-            <span className={cn("text-xs pl-3", isUnread ? "text-primary-foreground/80" : "text-muted-foreground")}>{timeAgo}</span>
+           {isUnread && <span className="absolute left-[3px] top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary ml-0.5"></span>}
+            <p className={cn("text-sm leading-snug pl-4", isUnread ? "font-semibold text-primary-foreground" : "text-foreground")}>{notification.message}</p>
+            <span className={cn("text-xs pl-4", isUnread ? "text-primary-foreground/80" : "text-muted-foreground")}>{timeAgo}</span>
         </div>
     );
 
     const handleClickInternal = (e: React.MouseEvent) => {
         if (isUnread && onMarkAsRead) {
-            if (!notification.link) { // Prevent dropdown close only if there's no link
-                e.preventDefault();
+            if (!notification.link) {
+                e.preventDefault(); // Prevent dropdown close only if there's no link and we're just marking as read
             }
             onMarkAsRead(notification.id);
         }
+        // If there is a link, the default behavior of Link component will handle navigation,
+        // and the dropdown might close, which is usually fine for navigation.
     };
 
     if (notification.link) {
