@@ -131,26 +131,29 @@ export type Database = {
       }
       notifications: {
         Row: {
-          channel: string | null
+          created_at: string | null
           id: string
-          message: string | null
-          sent_at: string | null
+          link: string | null
+          message: string
+          read_at: string | null
           type: string | null
           user_id: string | null
         }
         Insert: {
-          channel?: string | null
+          created_at?: string | null
           id?: string
-          message?: string | null
-          sent_at?: string | null
+          link?: string | null
+          message: string
+          read_at?: string | null
           type?: string | null
           user_id?: string | null
         }
         Update: {
-          channel?: string | null
+          created_at?: string | null
           id?: string
-          message?: string | null
-          sent_at?: string | null
+          link?: string | null
+          message?: string
+          read_at?: string | null
           type?: string | null
           user_id?: string | null
         }

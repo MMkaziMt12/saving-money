@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { MessageSquarePlus, Send, Sparkles, Loader2 } from "lucide-react";
+import { MessageSquarePlus, Send, Sparkles, Loader2, LinkIcon } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { generateNotificationMessage, type GenerateNotificationMessageInput } from "@/ai/flows/generate-notification-message";
@@ -17,38 +17,38 @@ import type { Profile } from "@/types";
 import { useState } from "react";
 import { MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 
-// This schema should match what NotificationSenderTab expects for its handleSendNotification
 const notificationSchema = z.object({
   messageType: z.enum(["contributionReminder", "emergencyRequestUpdate", "general"]),
-  targetUser: z.string().optional(), // User ID or "all_pending_contribution", "all_users"
-  customSubject: z.string().optional(), // For general messages, might not be used if message is main content
-  customMessage: z.string().min(1, "Message content cannot be empty."), // Make message required
-  // Fields for AI generation context (if AI button is used *before* final send)
+  targetUser: z.string().optional(),
+  customSubject: z.string().optional(),
+  customMessage: z.string().min(1, "Message content cannot be empty."),
+  link: z.string().url({ message: "Please enter a valid URL for the link (e.g., https://example.com)." }).optional().or(z.literal('')), // Optional, valid URL or empty string
+  // Fields for AI generation context
   userName: z.string().optional(),
   amount: z.coerce.number().optional(),
   emergencyRequestDescription: z.string().optional(),
-  status: z.string().optional(), // e.g. approved, rejected for emergency requests
-  // link: z.string().url().optional(), // Optional: if you want to add a link directly from the form
+  status: z.string().optional(),
 });
 
 export type NotificationFormValues = z.infer<typeof notificationSchema>;
 
 interface NotificationSenderProps {
   users: Profile[];
-  onSend: (data: NotificationFormValues) => Promise<void>; // Prop to handle the actual sending
-  isSending: boolean; // Prop to disable form while sending
+  onSend: (data: NotificationFormValues) => Promise<void>;
+  isSending: boolean;
 }
 
 export function NotificationSender({ users, onSend, isSending }: NotificationSenderProps) {
   const { toast } = useToast();
-  const [generatedMessage, setGeneratedMessage] = useState(""); // For AI generated message preview
   const [isGenerating, setIsGenerating] = useState(false);
 
   const form = useForm<NotificationFormValues>({
     resolver: zodResolver(notificationSchema),
     defaultValues: {
-      messageType: "contributionReminder",
-      customMessage: ""
+      messageType: "general",
+      customMessage: "",
+      customSubject: "",
+      link: "",
     },
   });
 
@@ -58,7 +58,7 @@ export function NotificationSender({ users, onSend, isSending }: NotificationSen
     const values = form.getValues();
     if (values.messageType === "general") {
       toast({ title: "Info", description: "AI generation is not applicable for general announcements. Please write your message directly." });
-      setGeneratedMessage(values.customMessage || "");
+      form.setValue("customMessage", values.customMessage || "");
       return;
     }
     if (values.messageType !== "contributionReminder" && values.messageType !== "emergencyRequestUpdate") {
@@ -85,7 +85,6 @@ export function NotificationSender({ users, onSend, isSending }: NotificationSen
     setIsGenerating(true);
     try {
       const result = await generateNotificationMessage(aiInput);
-      setGeneratedMessage(result.notificationMessage);
       form.setValue("customMessage", result.notificationMessage, { shouldValidate: true });
       toast({ title: "Message Generated", description: "AI has drafted a notification message." });
     } catch (error) {
@@ -96,12 +95,8 @@ export function NotificationSender({ users, onSend, isSending }: NotificationSen
     }
   };
 
-  // This internal submit now calls the onSend prop
   async function internalFormSubmit(data: NotificationFormValues) {
-    await onSend(data); 
-    // Resetting the form should be handled by the parent if mutation is successful, or not at all.
-    // form.reset();
-    // setGeneratedMessage("");
+    await onSend(data);
   }
 
   return (
@@ -208,19 +203,33 @@ export function NotificationSender({ users, onSend, isSending }: NotificationSen
                  </>
             )}
             
-            {selectedMessageType === "general" && (
-                 <FormField
-                    control={form.control}
-                    name="customSubject"
-                    render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Subject (Optional)</FormLabel>
-                        <FormControl><Input placeholder="e.g., Important Family Meeting" {...field} disabled={isGenerating || isSending} /></FormControl>
-                        <FormMessage />
-                    </FormItem>
-                    )}
-                />
-            )}
+            <FormField
+                control={form.control}
+                name="customSubject"
+                render={({ field }) => (
+                <FormItem>
+                    <FormLabel>Subject / Title (Optional)</FormLabel>
+                    <FormControl><Input placeholder="e.g., Important Family Meeting" {...field} disabled={isGenerating || isSending} /></FormControl>
+                    <FormDescription>This can act as a title for your notification.</FormDescription>
+                    <FormMessage />
+                </FormItem>
+                )}
+            />
+            
+            <FormField
+              control={form.control}
+              name="link"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-1"><LinkIcon className="h-4 w-4 text-muted-foreground" />Link (Optional)</FormLabel>
+                  <FormControl>
+                    <Input type="url" placeholder="https://example.com/relevant-page" {...field} disabled={isGenerating || isSending} />
+                  </FormControl>
+                  <FormDescription>If provided, the notification can link to this URL.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             {selectedMessageType !== 'general' && (
                 <Button type="button" variant="outline" onClick={handleGenerateMessage} disabled={isGenerating || isSending} className="w-full md:w-auto">
@@ -244,8 +253,6 @@ export function NotificationSender({ users, onSend, isSending }: NotificationSen
                       placeholder={ selectedMessageType === 'general' ? "Write your announcement here..." : "AI-generated message will appear here, or write your own."}
                       className="min-h-[150px]"
                       {...field}
-                      // Value is controlled by react-hook-form
-                      // setGeneratedMessage will update the form value for customMessage
                       disabled={isGenerating || isSending}
                     />
                   </FormControl>
@@ -254,8 +261,8 @@ export function NotificationSender({ users, onSend, isSending }: NotificationSen
               )}
             />
 
-            <Button type="submit" className="w-full md:w-auto" disabled={isGenerating || isSending}>
-              {isSending ? (
+            <Button type="submit" className="w-full md:w-auto" disabled={isGenerating || isSending || form.formState.isSubmitting}>
+              {isSending || form.formState.isSubmitting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Send className="mr-2 h-4 w-4" />
@@ -268,3 +275,5 @@ export function NotificationSender({ users, onSend, isSending }: NotificationSen
     </Card>
   );
 }
+
+    
