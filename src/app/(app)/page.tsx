@@ -348,7 +348,8 @@ export default function DashboardPage() {
       </div>
       
 
-      <div className="grid gap-8 lg:grid-cols-1">
+      <div className="">
+        <div className="w-full mb-8">
         <PaymentHistoryTable 
           contributions={userContributionsData?.data} 
           isLoading={isLoadingContributions} 
@@ -359,6 +360,8 @@ export default function DashboardPage() {
           onSearchChange={handleContributionSearchChange}
           itemsPerPage={ITEMS_PER_PAGE}
         />
+        </div>
+        <div className="w-full">
         <EmergencyRequestHistoryTable
           requests={allEmergencyRequestsData?.data} 
           isLoading={isLoadingAllEmergencyRequests} 
@@ -373,6 +376,7 @@ export default function DashboardPage() {
           itemsPerPage={ITEMS_PER_PAGE}
           isGlobalView={true} 
         />
+        </div>
       </div>
     </div>
   );

@@ -61,26 +61,55 @@ export function SidebarNav() {
         const IconComponent = item.icon;
 
         return (
+          // <SidebarMenuItem key={item.href}>
+          //   <Link href={item.href} passHref legacyBehavior>
+          //     <SidebarMenuButton
+          //       as="a" 
+          //       icon={<IconComponent className={cn(
+          //         "shrink-0", // Size will be controlled by SidebarMenuButton's internal [&>svg]:size-4
+          //         isActive 
+          //           ? "text-[var(--sidebar-active-foreground)]" 
+          //           : "text-[var(--sidebar-muted-foreground)] group-hover/menu-item:text-[var(--sidebar-accent-foreground)]"
+          //       )} />}
+          //       isActive={isActive}
+          //       tooltip={{ children: item.label, side: "right", align: "center" }} 
+          //       className={cn(
+          //         "justify-start gap-3 group/menu-item h-10 font-medium",
+          //          isActive && "bg-[var(--sidebar-active-background)] text-[var(--sidebar-active-foreground)] hover:bg-[var(--sidebar-active-background)] hover:text-[var(--sidebar-active-foreground)]"
+          //       )}
+          //     >
+          //       {item.label}
+          //     </SidebarMenuButton>
+          //   </Link>
+          // </SidebarMenuItem>
           <SidebarMenuItem key={item.href}>
-            <Link href={item.href} passHref legacyBehavior>
-              <SidebarMenuButton
-                as="a" 
-                icon={<IconComponent className={cn(
-                  "shrink-0", // Size will be controlled by SidebarMenuButton's internal [&>svg]:size-4
-                  isActive 
-                    ? "text-[var(--sidebar-active-foreground)]" 
-                    : "text-[var(--sidebar-muted-foreground)] group-hover/menu-item:text-[var(--sidebar-accent-foreground)]"
-                )} />}
-                isActive={isActive}
-                tooltip={{ children: item.label, side: "right", align: "center" }} 
-                className={cn(
-                  "justify-start gap-3 group/menu-item h-10 font-medium",
-                   isActive && "bg-[var(--sidebar-active-background)] text-[var(--sidebar-active-foreground)] hover:bg-[var(--sidebar-active-background)] hover:text-[var(--sidebar-active-foreground)]"
-                )}
-              >
+            {/* <Link  passHref legacyBehavior> */}
+            <SidebarMenuButton
+              asChild
+              isActive={isActive}
+              tooltip={{ children: item.label, side: "right", align: "center" }} // Tooltip for collapsed state
+              className={cn(
+                "justify-start gap-3 group/menu-item h-10 font-medium",
+                // Active styles are primarily handled by data-[active=true] in ui/sidebar's buttonVariants
+                // but we can add more specific overrides if needed
+                isActive &&
+                  "bg-[var(--sidebar-active-background)] text-[var(--sidebar-active-foreground)] hover:bg-[var(--sidebar-active-background)] hover:text-[var(--sidebar-active-foreground)]"
+              )}
+            >
+              {/* Label is the child for SidebarMenuButton, it handles collapsed/expanded display */}
+              <Link href={item.href}>
+                <IconComponent
+                  className={cn(
+                    "h-5 w-5 shrink-0", // Default icon classes
+                    isActive
+                      ? "text-[var(--sidebar-active-foreground)]"
+                      : "text-[var(--sidebar-muted-foreground)] group-hover/menu-item:text-[var(--sidebar-foreground)]"
+                  )}
+                />
                 {item.label}
-              </SidebarMenuButton>
-            </Link>
+              </Link>
+            </SidebarMenuButton>
+            {/* </Link> */}
           </SidebarMenuItem>
         );
       })}
