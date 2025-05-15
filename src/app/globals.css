@@ -47,17 +47,22 @@ body {
 
     /* Sidebar specific colors */
     --sidebar-background: 220 20% 20%; /* Darker, slightly desaturated blue/gray */
-    --sidebar-foreground: 210 17% 88%; /* Light gray text */
-    --sidebar-muted-foreground: 210 15% 65%; /* For less prominent icons/text */
+    --sidebar-foreground: 210 17% 88%; /* Light gray text for non-active, non-hovered items */
+    --sidebar-muted-foreground: 210 15% 65%; /* For less prominent icons/text (e.g., inactive icons) */
     --sidebar-border: 220 15% 28%; /* Border for sidebar elements */
     
-    --sidebar-hover-background: 220 18% 25%; 
-    --sidebar-active-background: hsl(var(--primary)); 
-    --sidebar-active-foreground: hsl(var(--primary-foreground)); 
+    --sidebar-hover-background: 220 18% 25%; /* Background for hovered non-active items */
+    --sidebar-hover-foreground: 210 17% 95%; /* Text/icon color for hovered non-active items - slightly brighter */
     
-    /* Updated for better hover contrast on icons/text */
+    --sidebar-active-background: hsl(var(--primary)); /* Background for active items - uses app's primary color */
+    --sidebar-active-foreground: hsl(var(--primary-foreground)); /* Text/icon color for active items - uses app's primary foreground */
+    
+    /* --sidebar-accent and --sidebar-accent-foreground are used by ui/sidebar.tsx components
+       for their default hover styling and potentially active styling if not overridden.
+       We map them to our hover variables since SidebarNav.tsx explicitly styles its active state.
+    */
     --sidebar-accent: hsl(var(--sidebar-hover-background)); 
-    --sidebar-accent-foreground: hsl(var(--primary-foreground)); /* Changed to primary-foreground for better hover pop */
+    --sidebar-accent-foreground: hsl(var(--sidebar-hover-foreground));
     --sidebar-ring: hsl(var(--primary)); 
   }
 
@@ -100,12 +105,13 @@ body {
     --sidebar-border: 220 15% 18%; 
     
     --sidebar-hover-background: 220 18% 17%;
-    --sidebar-active-background: hsl(var(--primary)); 
-    --sidebar-active-foreground: hsl(var(--primary-foreground));
+    --sidebar-hover-foreground: 210 17% 98%; /* Brighter for dark mode hover */
 
-    /* Updated for better hover contrast on icons/text - dark mode */
+    --sidebar-active-background: hsl(var(--primary)); /* Uses app's primary color (dark mode version) */
+    --sidebar-active-foreground: hsl(var(--primary-foreground)); /* Uses app's primary foreground (dark mode version) */
+
     --sidebar-accent: hsl(var(--sidebar-hover-background));
-    --sidebar-accent-foreground: hsl(var(--primary-foreground)); /* Changed to primary-foreground */
+    --sidebar-accent-foreground: hsl(var(--sidebar-hover-foreground));
     --sidebar-ring: hsl(var(--primary));
   }
 }
