@@ -258,7 +258,6 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
                                     <SelectItem value="partially_repaid">Partially Repaid</SelectItem>
                                     <SelectItem value="overdue">Overdue</SelectItem>
                                     <SelectItem value="updated">Updated</SelectItem>
-                                    <SelectItem value="Fully Paid">Updated</SelectItem>
                                 </SelectContent>
                             </Select>
                             <FormDescription>Select the status you want the AI to reflect in its message.</FormDescription>

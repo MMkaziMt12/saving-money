@@ -131,7 +131,7 @@ export function EmergencyRequestHistoryTable({
                           variant={statusInfo.variant} 
                           className={cn("capitalize flex items-center justify-center gap-1.5 min-w-[110px]",
                             {'bg-yellow-500 hover:bg-yellow-600 text-white': statusInfo.text === 'Pending'},
-                            {'bg-green-500 hover:bg-green-600 text-white': statusInfo.text === 'Approved'},
+                            {'bg-blue-500 hover:bg-blue-600 text-white': statusInfo.text === 'Approved'},
                             {'bg-green-600 hover:bg-green-700 text-white': statusInfo.text === 'Fully Repaid'},
                             {'bg-red-500 hover:bg-red-600 text-white': statusInfo.text === 'Rejected' || statusInfo.text === 'Overdue' }
                           )}
