@@ -42,6 +42,7 @@ interface SendNotificationPayload {
   type?: string;
   link?: string | null;
   subject?: string | null;
+  relatedRequestId?: string | null; // Added for linking notification to a request
 }
 
 export function NotificationSenderTab() {
@@ -53,11 +54,9 @@ export function NotificationSenderTab() {
     queryFn: fetchUsersForNotifications,
   });
 
-  // Fetch emergency requests to populate the dropdown
   const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests, error: emergencyRequestsError } = useQuery<EmergencyRequest[], Error>({
     queryKey: ['allEmergencyRequestsForNotifications'],
     queryFn: fetchAllEmergencyRequestsForNotifications,
-    // Consider enabling only when relevant, or keep enabled for admin context
   });
 
 
@@ -113,8 +112,8 @@ export function NotificationSenderTab() {
       console.log("NotificationSenderTab: Targeting all *approved* users. IDs:", targetUserIds);
     } else if (selectedTarget === "all_pending_contribution") {
       toast({ title: "Info", description: "Targeting 'Users with Pending Contributions' is not yet implemented.", variant: "default" });
-      return; // Early return for not-yet-implemented feature
-    } else if (selectedTarget) { // Specific user selected
+      return; 
+    } else if (selectedTarget) { 
         const targetUserExists = users.some(u => u.id === selectedTarget);
         if (targetUserExists) {
             targetUserIds = [selectedTarget];
@@ -122,11 +121,9 @@ export function NotificationSenderTab() {
         } else {
             toast({ title: "Error", description: "Selected target user not found. Cannot send notification.", variant: "destructive" });
             console.error("NotificationSenderTab: Selected target user ID not found in the users list:", selectedTarget);
-            return; // Early return if specific user not found
+            return; 
         }
     } else if (formData.messageType === 'emergencyRequestUpdate' && formData.selectedEmergencyRequestId) {
-        // If message type is emergency request update and a specific request is selected,
-        // the notification should go to the user associated with that request.
         const request = emergencyRequests?.find(r => r.id === formData.selectedEmergencyRequestId);
         if (request?.user_id) {
             targetUserIds = [request.user_id];
@@ -139,7 +136,6 @@ export function NotificationSenderTab() {
 
 
     if (targetUserIds.length === 0 && selectedTarget !== "all_pending_contribution") {
-      // This check might need to be more nuanced if targeting can be implicit (e.g. from selected request)
       toast({ title: "No Targets", description: "No valid users selected or found for notification.", variant: "destructive" });
       console.warn("NotificationSenderTab: No target user IDs determined. Notification not sent.");
       return;
@@ -153,9 +149,11 @@ export function NotificationSenderTab() {
     }
 
     let finalLink = formData.link || null;
+    let relatedRequestId: string | null = null;
+
     if (formData.messageType === 'emergencyRequestUpdate' && formData.selectedEmergencyRequestId) {
-        // Example: Construct a link to a request detail page (this page needs to exist)
-        // finalLink = `/requests/${formData.selectedEmergencyRequestId}`;
+        finalLink = `/requests/${formData.selectedEmergencyRequestId}`; // Auto-generate link for request detail page
+        relatedRequestId = formData.selectedEmergencyRequestId;
     }
 
 
@@ -164,7 +162,8 @@ export function NotificationSenderTab() {
       message: messageToSend,
       type: formData.messageType,
       link: finalLink,
-      subject: formData.customSubject || null, // Include subject
+      subject: formData.customSubject || null,
+      relatedRequestId: relatedRequestId, // Pass the related request ID
     };
     
     console.log("NotificationSenderTab: Final payload for Edge Function:", JSON.stringify(payload, null, 2));
@@ -172,7 +171,6 @@ export function NotificationSenderTab() {
     try {
       await sendNotificationMutation.mutateAsync(payload);
     } catch (error) {
-      // Errors are handled by the mutation's onError callback
       console.error("NotificationSenderTab: Error caught during sendNotificationMutation.mutateAsync call:", error);
     }
   };
@@ -180,7 +178,7 @@ export function NotificationSenderTab() {
   const isLoading = isLoadingUsers || isLoadingEmergencyRequests || sendNotificationMutation.isPending;
   const queryError = usersError || emergencyRequestsError;
 
-  if (isLoadingUsers || isLoadingEmergencyRequests && (!emergencyRequests || !users)) { // Show loader if essential data is missing
+  if (isLoadingUsers || (isLoadingEmergencyRequests && (!emergencyRequests || !users))) { 
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

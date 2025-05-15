@@ -24,11 +24,14 @@ export interface EmergencyRequest extends Tables<'emergency_requests'> {
    amount_returned?: number | null;
    last_return_date?: string | null;
    is_fully_repaid?: boolean | null;
+   // For joined data on detail page
+   profile_user?: Pick<Profile, 'full_name' | 'avatar_url'> | null;
+   profile_admin?: Pick<Profile, 'full_name'> | null;
 }
 
 
 // Updated Notification interface to match schema.sql
 export interface Notification extends Tables<'notifications'> {
   // id, user_id, message, type, link, created_at, read_at are from Tables<'notifications'>
-  // Add any client-side specific properties if needed, though typically derived from Supabase types.
+  related_request_id?: string | null; // Added this
 }
