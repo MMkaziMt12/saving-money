@@ -14,7 +14,7 @@ const supabase = createClient();
 async function fetchUsersForNotifications(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, email, is_approved') // Ensure necessary fields are selected
+    .select('id, full_name, email, is_approved')
     .order('full_name', { ascending: true });
   if (error) throw new Error(`Error fetching users for notifications: ${error.message}`);
   return data || [];
@@ -44,7 +44,7 @@ interface SendNotificationPayload {
   type?: string;
   link?: string | null;
   subject?: string | null;
-  relatedRequestId?: string | null;
+  relatedRequestId?: string | null; // Ensure this is part of the payload type
 }
 
 export function NotificationSenderTab() {
@@ -150,12 +150,13 @@ export function NotificationSenderTab() {
       return;
     }
 
-    let finalLink = formData.link || null;
-    let relatedRequestId: string | null = null;
+    let finalLink: string | null = formData.link || null;
+    let relatedRequestIdValue: string | null = null;
 
     if (formData.messageType === 'emergencyRequestUpdate' && formData.selectedEmergencyRequestId) {
-        finalLink = `/requests/${formData.selectedEmergencyRequestId}`;
-        relatedRequestId = formData.selectedEmergencyRequestId;
+        finalLink = `/requests/${formData.selectedEmergencyRequestId}`; // Auto-generate link
+        relatedRequestIdValue = formData.selectedEmergencyRequestId; // Set relatedRequestId
+        console.log(`NotificationSenderTab: Emergency request selected. Link: ${finalLink}, Related Request ID: ${relatedRequestIdValue}`);
     }
 
 
@@ -165,7 +166,7 @@ export function NotificationSenderTab() {
       type: formData.messageType,
       link: finalLink,
       subject: formData.customSubject || null,
-      relatedRequestId: relatedRequestId, 
+      relatedRequestId: relatedRequestIdValue, // Pass the related request ID
     };
     
     console.log("NotificationSenderTab: Final payload for Edge Function:", JSON.stringify(payload, null, 2));
@@ -218,3 +219,4 @@ export function NotificationSenderTab() {
     />
   );
 }
+

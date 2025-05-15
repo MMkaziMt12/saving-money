@@ -218,7 +218,7 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
                                     if (selectedReq) {
                                         form.setValue("emergencyRequestDescription", `request from ${users.find(u=>u.id === selectedReq.user_id)?.full_name || 'user'} for '${selectedReq.reason.substring(0,50)}...' (Amount: ${CURRENCY_SYMBOL}${selectedReq.amount_requested})`);
                                         form.setValue("status", selectedReq.status || "updated"); 
-                                        form.setValue("link", `/requests/${selectedReq.id}`); // Auto-populate link
+                                        form.setValue("link", `https://${window.location.hostname}/requests/${selectedReq.id}`); // Auto-populate link
                                     } else {
                                         form.setValue("link", ""); // Clear link if no request selected
                                     }
@@ -258,6 +258,7 @@ export function NotificationSender({ users, emergencyRequests, onSend, isSending
                                     <SelectItem value="partially_repaid">Partially Repaid</SelectItem>
                                     <SelectItem value="overdue">Overdue</SelectItem>
                                     <SelectItem value="updated">Updated</SelectItem>
+                                    <SelectItem value="Fully Paid">Updated</SelectItem>
                                 </SelectContent>
                             </Select>
                             <FormDescription>Select the status you want the AI to reflect in its message.</FormDescription>
