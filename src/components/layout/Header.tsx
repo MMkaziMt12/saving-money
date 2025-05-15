@@ -15,10 +15,12 @@ import {
 import { APP_NAME } from "@/lib/constants";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { Building2, LayoutDashboard, LogOut, Menu, UserCircle, Users } from "lucide-react";
+import { Building2, LayoutDashboard, LogOut, Menu, UserCircle, Users, Sun, Moon } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { SidebarNav } from "./SidebarNav"; 
-import { NotificationsDisplay } from "./NotificationsDisplay"; // Import NotificationsDisplay
+import { NotificationsDisplay } from "./NotificationsDisplay";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 
 interface HeaderProps {
   onMenuClick?: React.MouseEventHandler<HTMLButtonElement>; 
@@ -28,6 +30,10 @@ interface HeaderProps {
 export function Header({ onMenuClick, isMobile }: HeaderProps) {
   const { user, profile, signOut, isAdmin } = useAuth();
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   const handleLogout = async () => {
     await signOut();
@@ -41,6 +47,10 @@ export function Header({ onMenuClick, isMobile }: HeaderProps) {
     return (names[0][0]?.toUpperCase() || "") + (names[names.length - 1][0]?.toUpperCase() || "");
   };
 
+  const toggleTheme = () => {
+    setTheme(theme === 'light' ? 'dark' : 'light');
+  };
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6">
       {isMobile ? (
@@ -52,8 +62,8 @@ export function Header({ onMenuClick, isMobile }: HeaderProps) {
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="flex flex-col p-0 pt-4 bg-sidebar text-sidebar-foreground">
-            <Link href="/" className="mb-4 flex items-center gap-2 px-4 text-lg font-semibold text-sidebar-primary-foreground">
-              <Building2 className="h-6 w-6 text-sidebar-primary" />
+            <Link href="/" className="mb-4 flex items-center gap-2 px-4 text-lg font-semibold text-[hsl(var(--sidebar-active-foreground))]">
+              <Building2 className="h-6 w-6 text-[hsl(var(--sidebar-active-background))]" />
               <span>{APP_NAME}</span>
             </Link>
             <SidebarNav onLinkClick={() => {
@@ -67,7 +77,7 @@ export function Header({ onMenuClick, isMobile }: HeaderProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="hidden md:flex"
+            className="hidden md:flex text-muted-foreground hover:text-foreground"
             onClick={onMenuClick}
             aria-label="Toggle sidebar"
           >
@@ -84,6 +94,17 @@ export function Header({ onMenuClick, isMobile }: HeaderProps) {
       )}
 
       <div className="ml-auto flex items-center gap-2 md:gap-4">
+        {mounted && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            aria-label="Toggle theme"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+          </Button>
+        )}
         {user && <NotificationsDisplay />} 
         {user && profile ? (
           <DropdownMenu>

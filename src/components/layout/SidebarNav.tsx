@@ -1,9 +1,10 @@
+
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   LayoutDashboard,
   ShieldAlert,
@@ -24,7 +25,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, requiresApproval: true },
-  { href: "/emergency-request", label: "Emergency Fund", icon: ShieldAlert, userOnly: false, requiresApproval: true }, // Set userOnly to false or remove it if admins can also use it
+  { href: "/emergency-request", label: "Emergency Fund", icon: ShieldAlert, userOnly: false, requiresApproval: true },
   { href: "/profile", label: "My Profile", icon: UserCircle }, 
   { href: "/admin", label: "Admin Panel", icon: Users, adminOnly: true, requiresApproval: true },
 ];
@@ -38,31 +39,20 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
   const pathname = usePathname();
   const { user, isAdmin, isApproved, isLoading } = useAuth();
 
-  // Wait for auth state to be loaded
   if (isLoading) {
-    // Optionally return a loading skeleton for nav items
     return null; 
   }
   
   const filteredNavItems = navItems.filter(item => {
-    if (!user) return false; // Must be logged in for any nav items
-    if (item.requiresApproval && !isApproved) return false; // Needs approval but not approved
+    if (!user) return false;
+    if (item.requiresApproval && !isApproved) return false;
     if (item.adminOnly && !isAdmin) return false;
-    // Removed: if (item.userOnly && isAdmin) return false; 
-    // This allows admins to also see userOnly items if not explicitly adminOnly
     return true;
   });
   
-  if (filteredNavItems.length === 0 && !isApproved && user) { 
-      // If user is logged in, not approved, and no items are visible (e.g. only profile might be)
-      // It's often better to let the (app)/layout handle redirection to /awaiting-approval
-      // So, an empty nav here is fine. Profile link should still be evaluated by the filter.
-  }
-
-
   return (
     <TooltipProvider delayDuration={0}>
-      <nav className={cn("flex flex-col gap-1 px-2", isCollapsed ? "items-center" : "items-stretch")}>
+      <nav className={cn("flex flex-col gap-1.5 px-2", isCollapsed ? "items-center" : "items-stretch")}>
         {filteredNavItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
@@ -73,23 +63,26 @@ export function SidebarNav({ isCollapsed = false, onLinkClick }: SidebarNavProps
                   onClick={onLinkClick}
                   className={cn(
                     buttonVariants({ 
-                      variant: isActive ? "default" : "ghost", 
+                      variant: "ghost", // Always ghost, active state handled by custom classes
                       size: isCollapsed ? "icon" : "default" 
                     }),
-                    "justify-start gap-2 group",
+                    "justify-start gap-3 group h-10 font-medium", // Increased gap, default height
                     isActive 
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90" 
-                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                    isCollapsed ? "h-10 w-10" : "h-10"
+                      ? "bg-[hsl(var(--sidebar-active-background))] text-[hsl(var(--sidebar-active-foreground))] hover:bg-[hsl(var(--sidebar-active-background))] hover:text-[hsl(var(--sidebar-active-foreground))]" 
+                      : "text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover-background))] hover:text-[hsl(var(--sidebar-foreground))]",
+                    isCollapsed ? "w-10 rounded-md" : "rounded-md px-3" // Ensure consistent padding/rounding
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
-                  <item.icon className={cn("h-5 w-5 shrink-0", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground group-hover:text-sidebar-accent-foreground")} />
+                  <item.icon className={cn(
+                      "h-5 w-5 shrink-0", 
+                      isActive ? "text-[hsl(var(--sidebar-active-foreground))]" : "text-[hsl(var(--sidebar-muted-foreground))] group-hover:text-[hsl(var(--sidebar-foreground))]"
+                    )} />
                   {!isCollapsed && <span className="truncate">{item.label}</span>}
                 </Link>
               </TooltipTrigger>
               {isCollapsed && (
-                <TooltipContent side="right" className="bg-sidebar text-sidebar-accent-foreground border-sidebar-border">
+                <TooltipContent side="right" className="bg-popover text-popover-foreground border-border ml-1">
                   {item.label}
                 </TooltipContent>
               )}

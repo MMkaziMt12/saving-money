@@ -45,57 +45,55 @@ body {
     --chart-5: 27 87% 67%;
 
     /* Sidebar specific colors */
-    --sidebar-background: 220 15% 15%; /* Darker, desaturated blue/gray */
-    --sidebar-foreground: 210 17% 85%; /* Light gray text */
-    --sidebar-primary: hsl(var(--primary)); 
-    --sidebar-primary-foreground: hsl(var(--primary-foreground));
-    --sidebar-accent: hsl(var(--accent));
-    --sidebar-accent-foreground: hsl(var(--accent-foreground));
-    --sidebar-border: 220 15% 25%; /* Border for sidebar elements */
-    --sidebar-ring: hsl(var(--primary));
+    --sidebar-background: 220 20% 20%; /* Darker, slightly desaturated blue/gray - original: 220 15% 15%; */
+    --sidebar-foreground: 210 17% 88%; /* Light gray text - original: 210 17% 85%; */
+    --sidebar-muted-foreground: 210 15% 65%; /* For less prominent icons/text */
+    --sidebar-border: 220 15% 28%; /* Border for sidebar elements - original: 220 15% 25%; */
+    --sidebar-hover-background: 220 18% 25%; /* Slightly lighter for hover */
+    --sidebar-active-background: hsl(var(--primary)); /* Use primary for active */
+    --sidebar-active-foreground: hsl(var(--primary-foreground));
   }
 
   .dark {
-    --background: 210 25% 12%; 
-    --foreground: 210 17% 90%; 
+    --background: 210 25% 10%;  /* Slightly darker - original: 210 25% 12%; */
+    --foreground: 210 17% 92%; /* Slightly brighter - original: 210 17% 90%; */
 
-    --card: 210 25% 15%; 
-    --card-foreground: 210 17% 90%;
+    --card: 210 25% 13%; /* original: 210 25% 15%; */
+    --card-foreground: 210 17% 92%; /* original: 210 17% 90%; */
 
-    --popover: 210 25% 15%;
-    --popover-foreground: 210 17% 90%;
+    --popover: 210 25% 13%; /* original: 210 25% 15%; */
+    --popover-foreground: 210 17% 92%; /* original: 210 17% 90%; */
 
-    --primary: 207 68% 53%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 207 75% 60%; /* Slightly brighter blue for dark mode - original: 207 68% 53%; */
+    --primary-foreground: 210 20% 98%; /* Near white for better contrast - original: 0 0% 100%; */
 
-    --secondary: 210 20% 25%; 
-    --secondary-foreground: 210 17% 90%;
+    --secondary: 210 20% 22%; /* original: 210 20% 25%; */
+    --secondary-foreground: 210 17% 92%; /* original: 210 17% 90%; */
 
-    --muted: 210 20% 22%;
-    --muted-foreground: 210 14% 65%; 
+    --muted: 210 20% 18%; /* original: 210 20% 22%; */
+    --muted-foreground: 210 14% 70%;  /* Brighter muted text - original: 210 14% 65%; */
 
-    --accent: 145 63% 49%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 145 55% 55%; /* Slightly less saturated green for dark mode - original: 145 63% 49%; */
+    --accent-foreground: 0 0% 100%; /* original: 0 0% 100%; */
 
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 70% 50%; /* Slightly less intense red - original: 0 62.8% 30.6%; */
     --destructive-foreground: 0 0% 98%;
 
-    --border: 210 20% 30%; 
-    --input: 210 20% 30%;
-    --ring: 207 68% 53%;
+    --border: 210 20% 25%;  /* original: 210 20% 30%; */
+    --input: 210 20% 25%;   /* original: 210 20% 30%; */
+    --ring: 207 75% 60%;    /* Brighter primary for rings - original: 207 68% 53%; */
     
     --chart-1: hsl(var(--primary));
     --chart-2: hsl(var(--accent));
 
     /* Sidebar specific colors for dark mode */
-    --sidebar-background: 220 15% 10%; 
+    --sidebar-background: 220 18% 12%; /* Darker, slightly less blue - original: 220 15% 10%;  */
     --sidebar-foreground: 210 17% 90%; 
-    --sidebar-primary: hsl(var(--primary));
-    --sidebar-primary-foreground: hsl(var(--primary-foreground));
-    --sidebar-accent: hsl(var(--accent));
-    --sidebar-accent-foreground: hsl(var(--accent-foreground));
-    --sidebar-border: 220 15% 20%; 
-    --sidebar-ring: hsl(var(--primary));
+    --sidebar-muted-foreground: 210 15% 60%;
+    --sidebar-border: 220 15% 18%; /* original: 220 15% 20%;  */
+    --sidebar-hover-background: 220 18% 17%;
+    --sidebar-active-background: hsl(var(--primary)); /* Use primary (dark mode adjusted) for active */
+    --sidebar-active-foreground: hsl(var(--primary-foreground));
   }
 }
 
