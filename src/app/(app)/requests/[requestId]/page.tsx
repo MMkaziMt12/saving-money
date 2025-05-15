@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -236,7 +237,7 @@ export default function EmergencyRequestDetailPage() {
                 <div key={notification.id} className={cn("p-3 rounded-md border", notification.read_at ? "bg-card hover:bg-muted/30" : "bg-primary/10 border-primary/30")}>
                   <p className={cn("text-sm", !notification.read_at && "font-semibold")}>{notification.message}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Sent: {formatDistanceToNowStrict(parseISO(notification.created_at!), { addSuffix: true })}
+                    Sent: {notification.created_at ? format(parseISO(notification.created_at), "MMM dd, yyyy HH:mm") : 'N/A'}
                     {notification.read_at && ` | Read: ${formatDistanceToNowStrict(parseISO(notification.read_at), { addSuffix: true })}`}
                   </p>
                   {notification.link && notification.link !== `/requests/${requestId}` && (
@@ -255,3 +256,4 @@ export default function EmergencyRequestDetailPage() {
     </div>
   );
 }
+
