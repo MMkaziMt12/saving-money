@@ -11,15 +11,17 @@ import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, User, Mail, Phone, Shield, CalendarDays, ArrowLeft, AlertTriangle, DollarSign, ListChecks, History } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, User, Mail, Phone, Shield, CalendarDays, ArrowLeft, AlertTriangle, DollarSign, ListChecks, History, Search } from "lucide-react";
 import { format, parseISO, isPast } from "date-fns";
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 
 const supabase = createClient();
+const ITEMS_PER_PAGE_CONTRIBUTIONS_DETAIL = 5;
 
 async function fetchUserProfile(userId: string): Promise<Profile | null> {
   if (!userId) return null;
@@ -141,6 +143,9 @@ export default function UserDetailPage() {
   const { user: adminUser, isAdmin, isLoading: authLoading, isApproved: adminIsApproved } = useAuth();
   const userId = params.userId as string;
 
+  const [contributionSearchTerm, setContributionSearchTerm] = useState("");
+  const [currentContributionPage, setCurrentContributionPage] = useState(1);
+
   useEffect(() => {
     if (!authLoading) {
       if (!adminUser || !adminIsApproved) {
@@ -172,6 +177,28 @@ export default function UserDetailPage() {
     queryFn: () => fetchUserEmergencyRequestsForAdmin(userId),
     enabled: !!userId && isAdmin,
   });
+
+  const filteredContributions = useMemo(() => {
+    if (!contributions) return [];
+    const searchTermLower = contributionSearchTerm.toLowerCase();
+    return contributions.filter(c => {
+      const paymentDate = format(parseISO(c.payment_date), "MMM dd, yyyy").toLowerCase();
+      const contributionFor = format(new Date(c.year, c.month - 1), "MMMM yyyy").toLowerCase();
+      const amount = String(c.amount).toLowerCase();
+      const recordedBy = (c.recorded_by_admin_name || 'System/User').toLowerCase();
+      return paymentDate.includes(searchTermLower) ||
+             contributionFor.includes(searchTermLower) ||
+             amount.includes(searchTermLower) ||
+             recordedBy.includes(searchTermLower);
+    });
+  }, [contributions, contributionSearchTerm]);
+
+  const paginatedContributions = useMemo(() => {
+    const startIndex = (currentContributionPage - 1) * ITEMS_PER_PAGE_CONTRIBUTIONS_DETAIL;
+    return filteredContributions.slice(startIndex, startIndex + ITEMS_PER_PAGE_CONTRIBUTIONS_DETAIL);
+  }, [filteredContributions, currentContributionPage]);
+
+  const totalContributionPages = Math.ceil(filteredContributions.length / ITEMS_PER_PAGE_CONTRIBUTIONS_DETAIL);
 
 
   const getInitials = (name: string | null | undefined) => {
@@ -281,9 +308,22 @@ export default function UserDetailPage() {
       <Card className="shadow-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5 text-primary"/>Contribution History for {userProfile.full_name}</CardTitle>
-          <CardDescription>Overview of this user's monthly contributions.</CardDescription>
+          <CardDescription>Overview of this user's monthly contributions. Search by date, month/year, amount, or recorder.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search contributions..."
+              value={contributionSearchTerm}
+              onChange={(e) => {
+                setContributionSearchTerm(e.target.value);
+                setCurrentContributionPage(1);
+              }}
+              className="pl-10 w-full md:w-1/2 lg:w-1/3"
+            />
+          </div>
           <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
@@ -295,8 +335,10 @@ export default function UserDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {contributions && contributions.length > 0 ? (
-                  contributions.map((c) => (
+                {isLoadingContributions ? (
+                    <TableRow><TableCell colSpan={4} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
+                ) : paginatedContributions && paginatedContributions.length > 0 ? (
+                  paginatedContributions.map((c) => (
                     <TableRow key={c.id}>
                       <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
                       <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
@@ -307,13 +349,36 @@ export default function UserDetailPage() {
                 ) : (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
-                      No contributions found for this user.
+                      {contributions && contributions.length > 0 ? 'No contributions match your search.' : 'No contributions found for this user.'}
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
           </div>
+          {totalContributionPages > 1 && (
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentContributionPage(prev => Math.max(1, prev - 1))}
+                disabled={currentContributionPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {currentContributionPage} of {totalContributionPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentContributionPage(prev => Math.min(totalContributionPages, prev + 1))}
+                disabled={currentContributionPage === totalContributionPages}
+              >
+                Next
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -380,8 +445,3 @@ export default function UserDetailPage() {
     </div>
   );
 }
-
-    
-
-
-    
