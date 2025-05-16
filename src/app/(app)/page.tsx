@@ -161,7 +161,7 @@ export default function DashboardPage() {
     queryKey: ["userContributions", user?.id, currentPageContributions, debouncedSearchTermContributions],
     queryFn: () => fetchUserContributions(user?.id, currentPageContributions, ITEMS_PER_PAGE, debouncedSearchTermContributions),
     enabled: !!user,
-    keepPreviousData: true, 
+    // keepPreviousData: true, 
   });
 
   const { 
@@ -174,7 +174,7 @@ export default function DashboardPage() {
     queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
     queryFn: () => fetchAllFamilyEmergencyRequests(currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
     enabled: !!user,
-    keepPreviousData: true,
+    // keepPreviousData: true,
   });
 
   const { 
@@ -404,19 +404,7 @@ export default function DashboardPage() {
       </div>
       
       <div className="space-y-8">
-        <PaymentHistoryTable 
-          contributions={userContributionsData?.data} 
-          isLoading={isLoadingUserContributions && !userContributionsData?.data && !isUserContributionsError} 
-          error={isUserContributionsError ? userContributionsErrorObj : null}
-          onRetry={refetchUserContributions}
-          totalCount={userContributionsData?.count || 0}
-          currentPage={currentPageContributions}
-          onPageChange={setCurrentPageContributions}
-          searchTerm={searchTermContributions}
-          onSearchChange={handleContributionSearchChange}
-          itemsPerPage={ITEMS_PER_PAGE}
-        />
-        <EmergencyRequestHistoryTable
+      <EmergencyRequestHistoryTable
           requests={allEmergencyRequestsData?.data} 
           isLoading={isLoadingAllEmergencyRequests && !allEmergencyRequestsData?.data && !isAllEmergencyRequestsError} 
           error={isAllEmergencyRequestsError ? allEmergencyRequestsErrorObj : null}
@@ -432,6 +420,20 @@ export default function DashboardPage() {
           itemsPerPage={ITEMS_PER_PAGE}
           isGlobalView={true} 
         />
+
+        <PaymentHistoryTable 
+          contributions={userContributionsData?.data} 
+          isLoading={isLoadingUserContributions && !userContributionsData?.data && !isUserContributionsError} 
+          error={isUserContributionsError ? userContributionsErrorObj : null}
+          onRetry={refetchUserContributions}
+          totalCount={userContributionsData?.count || 0}
+          currentPage={currentPageContributions}
+          onPageChange={setCurrentPageContributions}
+          searchTerm={searchTermContributions}
+          onSearchChange={handleContributionSearchChange}
+          itemsPerPage={ITEMS_PER_PAGE}
+        />
+        
       </div>
     </div>
   );
