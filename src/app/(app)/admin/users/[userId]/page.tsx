@@ -29,8 +29,8 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
     .eq("id", userId)
     .single();
   if (error) {
-    console.error("Error fetching user profile:", error);
-    throw new Error(error.message);
+    console.error("Error fetching user profile:", JSON.stringify(error, null, 2));
+    throw new Error(error.message || `Failed to fetch profile for user ${userId}. Code: ${error.code || 'N/A'}`);
   }
   return data;
 }
@@ -42,9 +42,12 @@ async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContr
     .select("id, payment_date, month, year, amount, recorded_by_admin_name, recorded_by_admin_id")
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
+
   if (error) {
-    console.error("Error fetching user contributions:", error);
-    throw new Error(error.message);
+    // Log the full error object for better diagnostics
+    console.error("Supabase error fetching user contributions for user ID " + userId + ":", JSON.stringify(error, null, 2));
+    // Throw a more informative error
+    throw new Error(error.message || `Failed to fetch contributions for user ${userId}. Code: ${error.code || 'N/A'}`);
   }
   return data || [];
 }
@@ -58,8 +61,8 @@ async function fetchUserEmergencyRequestsForAdmin(userId: string): Promise<Emerg
     .order("requested_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching user emergency requests for admin detail page:", error);
-    throw new Error(error.message);
+    console.error("Error fetching user emergency requests for admin detail page:", JSON.stringify(error, null, 2));
+    throw new Error(error.message || `Failed to fetch emergency requests for user ${userId}. Code: ${error.code || 'N/A'}`);
   }
   return data || [];
 }
