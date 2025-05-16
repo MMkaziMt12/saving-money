@@ -2,8 +2,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import type { EmergencyRequest, Profile } from "@/types";
-import { createClient } from "@/lib/supabase/client";
+import type { Profile } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { EmergencyRequestManagementTable } from "@/components/admin/EmergencyRequestManagementTable";
 import { Loader2, Search, RefreshCw, AlertTriangle } from "lucide-react";
@@ -12,129 +11,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { parseISO, isPast } from "date-fns";
+import { 
+  fetchAdminProfilesForEmergency, 
+  fetchAdminEmergencyRequests, 
+  updateEmergencyRequestStatusAdmin, 
+  recordRepaymentAdmin,
+  type AdminProfileForEmergency,
+  type AdminEmergencyRequest,
+  type UpdateRequestPayloadAdmin,
+  type UpdatedRequestStatusAdmin,
+  type RecordRepaymentPayloadAdmin,
+  type RecordedRepaymentResultAdmin
+} from "@/lib/api/admin"; // Updated imports
 
-const supabase = createClient();
 const ITEMS_PER_PAGE_REQUESTS = 10;
-
-type AdminProfileForEmergency = Pick<Profile, 'id' | 'full_name'>;
-
-async function fetchAdminProfilesForEmergency(): Promise<AdminProfileForEmergency[]> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name');
-  if (error) {
-    console.error("Error fetching admin profiles for emergency:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data || [];
-}
-
-type AdminEmergencyRequest = EmergencyRequest & {
-  user_name?: string;
-  reviewed_by_admin_name?: string;
-};
-
-async function fetchAdminEmergencyRequests(): Promise<AdminEmergencyRequest[]> {
-  const { data: rawRequests, error } = await supabase
-    .from('emergency_requests')
-    .select(`
-      id, user_id, amount_requested, reason, status, requested_at, return_date,
-      amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
-      profile_user:profiles!emergency_requests_user_id_fkey(full_name),
-      profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
-    `)
-    .order('requested_at', { ascending: false });
-
-  if (error) {
-    console.error("Error fetching admin emergency requests:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  
-  const typedData = rawRequests as (EmergencyRequest & {
-    profile_user: { full_name: string | null } | null;
-    profile_admin: { full_name: string | null } | null;
-  })[] | null;
-
-  return typedData?.map(req => ({
-      ...req,
-      user_name: req.profile_user?.full_name,
-      reviewed_by_admin_name: req.profile_admin?.full_name,
-  })) || [];
-}
-
-type UpdateRequestPayload = {
-  requestId: string;
-  status: 'approved' | 'rejected';
-  adminProfileId: string;
-};
-
-type UpdatedRequestStatus = Pick<EmergencyRequest, 'id' | 'status' | 'user_id'>;
-
-async function updateEmergencyRequestStatus({ requestId, status, adminProfileId }: UpdateRequestPayload): Promise<UpdatedRequestStatus> {
-  const { data, error } = await supabase
-    .from('emergency_requests')
-    .update({ 
-      status, 
-      reviewed_by_admin_id: adminProfileId,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString() 
-    })
-    .eq('id', requestId)
-    .select('id, status, user_id')
-    .single();
-  if (error) {
-    console.error("Error updating emergency request status:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  if (!data) throw new Error("Failed to update request, no data returned.");
-  return data; 
-}
-
-type RecordRepaymentPayload = {
-  requestId: string;
-  amountRepaid: number;
-  repaymentDate: Date;
-  adminProfileId: string; 
-};
-
-type RecordedRepaymentResult = Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_returned' | 'is_fully_repaid' | 'last_return_date'>;
-
-async function recordRepayment({ requestId, amountRepaid, repaymentDate }: RecordRepaymentPayload): Promise<RecordedRepaymentResult> {
-  const { data: existingRequest, error: fetchError } = await supabase
-    .from('emergency_requests')
-    .select('amount_requested, amount_returned, user_id')
-    .eq('id', requestId)
-    .single();
-
-  if (fetchError || !existingRequest) {
-    console.error("Error fetching existing request for repayment:", JSON.stringify(fetchError, null, 2));
-    throw fetchError || new Error("Could not find existing request to record repayment.");
-  }
-
-  const currentAmountReturned = existingRequest.amount_returned || 0;
-  const newAmountReturned = currentAmountReturned + amountRepaid;
-  const isFullyRepaid = newAmountReturned >= (existingRequest.amount_requested || 0);
-
-  const { data, error } = await supabase
-    .from('emergency_requests')
-    .update({
-      amount_returned: newAmountReturned,
-      last_return_date: repaymentDate.toISOString(),
-      is_fully_repaid: isFullyRepaid,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', requestId)
-    .select('id, user_id, amount_returned, is_fully_repaid, last_return_date')
-    .single();
-
-  if (error) {
-    console.error("Error recording repayment:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  if (!data) throw new Error("Failed to record repayment, no data returned.");
-  return data;
-}
-
 
 export function EmergencyRequestManagementTab() {
   const { toast } = useToast();
@@ -166,16 +56,15 @@ export function EmergencyRequestManagementTab() {
     queryFn: fetchAdminEmergencyRequests,
   });
 
-  const updateRequestMutation = useMutation<UpdatedRequestStatus, Error, UpdateRequestPayload>({
-    mutationFn: updateEmergencyRequestStatus,
+  const updateRequestMutation = useMutation<UpdatedRequestStatusAdmin, Error, UpdateRequestPayloadAdmin>({
+    mutationFn: updateEmergencyRequestStatusAdmin,
     onSuccess: (updatedRequestData, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
-      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] }); 
+      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequestsForDashboard'] }); 
       queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] }); 
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] }); 
       queryClient.invalidateQueries({ queryKey: ['currentUserActiveEmergencyRequests', updatedRequestData.user_id]}); 
       queryClient.invalidateQueries({ queryKey: ["emergencyRequestDetails", variables.requestId] });
-      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequestsForAdmin", updatedRequestData.user_id] }); 
+      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequestsForAdminDetail", updatedRequestData.user_id] }); 
       toast({ title: "Success", description: `Emergency request ${updatedRequestData.status}.` });
     },
     onError: (error: Error) => {
@@ -183,16 +72,15 @@ export function EmergencyRequestManagementTab() {
     },
   });
 
-  const recordRepaymentMutation = useMutation<RecordedRepaymentResult, Error, RecordRepaymentPayload>({
-    mutationFn: recordRepayment,
+  const recordRepaymentMutation = useMutation<RecordedRepaymentResultAdmin, Error, RecordRepaymentPayloadAdmin>({
+    mutationFn: recordRepaymentAdmin,
     onSuccess: (updatedRequestData, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
-      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequestsForDashboard'] });
       queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] });
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] });
       queryClient.invalidateQueries({ queryKey: ['currentUserActiveEmergencyRequests', updatedRequestData.user_id]});
       queryClient.invalidateQueries({ queryKey: ["emergencyRequestDetails", variables.requestId] });
-      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequestsForAdmin", updatedRequestData.user_id] });
+      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequestsForAdminDetail", updatedRequestData.user_id] });
       const repaidThisTime = variables.amountRepaid;
       toast({ title: "Success", description: `Repayment of ${repaidThisTime.toLocaleString()} recorded.` });
     },
@@ -216,7 +104,6 @@ export function EmergencyRequestManagementTab() {
     }
     await recordRepaymentMutation.mutateAsync({ requestId, amountRepaid, repaymentDate, adminProfileId: adminProfile.id });
   }, [adminProfile, recordRepaymentMutation, toast]);
-
 
   const filteredRequests = useMemo(() => {
     if (!requests || !users) return [];

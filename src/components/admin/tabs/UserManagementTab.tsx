@@ -3,7 +3,6 @@
 
 import { useMemo, useState, useCallback } from "react";
 import type { Profile } from "@/types";
-import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { UserManagementTable } from "@/components/admin/UserManagementTable";
 import { Loader2, Search, RefreshCw, AlertTriangle } from "lucide-react";
@@ -11,44 +10,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { fetchAdminUsers, updateUserProfileAdmin, deleteUserProfileAdmin } from "@/lib/api/admin"; // Updated import
 
-const supabase = createClient();
 const ITEMS_PER_PAGE = 10;
-
-async function fetchUsers(): Promise<Profile[]> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active') // Ensure updated_at is fetched if needed
-    .order('created_at', { ascending: false });
-  if (error) {
-    console.error("Error fetching users in UserManagementTab:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data || [];
-}
-
-async function updateUserProfile(userId: string, updates: Partial<Profile>): Promise<Profile> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', userId)
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active')
-    .single();
-  if (error) {
-    console.error("Error updating user profile in UserManagementTab:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  if (!data) throw new Error("User profile not found after update.");
-  return data;
-}
-
-async function deleteUserProfile(userId: string): Promise<void> {
-  const { error } = await supabase.from('profiles').delete().eq('id', userId);
-  if (error) {
-    console.error("Error deleting user profile in UserManagementTab:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-}
 
 export function UserManagementTab() {
   const { toast } = useToast();
@@ -66,14 +30,16 @@ export function UserManagementTab() {
     refetch: refetchUsers
   } = useQuery<Profile[], Error>({
     queryKey: ['adminUsers'],
-    queryFn: fetchUsers,
+    queryFn: fetchAdminUsers,
   });
 
   const mutationOptions = {
     onSuccess: (updatedProfileData: Profile | void, variables: string | { userId: string; updates?: Partial<Profile> }) => {
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
       const targetUserId = typeof variables === 'string' ? variables : variables.userId;
-      queryClient.invalidateQueries({ queryKey: ["userProfile", targetUserId] });
+      queryClient.invalidateQueries({ queryKey: ["userProfileForAdmin", targetUserId] }); // Use specific key for admin user detail
+      queryClient.invalidateQueries({ queryKey: ["userProfile", targetUserId] }); // Invalidate generic user profile for AuthContext consistency if needed
+
 
       const userName = (updatedProfileData as Profile)?.full_name || users?.find(u => u.id === targetUserId)?.full_name || "User";
       
@@ -95,19 +61,19 @@ export function UserManagementTab() {
   };
 
   const approveUserMutation = useMutation<Profile, Error, string>({
-    mutationFn: (userId: string) => updateUserProfile(userId, { is_approved: true }),
+    mutationFn: (userId: string) => updateUserProfileAdmin(userId, { is_approved: true }),
     ...mutationOptions,
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {is_approved: true }})
   });
 
   const rejectUserMutation = useMutation<Profile, Error, string>({
-    mutationFn: (userId: string) => updateUserProfile(userId, { is_approved: false }),
+    mutationFn: (userId: string) => updateUserProfileAdmin(userId, { is_approved: false }),
     ...mutationOptions,
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {is_approved: false }})
   });
 
   const makeAdminMutation = useMutation<Profile, Error, string>({
-    mutationFn: (userId: string) => updateUserProfile(userId, { role: 'admin' }),
+    mutationFn: (userId: string) => updateUserProfileAdmin(userId, { role: 'admin' }),
     ...mutationOptions,
      onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: { role: 'admin' }})
   });
@@ -117,7 +83,7 @@ export function UserManagementTab() {
       if (authUser?.id === userId && users?.filter(u => u.role === 'admin').length <= 1) {
         throw new Error("Cannot revoke the last admin's privileges.");
       }
-      return updateUserProfile(userId, { role: 'user' });
+      return updateUserProfileAdmin(userId, { role: 'user' });
     },
     ...mutationOptions,
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {role: 'user' }})
@@ -128,7 +94,7 @@ export function UserManagementTab() {
       if (authUser?.id === userId) {
         throw new Error("Cannot delete your own profile.");
       }
-      return deleteUserProfile(userId);
+      return deleteUserProfileAdmin(userId);
     },
     ...mutationOptions,
     onSuccess: (_, userId) => mutationOptions.onSuccess(undefined, userId)

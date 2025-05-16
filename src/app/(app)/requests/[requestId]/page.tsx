@@ -3,8 +3,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
-import type { EmergencyRequest, Notification as AppNotification, Profile } from "@/types";
+import type { Profile, Notification as AppNotification } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge, badgeVariants } from "@/components/ui/badge"; 
@@ -19,48 +18,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import type { VariantProps } from "class-variance-authority";
 import React, { useEffect } from "react"; 
-
-const supabase = createClient();
-
-type EmergencyRequestDetail = EmergencyRequest & {
-    profile_user?: Pick<Profile, 'full_name' | 'avatar_url'> | null;
-    profile_admin?: Pick<Profile, 'full_name'> | null;
-};
-
-async function fetchEmergencyRequestDetails(requestId: string): Promise<EmergencyRequestDetail | null> {
-  if (!requestId) return null;
-  const { data, error } = await supabase
-    .from("emergency_requests")
-    .select(`
-      id, user_id, amount_requested, reason, status, requested_at, return_date,
-      amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
-      profile_user:profiles!emergency_requests_user_id_fkey(full_name, avatar_url),
-      profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
-    `)
-    .eq("id", requestId)
-    .single<EmergencyRequestDetail>(); 
-  if (error) {
-    console.error("Error fetching emergency request details:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data; 
-}
-
-type RelatedNotification = Pick<AppNotification, 'id' | 'message' | 'created_at' | 'read_at' | 'link'>;
-
-async function fetchRelatedNotifications(requestId: string): Promise<RelatedNotification[]> {
-  if (!requestId) return [];
-  const { data, error } = await supabase
-    .from("notifications")
-    .select("id, message, created_at, read_at, link")
-    .eq("related_request_id", requestId)
-    .order("created_at", { ascending: false });
-  if (error) {
-    console.error("Error fetching related notifications:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data || [];
-}
+import { fetchEmergencyRequestDetails, fetchRelatedNotificationsForRequest, type EmergencyRequestDetail, type RelatedNotificationForRequest } from "@/lib/api/emergencyRequests"; // Updated imports
 
 interface InfoItemProps {
   icon: React.ElementType;
@@ -133,9 +91,9 @@ export default function EmergencyRequestDetailPage() {
     isError: isNotificationsError,
     error: notificationsErrorObj,
     refetch: refetchNotifications
-  } = useQuery<RelatedNotification[], Error>({
-    queryKey: ["relatedNotifications", requestId],
-    queryFn: () => fetchRelatedNotifications(requestId),
+  } = useQuery<RelatedNotificationForRequest[], Error>({
+    queryKey: ["relatedNotificationsForRequest", requestId],
+    queryFn: () => fetchRelatedNotificationsForRequest(requestId),
     enabled: !!requestId && !!user,
   });
 

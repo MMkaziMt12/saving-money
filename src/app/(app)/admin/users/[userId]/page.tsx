@@ -3,8 +3,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
-import type { Profile, MonthlyContribution, EmergencyRequest } from "@/types";
+import type { Profile } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge, badgeVariants } from "@/components/ui/badge";
@@ -19,83 +18,15 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import React, { useEffect, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
+import { 
+  fetchUserProfileForAdmin, 
+  fetchUserContributionsForAdmin, 
+  fetchUserEmergencyRequestsForAdminDetail,
+  type UserContributionForAdminDetail,
+  type UserEmergencyRequestForAdminDetail
+} from "@/lib/api/admin"; // Updated imports
 
-const supabase = createClient();
 const ITEMS_PER_PAGE_CONTRIBUTIONS_DETAIL = 5;
-
-async function fetchUserProfile(userId: string): Promise<Profile | null> {
-  if (!userId) return null;
-  const { data, error } = await supabase
-    .from("profiles")
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active')
-    .eq("id", userId)
-    .single<Profile>();
-  if (error) {
-    console.error("Error fetching user profile on detail page:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data;
-}
-
-type UserContributionForDetail = Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>;
-
-type RawContributionData = Pick<Tables<'monthly_contributions'>, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_id'> & {
-  profile_admin: { full_name: string | null } | null;
-};
-
-async function fetchUserContributions(userId: string): Promise<UserContributionForDetail[]> {
-  if (!userId) return [];
-  const { data, error } = await supabase
-    .from("monthly_contributions")
-    .select(`
-      id, 
-      payment_date, 
-      month, 
-      year, 
-      amount, 
-      recorded_by_admin_id,
-      profile_admin:profiles!monthly_contributions_recorded_by_admin_id_fkey(full_name)
-    `) 
-    .eq("user_id", userId)
-    .order("payment_date", { ascending: false });
-
-  if (error) {
-    const errorMsg = `Error fetching user contributions for user ID ${userId}: ${error.message} (Code: ${error.code})`;
-    console.error(errorMsg, JSON.stringify(error, null, 2));
-    throw new Error(errorMsg);
-  }
-  
-  const typedData = data as RawContributionData[] | null;
-
-  const mappedData: UserContributionForDetail[] = typedData?.map(item => ({
-    id: item.id,
-    payment_date: item.payment_date,
-    month: item.month,
-    year: item.year,
-    amount: item.amount,
-    recorded_by_admin_id: item.recorded_by_admin_id,
-    recorded_by_admin_name: item.profile_admin?.full_name || undefined,
-  })) || [];
-  
-  return mappedData;
-}
-
-type UserEmergencyRequestForAdminDetail = Pick<EmergencyRequest, 'id' | 'amount_requested' | 'amount_returned' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'is_fully_repaid' | 'last_return_date' | 'admin_notes'>;
-
-async function fetchUserEmergencyRequestsForAdmin(userId: string): Promise<UserEmergencyRequestForAdminDetail[]> {
-  if (!userId) return [];
-  const { data, error } = await supabase
-    .from("emergency_requests")
-    .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes")
-    .eq("user_id", userId)
-    .order("requested_at", { ascending: false });
-
-  if (error) {
-    console.error("Error fetching user emergency requests for admin detail page:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data || [];
-}
 
 interface InfoItemProps {
   icon: React.ElementType;
@@ -167,8 +98,8 @@ export default function UserDetailPage() {
     error: profileErrorObj,
     refetch: refetchUserProfile
   } = useQuery<Profile | null, Error>({
-    queryKey: ["userProfile", userId],
-    queryFn: () => fetchUserProfile(userId),
+    queryKey: ["userProfileForAdmin", userId], // Specific query key for admin context
+    queryFn: () => fetchUserProfileForAdmin(userId),
     enabled: !!userId && isAdmin,
   });
 
@@ -178,9 +109,9 @@ export default function UserDetailPage() {
     isError: isContributionsError,
     error: contributionsErrorObj,
     refetch: refetchContributions
-  } = useQuery<UserContributionForDetail[], Error>({
-    queryKey: ["userContributionsForAdminDetail", userId], // Unique query key
-    queryFn: () => fetchUserContributions(userId),
+  } = useQuery<UserContributionForAdminDetail[], Error>({
+    queryKey: ["userContributionsForAdmin", userId], 
+    queryFn: () => fetchUserContributionsForAdmin(userId),
     enabled: !!userId && isAdmin,
   });
 
@@ -191,8 +122,8 @@ export default function UserDetailPage() {
     error: emergencyRequestsErrorObj,
     refetch: refetchEmergencyRequests
   } = useQuery<UserEmergencyRequestForAdminDetail[], Error>({
-    queryKey: ["userEmergencyRequestsForAdmin", userId],
-    queryFn: () => fetchUserEmergencyRequestsForAdmin(userId),
+    queryKey: ["userEmergencyRequestsForAdminDetail", userId], // Specific key for detail page
+    queryFn: () => fetchUserEmergencyRequestsForAdminDetail(userId),
     enabled: !!userId && isAdmin,
   });
 
@@ -225,7 +156,7 @@ export default function UserDetailPage() {
     return (names[0][0]?.toUpperCase() || "") + (names[names.length - 1][0]?.toUpperCase() || "");
   };
 
-  if (authLoading || (!isAdmin && !authLoading)) {
+  if (authLoading || (!isAdmin && !authLoading && !adminUser)) { // Ensure adminUser check is also gated by authLoading
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -344,7 +275,7 @@ export default function UserDetailPage() {
       <Card className="shadow-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5 text-primary"/>Contribution History for {userProfile.full_name}</CardTitle>
-          <CardDescription>Overview of this user's monthly contributions. Search by date, month/year, amount, or recorder.</CardDescription>
+          <CardDescription>Overview of this user&apos;s monthly contributions. Search by date, month/year, amount, or recorder.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative">
@@ -361,7 +292,7 @@ export default function UserDetailPage() {
               disabled={isLoadingContributions && !!contributions}
             />
           </div>
-          {isLoadingContributions && !!contributions && (
+          {(isLoadingContributions && !!contributions && !isContributionsError) && ( // Show only when refetching with existing data
              <div className="py-4 flex items-center justify-center text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin mr-2"/> Refreshing contributions...
             </div>
@@ -377,7 +308,7 @@ export default function UserDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(isLoadingContributions && !contributions && !isContributionsError) ? (
+                {(isLoadingContributions && !contributions && !isContributionsError) ? ( // Initial load
                     <TableRow><TableCell colSpan={4} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
                 ) : paginatedContributions && paginatedContributions.length > 0 ? (
                   paginatedContributions.map((c) => (
@@ -427,7 +358,7 @@ export default function UserDetailPage() {
       <Card className="shadow-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><History className="h-5 w-5 text-primary"/>Emergency Request History for {userProfile.full_name}</CardTitle>
-          <CardDescription>Overview of this user's emergency fund requests.</CardDescription>
+          <CardDescription>Overview of this user&apos;s emergency fund requests.</CardDescription>
         </CardHeader>
         <CardContent>
           {(isLoadingEmergencyRequests && !emergencyRequests && !isEmergencyRequestsError) ? (

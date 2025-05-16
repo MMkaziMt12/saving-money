@@ -4,144 +4,28 @@
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
-import { DollarSign, ShieldAlert, Users, BarChart3, Clock, AlertTriangle, CheckCircle2, Gift, TrendingDown, TrendingUp, Coins, RefreshCw, Loader2 } from "lucide-react";
+import { DollarSign, ShieldAlert, Users, BarChart3, AlertTriangle, CheckCircle2, Gift, TrendingDown, TrendingUp, Coins, RefreshCw, Loader2, Clock } from "lucide-react";
 import { APP_NAME, CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
-import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
+import type { Profile } from "@/types";
 import { format, parseISO, differenceInCalendarMonths, getYear, getMonth } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
 import { StatCard } from "@/components/shared/StatCard";
 import { useState, useEffect, useMemo } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { PaymentHistoryTable } from "@/components/dashboard/PaymentHistoryTable";
 import { EmergencyRequestHistoryTable } from "@/components/dashboard/EmergencyRequestHistoryTable";
+import { 
+  fetchUserContributionsForDashboard, 
+  fetchAllFamilyEmergencyRequestsForDashboard, 
+  fetchTotalFamilySavingsRPC, 
+  fetchAllUserContributionsForStatus,
+  type UserContributionForTable,
+  type FamilyEmergencyRequestForTable,
+  type UserContributionForStatus,
+  type PaginatedData
+} from "@/lib/api/dashboard"; // Updated imports
 
-const supabase = createClient();
 const ITEMS_PER_PAGE = 5;
-
-interface PaginatedData<T> {
-  data: T[];
-  count: number | null;
-}
-
-type UserContributionForTable = Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount'>;
-
-async function fetchUserContributions(
-  userId: string | undefined,
-  page: number,
-  itemsPerPage: number,
-  searchTerm: string
-): Promise<PaginatedData<UserContributionForTable>> {
-  if (!userId) return { data: [], count: 0 };
-
-  const from = (page - 1) * itemsPerPage;
-  const to = from + itemsPerPage - 1;
-
-  let query = supabase
-    .from("monthly_contributions")
-    .select("id, payment_date, month, year, amount", { count: "exact" })
-    .eq("user_id", userId);
-
-  if (searchTerm) {
-    const numericSearchTerm = parseInt(searchTerm);
-    if (!isNaN(numericSearchTerm)) {
-      query = query.eq("year", numericSearchTerm);
-    }
-  }
-  
-  query = query.order("year", { ascending: false })
-    .order("month", { ascending: false })
-    .range(from, to);
-
-  const { data, error, count } = await query;
-  if (error) {
-    console.error("Error fetching user contributions:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return { data: data || [], count };
-}
-
-type FamilyEmergencyRequestForTable = Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_requested' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'amount_returned' | 'is_fully_repaid'> & { user_name?: string };
-
-async function fetchAllFamilyEmergencyRequests(
-  page: number,
-  itemsPerPage: number,
-  searchTerm: string
-): Promise<PaginatedData<FamilyEmergencyRequestForTable>> {
-  const from = (page - 1) * itemsPerPage;
-  const to = from + itemsPerPage - 1;
-
-  let query = supabase
-    .from("emergency_requests")
-    .select(`
-      id, user_id, amount_requested, reason, requested_at, return_date, status, amount_returned, is_fully_repaid,
-      profile_user:profiles!emergency_requests_user_id_fkey(full_name)
-    `, { count: "exact" });
-  
-  if (searchTerm) {
-    query = query.or(
-        `reason.ilike.%${searchTerm}%,status.ilike.%${searchTerm}%,profile_user:full_name.ilike.%${searchTerm}%${",overdue".includes(searchTerm.toLowerCase()) ? ",return_date.lt.now(),is_fully_repaid.is.false" : ""}${"repaid".includes(searchTerm.toLowerCase()) ? ",is_fully_repaid.is.true" : ""}`,
-        { referencedTable: "profiles" } // Corrected referencedTable
-    );
-  }
-  
-  query = query.order("requested_at", { ascending: false }).range(from, to);
-
-  const { data: rawRequests, error, count } = await query;
-
-  if (error) {
-    console.error("Error fetching all family emergency requests:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  
-  const typedData = rawRequests as (Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_requested' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'amount_returned' | 'is_fully_repaid'> & { profile_user: { full_name: string | null } | null })[] | null;
-
-  const formattedData: FamilyEmergencyRequestForTable[] = typedData?.map(req => ({
-      ...req,
-      user_name: req.profile_user?.full_name || req.user_id, 
-  })) || [];
-  return { data: formattedData, count };
-}
-
-
-async function fetchTotalFamilySavingsRPC(): Promise<number> {
-  console.log("DashboardPage: Fetching total family savings via RPC...");
-  const { data, error } = await supabase.rpc('get_total_family_savings');
-  if (error) {
-    console.error("Error fetching total family savings via RPC on dashboard:", JSON.stringify(error, null, 2));
-    if (data !== undefined) {
-        console.log("RPC 'get_total_family_savings' raw data received (on error) on dashboard:", data);
-    }
-    throw error;
-  }
-  if (data === null || data === undefined) {
-    console.warn("RPC 'get_total_family_savings' returned null or undefined on dashboard. Defaulting to 0.");
-    return 0;
-  }
-  const savings = Number(data);
-  if (isNaN(savings)) {
-    console.warn(`RPC 'get_total_family_savings' returned a non-numeric value on dashboard: ${data}. Defaulting to 0.`);
-    return 0;
-  }
-  console.log("DashboardPage: Total family savings fetched:", savings);
-  return savings;
-}
-
-type UserContributionForStatus = Pick<MonthlyContribution, 'amount'>;
-
-async function fetchAllUserContributionsForStatus(userId: string | undefined): Promise<UserContributionForStatus[]> {
-  if (!userId) return [];
-  const { data, error } = await supabase
-    .from("monthly_contributions")
-    .select("amount") 
-    .eq("user_id", userId);
-  if (error) {
-    console.error("Error fetching all user contributions for status:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data || [];
-}
-
 
 export default function DashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading, fetchProfile } = useAuth();
@@ -159,11 +43,11 @@ export default function DashboardPage() {
     data: userContributionsData, 
     isLoading: isLoadingUserContributions, 
     isError: isUserContributionsError,
-    error: userContributionsErrorObj, // Renamed to avoid conflict
+    error: userContributionsErrorObj,
     refetch: refetchUserContributions
   } = useQuery<PaginatedData<UserContributionForTable>, Error>({
-    queryKey: ["userContributions", user?.id, currentPageContributions, debouncedSearchTermContributions],
-    queryFn: () => fetchUserContributions(user?.id, currentPageContributions, ITEMS_PER_PAGE, debouncedSearchTermContributions),
+    queryKey: ["userContributionsForDashboard", user?.id, currentPageContributions, debouncedSearchTermContributions],
+    queryFn: () => fetchUserContributionsForDashboard(user?.id, currentPageContributions, ITEMS_PER_PAGE, debouncedSearchTermContributions),
     enabled: !!user,
     keepPreviousData: true,
   });
@@ -172,11 +56,11 @@ export default function DashboardPage() {
     data: allEmergencyRequestsData, 
     isLoading: isLoadingEmergencyRequests, 
     isError: isEmergencyRequestsError,
-    error: emergencyRequestsErrorObj, // Renamed to avoid conflict
+    error: emergencyRequestsErrorObj,
     refetch: refetchAllEmergencyRequests
   } = useQuery<PaginatedData<FamilyEmergencyRequestForTable>, Error>({
-    queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
-    queryFn: () => fetchAllFamilyEmergencyRequests(currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
+    queryKey: ["allFamilyEmergencyRequestsForDashboard", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
+    queryFn: () => fetchAllFamilyEmergencyRequestsForDashboard(currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
     enabled: !!user,
     keepPreviousData: true,
   });
@@ -185,7 +69,7 @@ export default function DashboardPage() {
     data: totalFamilySavings, 
     isLoading: isLoadingTotalSavings, 
     isError: isTotalSavingsError,
-    error: totalSavingsErrorObj, // Renamed to avoid conflict
+    error: totalSavingsErrorObj,
     refetch: refetchTotalSavings
   } = useQuery<number, Error>({
     queryKey: ["totalFamilySavings"], 
@@ -194,19 +78,19 @@ export default function DashboardPage() {
   });
   
   const { 
-    data: allUserContributionsForStatus, 
+    data: allUserContributionsForStatusData, 
     isLoading: isLoadingAllContributionsForStatus, 
     isError: isAllContributionsForStatusError,
-    error: allContributionsForStatusErrorObj, // Renamed to avoid conflict
+    error: allContributionsForStatusErrorObj,
     refetch: refetchAllUserContributionsForStatus
   } = useQuery<UserContributionForStatus[], Error>({
     queryKey: ["allUserContributionsForStatus", user?.id],
     queryFn: () => fetchAllUserContributionsForStatus(user?.id),
-    enabled: !!user && !!profile, // Only fetch if user and profile are loaded
+    enabled: !!user && !!profile,
   });
 
   const userContributionStats = useMemo(() => {
-    if (!profile?.created_at || !allUserContributionsForStatus) {
+    if (!profile?.created_at || !allUserContributionsForStatusData) {
       return {
         totalPaid: 0,
         userGeneralContributionStatusText: "Calculating...",
@@ -218,8 +102,8 @@ export default function DashboardPage() {
       };
     }
 
-    const totalPaid = allUserContributionsForStatus.reduce((sum, c) => sum + c.amount, 0);
-    const numContributionsMade = allUserContributionsForStatus.length;
+    const totalPaid = allUserContributionsForStatusData.reduce((sum, c) => sum + c.amount, 0);
+    const numContributionsMade = allUserContributionsForStatusData.length;
     
     const accountCreationDate = parseISO(profile.created_at);
     const currentDate = new Date();
@@ -251,12 +135,7 @@ export default function DashboardPage() {
       statusTextVal = "Payment Due";
     } else { 
       pendingAmountVal = 0; 
-      if (monthsSinceJoined === 1 && numContributionsMade === 0 && !profile.is_approved) { // First month, not approved, not paid
-          detailedDescriptionVal = `Account pending approval. First contribution due upon approval.`;
-          statusIconVal = Clock;
-          valueColorClassVal = "text-muted-foreground";
-          statusTextVal = "Pending Approval";
-      } else if (monthsSinceJoined === 1 && numContributionsMade === 0 && profile.is_approved) { // First month, approved, not paid
+      if (monthsSinceJoined === 1 && numContributionsMade === 0 && profile.is_approved) {
         pendingAmountVal = MONTHLY_CONTRIBUTION_AMOUNT;
         detailedDescriptionVal = `Current month's contribution due.`;
         statusIconVal = AlertTriangle;
@@ -278,7 +157,7 @@ export default function DashboardPage() {
       userContributionValueColorClass: valueColorClassVal, 
       paymentDifferenceMonths: paymentDifferenceMonthsCalc 
     };
-  }, [profile?.created_at, profile?.is_approved, allUserContributionsForStatus]);
+  }, [profile?.created_at, profile?.is_approved, allUserContributionsForStatusData]);
 
   const emergencyFundStats = useMemo(() => {
     if (!allEmergencyRequestsData?.data) {
@@ -305,8 +184,8 @@ export default function DashboardPage() {
   useEffect(() => {
     if (userContributionsData && user?.id && currentPageContributions < Math.ceil((userContributionsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery<PaginatedData<UserContributionForTable>, Error>({
-        queryKey: ["userContributions", user.id, currentPageContributions + 1, debouncedSearchTermContributions],
-        queryFn: () => fetchUserContributions(user.id, currentPageContributions + 1, ITEMS_PER_PAGE, debouncedSearchTermContributions),
+        queryKey: ["userContributionsForDashboard", user.id, currentPageContributions + 1, debouncedSearchTermContributions],
+        queryFn: () => fetchUserContributionsForDashboard(user.id, currentPageContributions + 1, ITEMS_PER_PAGE, debouncedSearchTermContributions),
       });
     }
   }, [userContributionsData, currentPageContributions, debouncedSearchTermContributions, user?.id, queryClient]);
@@ -314,13 +193,15 @@ export default function DashboardPage() {
   useEffect(() => {
     if (allEmergencyRequestsData && currentPageEmergencyRequests < Math.ceil((allEmergencyRequestsData.count || 0) / ITEMS_PER_PAGE)) {
       queryClient.prefetchQuery<PaginatedData<FamilyEmergencyRequestForTable>, Error>({
-        queryKey: ["allFamilyEmergencyRequests", currentPageEmergencyRequests + 1, debouncedSearchTermEmergencyRequests],
-        queryFn: () => fetchAllFamilyEmergencyRequests(currentPageEmergencyRequests + 1, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
+        queryKey: ["allFamilyEmergencyRequestsForDashboard", currentPageEmergencyRequests + 1, debouncedSearchTermEmergencyRequests],
+        queryFn: () => fetchAllFamilyEmergencyRequestsForDashboard(currentPageEmergencyRequests + 1, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
       });
     }
   }, [allEmergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, queryClient]);
 
-  if (authLoading || (!profile && !authLoading) || (isLoadingAllContributionsForStatus && !allUserContributionsForStatus && !isAllContributionsForStatusError) ) {
+  const initialDataLoading = authLoading || (!profile && !authLoading) || (isLoadingAllContributionsForStatus && !allUserContributionsForStatusData && !isAllContributionsForStatusError);
+
+  if (initialDataLoading) {
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -329,7 +210,7 @@ export default function DashboardPage() {
     );
   }
   
-  if (!user || !profile || (isAllContributionsForStatusError && !allUserContributionsForStatus)) {
+  if (!user || !profile || (isAllContributionsForStatusError && !allUserContributionsForStatusData)) {
      const errorToDisplay = allContributionsForStatusErrorObj?.message || "User profile or contribution status could not be loaded.";
      return (
         <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
@@ -359,14 +240,14 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mb-8">
         <StatCard
           title="My Total Contributions"
-          value={isLoadingAllContributionsForStatus && !allUserContributionsForStatus ? "Loading..." : (isAllContributionsForStatusError ? "Error" : userContributionStats.totalPaid) }
+          value={isLoadingAllContributionsForStatus && !allUserContributionsForStatusData && !isAllContributionsForStatusError ? "Loading..." : (isAllContributionsForStatusError ? "Error" : userContributionStats.totalPaid) }
           icon={DollarSign}
           description={isLoadingAllContributionsForStatus ? "Fetching..." : (isAllContributionsForStatusError ? allContributionsForStatusErrorObj?.message : "Total amount you've contributed.")}
           iconClassName="text-green-500"
         />
         <StatCard
           title="Contribution Status"
-          value={isLoadingAllContributionsForStatus && !allUserContributionsForStatus ? "Loading..." : (isAllContributionsForStatusError ? "Error" : userContributionStats.userGeneralContributionStatusText)}
+          value={isLoadingAllContributionsForStatus && !allUserContributionsForStatusData && !isAllContributionsForStatusError ? "Loading..." : (isAllContributionsForStatusError ? "Error" : userContributionStats.userGeneralContributionStatusText)}
           icon={isAllContributionsForStatusError ? AlertTriangle : userContributionStats.userContributionStatusIcon}
           description={isLoadingAllContributionsForStatus ? "Fetching..." : (isAllContributionsForStatusError ? allContributionsForStatusErrorObj?.message : (userContributionStats.paymentDifferenceMonths > 0 ? `You are ${userContributionStats.paymentDifferenceMonths} month${userContributionStats.paymentDifferenceMonths > 1 ? 's' : ''} ahead!` : (userContributionStats.userGeneralContributionStatusText === "Payment Due" ? `Please settle your outstanding balance.` : `You're all set!`)) )}
           iconClassName={isAllContributionsForStatusError ? "text-destructive" : userContributionStats.userContributionValueColorClass}
@@ -375,7 +256,7 @@ export default function DashboardPage() {
         />
         <StatCard
           title="My Dues / Advance"
-          value={isLoadingAllContributionsForStatus && !allUserContributionsForStatus ? "Loading..." : (isAllContributionsForStatusError ? "Error" : userContributionStats.userPendingAmountValue)}
+          value={isLoadingAllContributionsForStatus && !allUserContributionsForStatusData && !isAllContributionsForStatusError ? "Loading..." : (isAllContributionsForStatusError ? "Error" : userContributionStats.userPendingAmountValue)}
           icon={isAllContributionsForStatusError ? AlertTriangle : (userContributionStats.userPendingAmountValue > 0 ? AlertTriangle : (userContributionStats.paymentDifferenceMonths > 0 ? Gift : CheckCircle2))}
           valuePrefix={CURRENCY_SYMBOL}
           description={isLoadingAllContributionsForStatus ? "Fetching..." : (isAllContributionsForStatusError ? allContributionsForStatusErrorObj?.message : userContributionStats.userDetailedContributionDescription)}
@@ -384,27 +265,27 @@ export default function DashboardPage() {
         />
          <StatCard
           title="Current Fund Balance"
-          value={isLoadingTotalSavings && totalFamilySavings === undefined && !totalSavingsErrorObj ? "Loading..." : (totalSavingsErrorObj ? "Error" : (totalFamilySavings ?? 0))}
+          value={isLoadingTotalSavings && totalFamilySavings === undefined && !isTotalSavingsError ? "Loading..." : (isTotalSavingsError ? "Error" : (totalFamilySavings ?? 0))}
           icon={BarChart3}
-          description={isLoadingTotalSavings ? "Fetching..." : (totalSavingsErrorObj ? totalSavingsErrorObj?.message : `Fund balance available after disbursements and repayments.`)}
+          description={isLoadingTotalSavings ? "Fetching..." : (isTotalSavingsError ? totalSavingsErrorObj?.message : `Fund balance available after disbursements and repayments.`)}
           iconClassName="text-blue-500"
-          valueClassName={totalSavingsErrorObj ? "text-destructive" : ""}
+          valueClassName={isTotalSavingsError ? "text-destructive" : ""}
         />
         <StatCard
           title="Total Emergency Funds Disbursed"
-          value={isLoadingEmergencyRequests && !allEmergencyRequestsData && !emergencyRequestsErrorObj ? "Loading..." : (emergencyRequestsErrorObj ? "Error" : emergencyFundStats.totalDisbursed)}
+          value={isLoadingEmergencyRequests && !allEmergencyRequestsData && !isEmergencyRequestsError ? "Loading..." : (isEmergencyRequestsError ? "Error" : emergencyFundStats.totalDisbursed)}
           icon={TrendingDown}
-          description={isLoadingEmergencyRequests ? "Fetching..." : (emergencyRequestsErrorObj ? emergencyRequestsErrorObj?.message : "Total amount paid out for approved emergency requests.")}
+          description={isLoadingEmergencyRequests ? "Fetching..." : (isEmergencyRequestsError ? emergencyRequestsErrorObj?.message : "Total amount paid out for approved emergency requests.")}
           iconClassName="text-red-500"
-          valueClassName={emergencyRequestsErrorObj ? "text-destructive" : ""}
+          valueClassName={isEmergencyRequestsError ? "text-destructive" : ""}
         />
         <StatCard
           title="Total Outstanding Emergency Funds"
-          value={isLoadingEmergencyRequests && !allEmergencyRequestsData && !emergencyRequestsErrorObj ? "Loading..." : (emergencyRequestsErrorObj ? "Error" : emergencyFundStats.totalOutstanding)}
+          value={isLoadingEmergencyRequests && !allEmergencyRequestsData && !isEmergencyRequestsError ? "Loading..." : (isEmergencyRequestsError ? "Error" : emergencyFundStats.totalOutstanding)}
           icon={Coins}
-          description={isLoadingEmergencyRequests ? "Fetching..." : (emergencyRequestsErrorObj ? emergencyRequestsErrorObj?.message : "Total amount currently owed back to the fund from approved requests.")}
+          description={isLoadingEmergencyRequests ? "Fetching..." : (isEmergencyRequestsError ? emergencyRequestsErrorObj?.message : "Total amount currently owed back to the fund from approved requests.")}
           iconClassName="text-yellow-500"
-          valueClassName={emergencyRequestsErrorObj ? "text-destructive" : ""}
+          valueClassName={isEmergencyRequestsError ? "text-destructive" : ""}
         />
       </div>
 
@@ -426,7 +307,7 @@ export default function DashboardPage() {
       </div>
       
       <div className="space-y-8">
-      <EmergencyRequestHistoryTable
+        <EmergencyRequestHistoryTable
           requests={allEmergencyRequestsData?.data} 
           isLoading={isLoadingEmergencyRequests && !allEmergencyRequestsData?.data && !isEmergencyRequestsError} 
           isError={isEmergencyRequestsError}
@@ -457,7 +338,6 @@ export default function DashboardPage() {
           onSearchChange={handleContributionSearchChange}
           itemsPerPage={ITEMS_PER_PAGE}
         />
-        
       </div>
     </div>
   );

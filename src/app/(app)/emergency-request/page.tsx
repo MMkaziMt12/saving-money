@@ -20,10 +20,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { format, isPast, parseISO } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { EmergencyRequest } from "@/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import React, { useMemo } from "react";
+import { fetchCurrentUserActiveEmergencyRequests, type UserActiveEmergencyRequest } from "@/lib/api/emergencyRequests"; // Updated import
+import { fetchTotalFamilySavingsRPC } from "@/lib/api/dashboard"; // Updated import
 
 const emergencyRequestSchema = z.object({
   amount: z.coerce.number().min(1, "Amount must be greater than 0"),
@@ -34,45 +35,6 @@ const emergencyRequestSchema = z.object({
 type EmergencyRequestFormValues = z.infer<typeof emergencyRequestSchema>;
 
 const supabase = createClient();
-
-type UserActiveEmergencyRequest = Pick<EmergencyRequest, 'id' | 'amount_requested' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'is_fully_repaid' | 'amount_returned'>;
-
-async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefined): Promise<UserActiveEmergencyRequest[]> {
-  if (!userId) return [];
-  const { data, error } = await supabase
-    .from("emergency_requests")
-    .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned")
-    .eq("user_id", userId)
-    .in("status", ["pending", "approved"]) 
-    .order("requested_at", { ascending: false });
-
-  if (error) {
-    console.error("Error fetching user's active emergency requests:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data || [];
-}
-
-async function fetchTotalFamilySavingsRPC(): Promise<number> {
-  const { data, error } = await supabase.rpc('get_total_family_savings');
-  if (error) {
-    console.error("Error fetching total family savings via RPC on request page:", JSON.stringify(error, null, 2));
-    if (data !== undefined) {
-      console.log("RPC 'get_total_family_savings' raw data received (on error) on request page:", data);
-    }
-    throw error;
-  }
-  if (data === null || data === undefined) {
-    console.warn("RPC 'get_total_family_savings' returned null or undefined on request page. Defaulting to 0.");
-    return 0;
-  }
-  const savings = Number(data);
-  if (isNaN(savings)) {
-    console.warn(`RPC 'get_total_family_savings' returned a non-numeric value on request page: ${data}. Defaulting to 0.`);
-    return 0;
-  }
-  return savings;
-}
 
 const RequestTableDisplay = React.memo(({ requests }: { requests: UserActiveEmergencyRequest[] }) => {
   if (!requests || requests.length === 0) return null;
@@ -112,7 +74,6 @@ const RequestTableDisplay = React.memo(({ requests }: { requests: UserActiveEmer
 });
 RequestTableDisplay.displayName = "RequestTableDisplay";
 
-
 export default function EmergencyRequestPage() {
   const { toast } = useToast();
   const { user, profile, isLoading: authLoading } = useAuth();
@@ -122,7 +83,7 @@ export default function EmergencyRequestPage() {
   const form = useForm<EmergencyRequestFormValues>({
     resolver: zodResolver(emergencyRequestSchema),
     defaultValues: {
-      amount: undefined, // Use undefined for number inputs that can be empty
+      amount: undefined,
       reason: "",
       return_date: undefined,
     },
@@ -191,7 +152,7 @@ export default function EmergencyRequestPage() {
       user_id: user.id,
       amount_requested: data.amount,
       reason: data.reason,
-      return_date: data.return_date.toISOString(), // This is now mandatory
+      return_date: data.return_date.toISOString(),
       status: 'pending',
       requested_at: new Date().toISOString(),
       updated_at: new Date().toISOString(), 
@@ -204,7 +165,7 @@ export default function EmergencyRequestPage() {
         description: error.message || "Could not submit your request. Please try again.",
         variant: "destructive",
       });
-      throw error; // Re-throw to be caught by TanStack Mutation if used later
+      throw error; 
     } else {
       toast({
         title: "Request Submitted!",
@@ -213,7 +174,7 @@ export default function EmergencyRequestPage() {
       });
       form.reset({ amount: undefined, reason: "", return_date: undefined });
       queryClient.invalidateQueries({ queryKey: ["currentUserActiveEmergencyRequests", user?.id] });
-      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] }); 
+      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequestsForDashboard"] }); 
       queryClient.invalidateQueries({ queryKey: ["totalFamilySavingsForRequestForm"] });
       queryClient.invalidateQueries({ queryKey: ["totalFamilySavings"] }); 
     }
