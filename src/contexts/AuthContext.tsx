@@ -17,7 +17,7 @@ import type {
 } from "@supabase/supabase-js";
 import type { Profile, AuthenticatedUser as AppUser } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { fetchUserProfileFromServer } from "@/lib/api/profile"; // Updated import
+import { fetchUserProfileFromServer } from "@/lib/api/profile"; // Ensure this matches the actual export
 
 const supabase = createClient();
 const PROFILE_CACHE_KEY = "fft_user_profile";
@@ -37,7 +37,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AppUser | null>(null);
-  const [profile, setProfileState] = useState<Profile | null>(null);
+  const [profileState, setProfileState] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
@@ -63,29 +63,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return null;
   }, []);
 
+
   const publicFetchProfile = useCallback(
     async (userId: string, forceRefresh: boolean = false): Promise<Profile | null> => {
       if (!userId) return null;
       console.log(`AuthContext: publicFetchProfile called for ${userId}, forceRefresh: ${forceRefresh}`);
-      if (!forceRefresh) {
-        const cached = loadProfileFromCache(userId);
-        if (cached) {
+
+      if (!forceRefresh && typeof window !== 'undefined') {
+        const cachedProfile = loadProfileFromCache(userId);
+        if (cachedProfile) {
           console.log(`AuthContext: Using cached profile for ${userId} in publicFetchProfile.`);
-          return cached;
+          return cachedProfile;
         }
       }
-      console.log(`AuthContext: Fetching fresh profile for ${userId} in publicFetchProfile.`);
+      console.log(`AuthContext: Fetching fresh profile for ${userId} from server (publicFetchProfile).`);
       try {
-        const fetchedProfile = await fetchUserProfileFromServer(userId); // Uses imported function
+        const fetchedProfile = await fetchUserProfileFromServer(userId); // Uses imported API function
+        if (fetchedProfile && typeof window !== 'undefined') {
+          localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(fetchedProfile));
+        }
         return fetchedProfile;
       } catch (error) {
-        // fetchUserProfileFromServer already logs and throws, so we just catch and return null here if needed
-        // or rethrow if the consuming component should handle the error display
         console.error(`AuthContext: Error in publicFetchProfile calling fetchUserProfileFromServer for ${userId}`, error);
         return null;
       }
     },
-    [loadProfileFromCache] // Removed fetchUserProfileFromServer as it's imported and stable
+    [loadProfileFromCache] // fetchUserProfileFromServer is stable as it's an imported function
   );
 
   const handleSetProfileContext = useCallback((profileData: Profile | null | ((prevState: Profile | null) => Profile | null)) => {
@@ -98,7 +101,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (resolvedNewProfile === null) {
                 localStorage.removeItem(PROFILE_CACHE_KEY);
             } else {
-                 // Ensure the profile being cached matches the current user if a user is logged in
                  if (user && user.id === resolvedNewProfile.id) {
                     localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(resolvedNewProfile));
                 } else if (!user && resolvedNewProfile === null) { 
@@ -113,14 +115,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (prevUser && resolvedNewProfile && prevUser.id === resolvedNewProfile.id) {
                 return { ...prevUser, profile: resolvedNewProfile } as AppUser;
             }
-             if (prevUser && resolvedNewProfile === null && prevUser.id) { // Profile cleared for existing user
+             if (prevUser && resolvedNewProfile === null && prevUser.id) { 
                 return { ...prevUser, profile: null } as AppUser;
             }
             return prevUser;
         });
         return resolvedNewProfile;
     });
-  }, [user]); // user dependency is important here for caching logic
+  }, [user]); // Depends on `user` for caching logic
 
   useEffect(() => {
     let didUnsubscribe = false;
@@ -129,34 +131,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const processSession = async (supaUser: SupabaseUser | null, eventType?: AuthChangeEvent) => {
       if (didUnsubscribe) return;
-      console.log(`AuthContext: Processing session for event: ${eventType || 'INITIAL_LOAD'}, User ID: ${supaUser?.id}`);
+      console.log(`AuthContext: processSession - Event: ${eventType || 'INITIAL_LOAD'}, User ID: ${supaUser?.id}`);
     
       let newProfileData: Profile | null = null;
       let newAppUser: AppUser | null = null;
     
       if (supaUser) {
-        newAppUser = { ...supaUser, profile: null } as AppUser; // Initialize with null profile
+        newAppUser = { ...supaUser, profile: null } as AppUser;
         
         const forceRefreshProfile = eventType === 'SIGNED_IN' || eventType === 'USER_UPDATED' || eventType === 'TOKEN_REFRESHED';
         
         if (!forceRefreshProfile && typeof window !== 'undefined') {
           newProfileData = loadProfileFromCache(supaUser.id);
           if (newProfileData) {
-             console.log(`AuthContext: Using cached profile for ${supaUser.id}.`);
+             console.log(`AuthContext: processSession - Using cached profile for ${supaUser.id}.`);
           }
         }
     
         if (!newProfileData || forceRefreshProfile) {
           try {
-            console.log(`AuthContext: ${forceRefreshProfile ? 'Force fetching' : 'Fetching (no cache/stale)'} profile for ${supaUser.id}.`);
-            newProfileData = await fetchUserProfileFromServer(supaUser.id); // Uses imported function
+            console.log(`AuthContext: processSession - ${forceRefreshProfile ? 'Force fetching' : 'Fetching (no cache/stale)'} profile for ${supaUser.id}.`);
+            newProfileData = await fetchUserProfileFromServer(supaUser.id);
           } catch (e: any) {
-            console.error(`AuthContext: Error fetching profile during session processing for ${supaUser.id}:`, e.message);
-            // toast({ title: "Profile Load Failed", description: e.message, variant: "destructive"});
-            // Profile remains null
+            console.error(`AuthContext: processSession - Error fetching profile for ${supaUser.id}:`, e.message);
           }
         }
-        if (newAppUser) newAppUser.profile = newProfileData; // Update embedded profile
+        if (newAppUser) newAppUser.profile = newProfileData;
       } else {
         if (typeof window !== 'undefined') {
           localStorage.removeItem(PROFILE_CACHE_KEY);
@@ -165,15 +165,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     
       if (didUnsubscribe) return;
     
-      const currentProfileString = profile ? JSON.stringify(profile) : null;
+      const currentProfileString = profileState ? JSON.stringify(profileState) : null;
       const newProfileString = newProfileData ? JSON.stringify(newProfileData) : null;
     
       if (user?.id !== newAppUser?.id || currentProfileString !== newProfileString) {
-        console.log("AuthContext: User/Profile state change detected. Updating context.", { oldUserId: user?.id, newUserId: newAppUser?.id, profileChanged: currentProfileString !== newProfileString });
+        console.log("AuthContext: processSession - User/Profile state change detected. Updating context.", {
+          oldUserId: user?.id,
+          newUserId: newAppUser?.id,
+          profileChanged: currentProfileString !== newProfileString,
+          newProfileDataForLog: newProfileData ? {id: newProfileData.id, name: newProfileData.full_name} : null
+        });
         setUser(newAppUser);
         setProfileState(newProfileData);
       } else {
-         console.log("AuthContext: No significant user/profile state change detected for context update.");
+         console.log("AuthContext: processSession - No significant user/profile state change detected for context update.");
       }
       setIsLoading(false);
     };
@@ -206,7 +211,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         authListener.subscription.unsubscribe();
       }
     };
-  }, [loadProfileFromCache, toast, user, profile]); // Added user and profile to deps for the conditional setProfile in processSession
+  }, [fetchUserProfileFromServer, loadProfileFromCache, toast, user, profileState]); // profileState and user added for accurate comparison in processSession
+
 
   const signOut = async () => {
     console.log("AuthContext: signOut initiated.");
@@ -226,10 +232,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   
   const value: AuthContextType = {
     user,
-    profile,
+    profile: profileState,
     isLoading,
-    isAdmin: profile?.role === "admin",
-    isApproved: !!profile?.is_approved,
+    isAdmin: profileState?.role === "admin",
+    isApproved: !!profileState?.is_approved,
     setProfile: handleSetProfileContext,
     fetchProfile: publicFetchProfile,
     signOut,
@@ -245,3 +251,4 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+

@@ -1,17 +1,18 @@
 
 "use client";
 
+import React from "react"; // Added React import for React.memo
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
-import { CURRENCY_SYMBOL } from "@/lib/constants"; // Assuming CURRENCY_SYMBOL is defined in constants
+import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 interface StatCardProps {
   title: string;
   value: string | number;
-  icon?: React.ElementType; // Optional icon
+  icon?: React.ElementType;
   description?: string;
   actionLink?: string;
   actionText?: string;
@@ -24,14 +25,14 @@ interface StatCardProps {
   descriptionClassName?: string;
 }
 
-export function StatCard({
+export const StatCard = React.memo(function StatCard({
   title,
   value,
   icon: Icon,
   description,
   actionLink,
   actionText,
-  valuePrefix = title.toLowerCase().includes("amount") || title.toLowerCase().includes("savings") || title.toLowerCase().includes("balance") ? CURRENCY_SYMBOL : "",
+  valuePrefix = title.toLowerCase().includes("amount") || title.toLowerCase().includes("savings") || title.toLowerCase().includes("balance") || title.toLowerCase().includes("dues") ? CURRENCY_SYMBOL : "",
   valueSuffix,
   cardClassName,
   iconClassName = "text-primary",
@@ -68,4 +69,5 @@ export function StatCard({
       </CardContent>
     </Card>
   );
-}
+});
+StatCard.displayName = "StatCard";
