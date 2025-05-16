@@ -1,37 +1,40 @@
 
 import type { User as SupabaseUser } from '@supabase/supabase-js';
-import type { Database, Tables } from './supabase';
+import type { Database, Tables } from './supabase'; // Assuming this is correctly generated
 
-export type UserRole = Tables<'profiles'>['role']; // "admin" | "user"
+export type UserRole = Tables<'profiles'>['role'];
 
-// This is our application's Profile type, derived from Supabase table
-export type Profile = Tables<'profiles'>;
+// Profile type matching the optimized selection often used in AuthContext
+export type Profile = Pick<
+  Tables<'profiles'>,
+  'id' | 'full_name' | 'email' | 'phone' | 'avatar_url' | 'role' | 'is_approved' | 'created_at' | 'is_active' | 'last_login'
+> & { updated_at?: string | null }; // updated_at is optional as it might not always be fetched
 
-// This combines Supabase's User object with our application's Profile
 export interface AuthenticatedUser extends SupabaseUser {
-  profile: Profile | null; // Profile can be null if not yet fetched or doesn't exist
+  profile: Profile | null;
 }
 
-export interface MonthlyContribution extends Tables<'monthly_contributions'> {
-  user_name?: string; // For display purposes, populated by joining/mapping
-  recorded_by_admin_name?: string; // For display, populated by joining/mapping
+// For lists or general display where only name is needed from joined profile
+export interface MonthlyContribution extends Omit<Tables<'monthly_contributions'>, 'user_id' | 'recorded_by_admin_id'> {
+  user_id: string; // Keep the ID
+  recorded_by_admin_id: string | null; // Keep the ID
+  user_name?: string; 
+  recorded_by_admin_name?: string;
 }
 
-export interface EmergencyRequest extends Tables<'emergency_requests'> {
-   user_name?: string; // For display, populated by joining/mapping
-   reviewed_by_admin_name?: string; // For display, populated by joining/mapping
-   return_date?: string | null;
-   amount_returned?: number | null;
-   last_return_date?: string | null;
-   is_fully_repaid?: boolean | null;
-   // For joined data on detail page
-   profile_user?: Pick<Profile, 'full_name' | 'avatar_url'> | null;
-   profile_admin?: Pick<Profile, 'full_name'> | null;
+export interface EmergencyRequest extends Omit<Tables<'emergency_requests'>, 'user_id' | 'reviewed_by_admin_id'> {
+  user_id: string; // Keep the ID
+  reviewed_by_admin_id: string | null; // Keep the ID
+  user_name?: string;
+  reviewed_by_admin_name?: string;
+  
+  // For detail pages where more profile info might be joined
+  profile_user?: Pick<Profile, 'full_name' | 'avatar_url'> | null;
+  profile_admin?: Pick<Profile, 'full_name'> | null;
 }
 
-
-// Updated Notification interface to match schema.sql
 export interface Notification extends Tables<'notifications'> {
-  // id, user_id, message, type, link, created_at, read_at are from Tables<'notifications'>
-  related_request_id?: string | null; // Added this
+  // All fields from Tables<'notifications'> are included by default
 }
+
+    

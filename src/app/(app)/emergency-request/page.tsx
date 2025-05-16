@@ -39,14 +39,14 @@ async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefine
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned") // Specific columns
+    .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned") // Optimized columns
     .eq("user_id", userId)
     .in("status", ["pending", "approved"]) 
     .order("requested_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching user's active emergency requests:", error);
-    throw error; // Propagate error
+    console.error("Error fetching user's active emergency requests:", JSON.stringify(error, null, 2));
+    throw error;
   }
   return data || [];
 }
@@ -54,8 +54,11 @@ async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefine
 async function fetchTotalFamilySavingsRPC(): Promise<number> {
   const { data, error } = await supabase.rpc('get_total_family_savings');
   if (error) {
-    console.error("Error fetching total family savings via RPC on request page:", error.message, error);
-    throw error; // Propagate error
+    console.error("Error fetching total family savings via RPC on request page:", JSON.stringify(error, null, 2));
+    if (data !== undefined) {
+      console.log("RPC 'get_total_family_savings' raw data received (on error) on request page:", data);
+    }
+    throw error;
   }
   if (data === null || data === undefined) {
     console.warn("RPC 'get_total_family_savings' returned null or undefined on request page. Defaulting to 0.");
@@ -126,7 +129,8 @@ export default function EmergencyRequestPage() {
   const { 
     data: existingRequests, 
     isLoading: isLoadingExistingRequests,
-    error: existingRequestsError,
+    isError: isExistingRequestsError,
+    error: existingRequestsErrorObj,
     refetch: refetchExistingRequests
   } = useQuery<EmergencyRequest[], Error>({
     queryKey: ["currentUserActiveEmergencyRequests", user?.id],
@@ -137,7 +141,8 @@ export default function EmergencyRequestPage() {
   const { 
     data: totalFamilySavings, 
     isLoading: isLoadingTotalSavings,
-    error: totalSavingsError,
+    isError: isTotalSavingsError,
+    error: totalSavingsErrorObj,
     refetch: refetchTotalSavings
   } = useQuery<number, Error>({
     queryKey: ["totalFamilySavingsForRequestForm"],
@@ -187,7 +192,7 @@ export default function EmergencyRequestPage() {
       return_date: data.return_date.toISOString(),
       status: 'pending',
       requested_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(), 
       created_at: new Date().toISOString(), 
     }).select('id').single(); 
 
@@ -224,12 +229,12 @@ export default function EmergencyRequestPage() {
      return null;
   }
 
-  const showSummaryCard = (!isLoadingExistingRequests && (pendingRequests.length > 0 || approvedOutstandingRequests.length > 0)) || existingRequestsError;
-  const showFormCard = !totalSavingsError;
+  const showSummaryCard = (!isLoadingExistingRequests && (pendingRequests.length > 0 || approvedOutstandingRequests.length > 0)) || isExistingRequestsError;
+  const showFormCard = !isTotalSavingsError;
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0 max-w-3xl space-y-8">
-      {isLoadingExistingRequests && !existingRequests && !existingRequestsError ? (
+      {(isLoadingExistingRequests && !existingRequests && !isExistingRequestsError) ? (
         <Card className="shadow-md">
           <CardHeader><CardTitle className="text-lg">Loading Your Active Requests...</CardTitle></CardHeader>
           <CardContent className="flex justify-center py-6"><Loader2 className="h-8 w-8 animate-spin text-primary" /></CardContent>
@@ -243,26 +248,26 @@ export default function EmergencyRequestPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {existingRequestsError && (
+            {isExistingRequestsError && (
               <div className="text-center py-4">
                 <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
                 <p className="text-destructive mb-1">Error loading your requests.</p>
-                <p className="text-sm text-muted-foreground mb-3">{existingRequestsError.message}</p>
+                <p className="text-sm text-muted-foreground mb-3">{existingRequestsErrorObj?.message || "An unknown error occurred."}</p>
                 <Button onClick={() => refetchExistingRequests()} variant="outline" size="sm">
                   <RefreshCw className="mr-2 h-4 w-4" /> Try again
                 </Button>
               </div>
             )}
-            {!existingRequestsError && pendingRequests.length > 0 && (
+            {!isExistingRequestsError && pendingRequests.length > 0 && (
               <div>
                 <h3 className="text-lg font-semibold mb-2 text-foreground/90">Pending Requests ({pendingRequests.length})</h3>
                 <RequestTableDisplay requests={pendingRequests} />
               </div>
             )}
-            {!existingRequestsError && pendingRequests.length > 0 && approvedOutstandingRequests.length > 0 && (
+            {!isExistingRequestsError && pendingRequests.length > 0 && approvedOutstandingRequests.length > 0 && (
               <hr className="my-6 border-border" />
             )}
-            {!existingRequestsError && approvedOutstandingRequests.length > 0 && (
+            {!isExistingRequestsError && approvedOutstandingRequests.length > 0 && (
               <div>
                 <h3 className="text-lg font-semibold mb-2 text-foreground/90">Approved & Outstanding Requests ({approvedOutstandingRequests.length})</h3>
                 <RequestTableDisplay requests={approvedOutstandingRequests} />
@@ -273,14 +278,14 @@ export default function EmergencyRequestPage() {
                 )}
               </div>
             )}
-            {!existingRequestsError && existingRequests?.length === 0 && (
+            {!isExistingRequestsError && existingRequests?.length === 0 && (
                 <p className="text-center text-muted-foreground py-4">You have no active emergency requests.</p>
             )}
           </CardContent>
         </Card>
       ) : null}
 
-      {totalSavingsError && (
+      {isTotalSavingsError && (
          <Card className="shadow-xl">
             <CardHeader>
                 <CardTitle className="text-2xl font-bold">Request New Emergency Fund</CardTitle>
@@ -288,7 +293,7 @@ export default function EmergencyRequestPage() {
             <CardContent className="text-center py-6">
                 <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
                 <p className="text-destructive mb-1">Error loading fund balance.</p>
-                <p className="text-sm text-muted-foreground mb-3">{totalSavingsError.message}</p>
+                <p className="text-sm text-muted-foreground mb-3">{totalSavingsErrorObj?.message || "An unknown error occurred."}</p>
                 <Button onClick={() => refetchTotalSavings()} variant="outline" size="sm">
                   <RefreshCw className="mr-2 h-4 w-4" /> Try again
                 </Button>
@@ -303,11 +308,11 @@ export default function EmergencyRequestPage() {
             <CardDescription>
               Need financial assistance? Fill out the form below. All requests are subject to admin approval.
               <br />
-              {isLoadingTotalSavings && totalFamilySavings === undefined ? (
+              {(isLoadingTotalSavings && totalFamilySavings === undefined && !isTotalSavingsError) ? (
                   <span className="text-sm text-muted-foreground italic">Loading available fund balance...</span>
-              ) : (
+              ) : !isTotalSavingsError ? (
                   <span className="text-sm text-primary font-medium">Current Available Fund Balance: {CURRENCY_SYMBOL}{(totalFamilySavings ?? 0).toLocaleString()}</span>
-              )}
+              ) : null }
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -410,3 +415,5 @@ export default function EmergencyRequestPage() {
     </div>
   );
 }
+
+    

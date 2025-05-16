@@ -31,12 +31,12 @@ async function fetchEmergencyRequestDetails(requestId: string): Promise<Emergenc
       amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
       profile_user:profiles!emergency_requests_user_id_fkey(full_name, avatar_url),
       profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
-    `) // Specific columns
+    `) // Optimized columns
     .eq("id", requestId)
     .single();
   if (error) {
-    console.error("Error fetching emergency request details:", error);
-    throw error; // Propagate error
+    console.error("Error fetching emergency request details:", JSON.stringify(error, null, 2));
+    throw error;
   }
   return data as EmergencyRequest | null; 
 }
@@ -45,12 +45,12 @@ async function fetchRelatedNotifications(requestId: string): Promise<AppNotifica
   if (!requestId) return [];
   const { data, error } = await supabase
     .from("notifications")
-    .select("id, message, created_at, read_at, link") // Specific columns
+    .select("id, message, created_at, read_at, link") // Optimized columns
     .eq("related_request_id", requestId)
     .order("created_at", { ascending: false });
   if (error) {
-    console.error("Error fetching related notifications:", error);
-    throw error; // Propagate error
+    console.error("Error fetching related notifications:", JSON.stringify(error, null, 2));
+    throw error;
   }
   return data || [];
 }
@@ -111,7 +111,8 @@ export default function EmergencyRequestDetailPage() {
   const { 
     data: requestDetails, 
     isLoading: isLoadingRequest, 
-    error: requestError,
+    isError: isRequestError,
+    error: requestErrorObj,
     refetch: refetchRequestDetails
   } = useQuery<EmergencyRequest | null, Error>({
     queryKey: ["emergencyRequestDetails", requestId],
@@ -122,7 +123,8 @@ export default function EmergencyRequestDetailPage() {
   const { 
     data: notifications, 
     isLoading: isLoadingNotifications, 
-    error: notificationsError,
+    isError: isNotificationsError,
+    error: notificationsErrorObj,
     refetch: refetchNotifications
   } = useQuery<AppNotification[], Error>({
     queryKey: ["relatedNotifications", requestId],
@@ -137,10 +139,11 @@ export default function EmergencyRequestDetailPage() {
     return (names[0][0]?.toUpperCase() || "") + (names[names.length - 1][0]?.toUpperCase() || "");
   };
 
-  const combinedIsLoading = (isLoadingRequest && !requestDetails) || (isLoadingNotifications && !notifications);
-  const combinedError = requestError || notificationsError;
+  const combinedIsLoading = (isLoadingRequest && !requestDetails && !isRequestError) || 
+                            (isLoadingNotifications && !notifications && !isNotificationsError);
+  const combinedError = requestErrorObj || notificationsErrorObj;
 
-  if (authLoading || (combinedIsLoading && !combinedError)) { // Show main loader if auth or initial data load is happening
+  if (authLoading || combinedIsLoading) { 
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -149,17 +152,17 @@ export default function EmergencyRequestDetailPage() {
     );
   }
 
-  if (combinedError) {
+  if (combinedError && (!requestDetails || (isNotificationsError && !notifications))) {
     return (
       <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <p className="text-destructive mb-2">Error loading request details.</p>
         <p className="text-sm text-muted-foreground mb-4">
-          {combinedError.message}
+          {combinedError.message || "An unknown error occurred."}
         </p>
         <Button onClick={() => {
-          if (requestError) refetchRequestDetails();
-          if (notificationsError) refetchNotifications();
+          if (isRequestError) refetchRequestDetails();
+          if (isNotificationsError) refetchNotifications();
         }} variant="outline">
           <RefreshCw className="mr-2 h-4 w-4" /> Try again
         </Button>
@@ -251,12 +254,12 @@ export default function EmergencyRequestDetailPage() {
           <CardDescription>History of communications regarding this emergency request.</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoadingNotifications && !notifications && !notificationsError ? (
+          {(isLoadingNotifications && !notifications && !isNotificationsError) ? (
             <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
           ) : notifications && notifications.length > 0 ? (
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2 rounded-md border p-3">
               {notifications.map(notification => (
-                <div key={notification.id} className={cn("p-3 rounded-md border", notification.read_at ? "bg-card hover:bg-muted/30" : "bg-primary/10 border-primary/30")}>
+                <div key={notification.id} className={cn("p-3 rounded-md border", notification.read_at ? "bg-card hover:bg-muted/30" : "bg-primary/5 border-primary/30")}>
                   <p className={cn("text-sm break-words", !notification.read_at && "font-semibold")}>{notification.message}</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     Sent: {notification.created_at ? format(parseISO(notification.created_at), "MMM dd, yyyy HH:mm") : 'N/A'}
@@ -270,11 +273,11 @@ export default function EmergencyRequestDetailPage() {
                 </div>
               ))}
             </div>
-          ) : notificationsError ? (
+          ) : isNotificationsError ? (
              <div className="text-center py-4">
                 <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
                 <p className="text-destructive mb-1">Error loading notifications.</p>
-                <p className="text-sm text-muted-foreground mb-3">{notificationsError.message}</p>
+                <p className="text-sm text-muted-foreground mb-3">{notificationsErrorObj?.message || "An unknown error occurred."}</p>
                 <Button onClick={() => refetchNotifications()} variant="outline" size="sm">
                   <RefreshCw className="mr-2 h-4 w-4" /> Try again
                 </Button>
@@ -287,3 +290,5 @@ export default function EmergencyRequestDetailPage() {
     </div>
   );
 }
+
+    

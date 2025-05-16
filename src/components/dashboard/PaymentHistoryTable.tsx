@@ -13,8 +13,9 @@ import React from "react";
 
 interface PaymentHistoryTableProps {
   contributions: MonthlyContribution[] | undefined;
-  isLoading: boolean;
-  error: Error | null;
+  isLoading: boolean; // True if initial load or refetching (even with stale data)
+  isError: boolean; // True if the query errored
+  errorObj: Error | null; // The actual error object
   onRetry: () => void;
   totalCount: number;
   currentPage: number;
@@ -27,7 +28,8 @@ interface PaymentHistoryTableProps {
 export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
   contributions,
   isLoading,
-  error,
+  isError,
+  errorObj,
   onRetry,
   totalCount,
   currentPage,
@@ -37,8 +39,11 @@ export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
   itemsPerPage,
 }: PaymentHistoryTableProps) {
   const totalPages = Math.ceil(totalCount / itemsPerPage);
+  
+  const showInitialLoader = isLoading && !contributions && !isError;
+  const showRefetchLoader = isLoading && !!contributions && !isError; // Loading in background with stale data
 
-  if (isLoading && !contributions && !error) {
+  if (showInitialLoader) {
     return (
       <Card className="shadow-lg">
         <CardHeader>
@@ -52,17 +57,17 @@ export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
     );
   }
 
-  if (error) {
+  if (isError && !contributions) { // Show critical error if no data (even stale) can be shown
     return (
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>My Payment History</CardTitle>
-          <CardDescription>Overview of your monthly contributions.</CardDescription>
+           <CardDescription>Overview of your monthly contributions.</CardDescription>
         </CardHeader>
-        <CardContent className="text-center py-10">
+        <CardContent className="text-center py-10 px-4">
           <AlertTriangle className="h-10 w-10 text-destructive mx-auto mb-3" />
           <p className="text-destructive mb-2">Error loading payment history.</p>
-          <p className="text-sm text-muted-foreground mb-4">{error.message}</p>
+          <p className="text-sm text-muted-foreground mb-4">{errorObj?.message || "An unknown error occurred."}</p>
           <Button onClick={onRetry} variant="outline">
             <RefreshCw className="mr-2 h-4 w-4" /> Try again
           </Button>
@@ -86,9 +91,14 @@ export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="pl-10 w-full md:w-1/2"
-            disabled={isLoading && !!contributions} // Disable if refetching in background
+            disabled={showRefetchLoader}
           />
         </div>
+        {showRefetchLoader && (
+             <div className="py-2 flex items-center justify-center text-muted-foreground text-sm">
+                <Loader2 className="h-4 w-4 animate-spin mr-2"/> Refreshing payments...
+            </div>
+        )}
         <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
@@ -99,9 +109,7 @@ export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && !!contributions ? ( 
-                <TableRow><TableCell colSpan={3} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
-              ) : contributions && contributions.length > 0 ? (
+              {contributions && contributions.length > 0 ? (
                 contributions.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
@@ -121,7 +129,7 @@ export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
               variant="outline"
               size="sm"
               onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1 || (isLoading && !!contributions)}
+              disabled={currentPage === 1 || showRefetchLoader}
             >
               Previous
             </Button>
@@ -132,7 +140,7 @@ export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
               variant="outline"
               size="sm"
               onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage === totalPages || (isLoading && !!contributions)}
+              disabled={currentPage === totalPages || showRefetchLoader}
             >
               Next
             </Button>
@@ -143,3 +151,5 @@ export const PaymentHistoryTable = React.memo(function PaymentHistoryTable({
   );
 });
 PaymentHistoryTable.displayName = "PaymentHistoryTable";
+
+    

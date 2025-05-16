@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Loader2, User, Mail, Phone, Shield, CalendarDays, ArrowLeft, AlertTriangle, DollarSign, ListChecks, History, Search, RefreshCw } from "lucide-react";
-import { format, parseISO, isPast } from "date-fns";
+import { format, parseISO, isPast, differenceInCalendarMonths, getYear, getMonth } from "date-fns"; // Added date-fns functions
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -27,12 +27,12 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
     .from("profiles")
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at') // Specific columns
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at') // Optimized columns
     .eq("id", userId)
     .single();
   if (error) {
     console.error("Error fetching user profile on detail page:", JSON.stringify(error, null, 2));
-    throw error; // Propagate error
+    throw error;
   }
   return data;
 }
@@ -53,13 +53,13 @@ async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContr
       amount, 
       recorded_by_admin_id,
       profile_admin:profiles!monthly_contributions_recorded_by_admin_id_fkey(full_name)
-    `) // Specific columns
+    `) // Optimized columns
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
 
   if (error) {
     console.error("Error fetching user contributions for user ID " + userId + ":", JSON.stringify(error, null, 2));
-    throw error; // Propagate error
+    throw error;
   }
   
   const typedData = data as RawContributionData[] | null;
@@ -81,13 +81,13 @@ async function fetchUserEmergencyRequestsForAdmin(userId: string): Promise<Emerg
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes") // Specific columns
+    .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes") // Optimized columns
     .eq("user_id", userId)
     .order("requested_at", { ascending: false });
 
   if (error) {
     console.error("Error fetching user emergency requests for admin detail page:", JSON.stringify(error, null, 2));
-    throw error; // Propagate error
+    throw error;
   }
   return data || [];
 }
@@ -158,7 +158,8 @@ export default function UserDetailPage() {
   const { 
     data: userProfile, 
     isLoading: isLoadingProfile, 
-    error: profileError,
+    isError: isProfileError,
+    error: profileErrorObj,
     refetch: refetchUserProfile
   } = useQuery<Profile | null, Error>({
     queryKey: ["userProfile", userId],
@@ -169,7 +170,8 @@ export default function UserDetailPage() {
   const { 
     data: contributions, 
     isLoading: isLoadingContributions, 
-    error: contributionsError,
+    isError: isContributionsError,
+    error: contributionsErrorObj,
     refetch: refetchContributions
   } = useQuery<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[], Error>({
     queryKey: ["userContributions", userId],
@@ -180,7 +182,8 @@ export default function UserDetailPage() {
   const { 
     data: emergencyRequests, 
     isLoading: isLoadingEmergencyRequests, 
-    error: emergencyRequestsError,
+    isError: isEmergencyRequestsError,
+    error: emergencyRequestsErrorObj,
     refetch: refetchEmergencyRequests
   } = useQuery<EmergencyRequest[], Error>({
     queryKey: ["userEmergencyRequestsForAdmin", userId],
@@ -226,7 +229,7 @@ export default function UserDetailPage() {
     );
   }
 
-  if (!isAdmin && adminUser) { // Should be caught by useEffect redirect, but as a fallback.
+  if (!isAdmin && adminUser) {
      return (
       <div className="flex items-center justify-center h-screen py-10">
         <p className="text-lg text-destructive">Access Denied. You are not an administrator.</p>
@@ -234,8 +237,10 @@ export default function UserDetailPage() {
     );
   }
 
-  const combinedError = profileError || contributionsError || emergencyRequestsError;
-  const combinedIsLoading = (isLoadingProfile && !userProfile) || (isLoadingContributions && !contributions) || (isLoadingEmergencyRequests && !emergencyRequests);
+  const combinedError = profileErrorObj || contributionsErrorObj || emergencyRequestsErrorObj;
+  const combinedIsLoading = (isLoadingProfile && !userProfile && !isProfileError) || 
+                            (isLoadingContributions && !contributions && !isContributionsError) || 
+                            (isLoadingEmergencyRequests && !emergencyRequests && !isEmergencyRequestsError);
 
 
   if (combinedIsLoading) {
@@ -247,18 +252,18 @@ export default function UserDetailPage() {
     );
   }
 
-  if (combinedError) {
+  if (combinedError && (!userProfile || !contributions || !emergencyRequests)) {
     return (
       <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <p className="text-destructive mb-2">Error loading user details.</p>
         <p className="text-sm text-muted-foreground mb-4">
-          {combinedError.message}
+          {combinedError.message || "An unknown error occurred."}
         </p>
         <Button onClick={() => {
-            if (profileError) refetchUserProfile();
-            if (contributionsError) refetchContributions();
-            if (emergencyRequestsError) refetchEmergencyRequests();
+            if (isProfileError) refetchUserProfile();
+            if (isContributionsError) refetchContributions();
+            if (isEmergencyRequestsError) refetchEmergencyRequests();
         }} variant="outline">
           <RefreshCw className="mr-2 h-4 w-4" /> Try again
         </Button>
@@ -283,8 +288,14 @@ export default function UserDetailPage() {
 
   const totalPaidByUser = contributions?.reduce((sum, c) => sum + c.amount, 0) || 0;
   const joinedAtDate = userProfile.created_at ? parseISO(userProfile.created_at) : new Date();
-  const monthsJoined = Math.max(1, Math.floor((Date.now() - joinedAtDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
-  const totalExpected = monthsJoined * MONTHLY_CONTRIBUTION_AMOUNT;
+  
+  const currentDate = new Date();
+  const startMonthDate = new Date(getYear(joinedAtDate), getMonth(joinedAtDate), 1);
+  const endMonthDate = new Date(getYear(currentDate), getMonth(currentDate), 1);
+  let monthsSinceJoined = differenceInCalendarMonths(endMonthDate, startMonthDate) + 1;
+  monthsSinceJoined = Math.max(1, monthsSinceJoined);
+
+  const totalExpected = monthsSinceJoined * MONTHLY_CONTRIBUTION_AMOUNT;
   const pendingAmount = Math.max(0, totalExpected - totalPaidByUser);
 
   return (
@@ -342,8 +353,14 @@ export default function UserDetailPage() {
                 setCurrentContributionPage(1);
               }}
               className="pl-10 w-full md:w-1/2 lg:w-1/3"
+              disabled={isLoadingContributions && !!contributions}
             />
           </div>
+          {isLoadingContributions && !!contributions && (
+             <div className="py-4 flex items-center justify-center text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin mr-2"/> Refreshing contributions...
+            </div>
+          )}
           <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
@@ -355,7 +372,7 @@ export default function UserDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoadingContributions && !contributions ? (
+                {(isLoadingContributions && !contributions && !isContributionsError) ? (
                     <TableRow><TableCell colSpan={4} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
                 ) : paginatedContributions && paginatedContributions.length > 0 ? (
                   paginatedContributions.map((c) => (
@@ -382,7 +399,7 @@ export default function UserDetailPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setCurrentContributionPage(prev => Math.max(1, prev - 1))}
-                disabled={currentContributionPage === 1}
+                disabled={currentContributionPage === 1 || (isLoadingContributions && !!contributions)}
               >
                 Previous
               </Button>
@@ -393,7 +410,7 @@ export default function UserDetailPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setCurrentContributionPage(prev => Math.min(totalContributionPages, prev + 1))}
-                disabled={currentContributionPage === totalContributionPages}
+                disabled={currentContributionPage === totalContributionPages || (isLoadingContributions && !!contributions)}
               >
                 Next
               </Button>
@@ -408,7 +425,7 @@ export default function UserDetailPage() {
           <CardDescription>Overview of this user's emergency fund requests.</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoadingEmergencyRequests && !emergencyRequests ? (
+          {(isLoadingEmergencyRequests && !emergencyRequests && !isEmergencyRequestsError) ? (
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
               <p className="ml-2 text-muted-foreground">Loading requests...</p>
@@ -465,3 +482,5 @@ export default function UserDetailPage() {
     </div>
   );
 }
+
+    
