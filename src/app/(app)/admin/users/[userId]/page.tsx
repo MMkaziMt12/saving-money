@@ -4,19 +4,20 @@
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import type { Profile, MonthlyContribution } from "@/types";
+import type { Profile, MonthlyContribution, EmergencyRequest } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, User, Mail, Phone, Shield, CalendarDays, ArrowLeft, AlertTriangle, DollarSign } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { Loader2, User, Mail, Phone, Shield, CalendarDays, ArrowLeft, AlertTriangle, DollarSign, ListChecks, History } from "lucide-react";
+import { format, parseISO, isPast } from "date-fns";
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import React, { useEffect } from "react"; 
+import React, { useEffect } from "react";
+import type { VariantProps } from "class-variance-authority";
 
 const supabase = createClient();
 
@@ -27,7 +28,10 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
     .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at')
     .eq("id", userId)
     .single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Error fetching user profile:", error);
+    throw new Error(error.message);
+  }
   return data;
 }
 
@@ -38,9 +42,28 @@ async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContr
     .select("id, payment_date, month, year, amount, recorded_by_admin_name, recorded_by_admin_id")
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Error fetching user contributions:", error);
+    throw new Error(error.message);
+  }
   return data || [];
 }
+
+async function fetchUserEmergencyRequestsForAdmin(userId: string): Promise<EmergencyRequest[]> {
+  if (!userId) return [];
+  const { data, error } = await supabase
+    .from("emergency_requests")
+    .select("id, amount_requested, reason, requested_at, return_date, status, amount_returned, is_fully_repaid, last_return_date, admin_notes")
+    .eq("user_id", userId)
+    .order("requested_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching user emergency requests for admin detail page:", error);
+    throw new Error(error.message);
+  }
+  return data || [];
+}
+
 
 interface InfoItemProps {
   icon: React.ElementType;
@@ -61,6 +84,26 @@ const InfoItem = React.memo(({ icon: Icon, label, value, valueClass }: InfoItemP
   );
 });
 InfoItem.displayName = 'InfoItem';
+
+
+const getRequestStatusBadgeInfo = (request: EmergencyRequest): { variant: VariantProps<typeof Badge>["variant"], text: string } => {
+    if (request.is_fully_repaid) {
+      return { variant: "success", text: "Fully Repaid" };
+    }
+    if (request.status === 'approved') {
+      if (request.return_date && isPast(parseISO(request.return_date))) {
+        return { variant: "destructive", text: "Overdue" };
+      }
+      return { variant: "default", text: "Approved" };
+    }
+    if (request.status === "rejected") {
+      return { variant: "destructive", text: "Rejected" };
+    }
+    if (request.status === "pending") {
+      return { variant: "secondary", text: "Pending" };
+    }
+    return { variant: "outline", text: request.status || "Unknown" };
+};
 
 
 export default function UserDetailPage() {
@@ -87,14 +130,21 @@ export default function UserDetailPage() {
   const { data: userProfile, isLoading: isLoadingProfile, error: profileError } = useQuery<Profile | null, Error>({
     queryKey: ["userProfile", userId],
     queryFn: () => fetchUserProfile(userId),
-    enabled: !!userId && isAdmin, 
+    enabled: !!userId && isAdmin,
   });
 
   const { data: contributions, isLoading: isLoadingContributions, error: contributionsError } = useQuery<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[], Error>({
     queryKey: ["userContributions", userId],
     queryFn: () => fetchUserContributions(userId),
-    enabled: !!userId && isAdmin, 
+    enabled: !!userId && isAdmin,
   });
+
+  const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests, error: emergencyRequestsError } = useQuery<EmergencyRequest[], Error>({
+    queryKey: ["userEmergencyRequestsForAdmin", userId],
+    queryFn: () => fetchUserEmergencyRequestsForAdmin(userId),
+    enabled: !!userId && isAdmin,
+  });
+
 
   const getInitials = (name: string | null | undefined) => {
     if (!name) return "U";
@@ -120,7 +170,7 @@ export default function UserDetailPage() {
     );
   }
 
-  if (isLoadingProfile || isLoadingContributions) {
+  if (isLoadingProfile || isLoadingContributions || isLoadingEmergencyRequests) {
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -129,13 +179,13 @@ export default function UserDetailPage() {
     );
   }
 
-  if (profileError || contributionsError) {
+  if (profileError || contributionsError || emergencyRequestsError) {
     return (
       <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <p className="text-destructive mb-2">Error loading user details.</p>
         <p className="text-sm text-muted-foreground mb-4">
-          {profileError?.message || contributionsError?.message}
+          {profileError?.message || contributionsError?.message || emergencyRequestsError?.message}
         </p>
         <Button onClick={() => router.back()} variant="outline">
           <ArrowLeft className="mr-2 h-4 w-4" /> Go Back
@@ -155,7 +205,7 @@ export default function UserDetailPage() {
       </div>
     );
   }
-  
+
   const totalPaidByUser = contributions?.reduce((sum, c) => sum + c.amount, 0) || 0;
   const joinedAtDate = userProfile.created_at ? parseISO(userProfile.created_at) : new Date();
   const monthsJoined = Math.max(1, Math.floor((Date.now() - joinedAtDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
@@ -163,12 +213,12 @@ export default function UserDetailPage() {
   const pendingAmount = Math.max(0, totalExpected - totalPaidByUser);
 
   return (
-    <div className="container mx-auto py-8 px-4 sm:px-0 max-w-4xl">
-      <Button onClick={() => router.push("/admin?tab=users")} variant="outline" className="mb-6">
+    <div className="container mx-auto py-8 px-4 sm:px-0 max-w-4xl space-y-8">
+      <Button onClick={() => router.push("/admin?tab=users")} variant="outline" className="mb-2">
         <ArrowLeft className="mr-2 h-4 w-4" /> Back to User Management
       </Button>
 
-      <Card className="shadow-xl mb-8">
+      <Card className="shadow-xl">
         <CardHeader className="border-b pb-4">
           <div className="flex flex-col md:flex-row items-center gap-4 md:gap-6">
             <Avatar className="h-24 w-24 md:h-32 md:w-32 border-4 border-primary/50 shadow-md">
@@ -202,42 +252,105 @@ export default function UserDetailPage() {
 
       <Card className="shadow-xl">
         <CardHeader>
-          <CardTitle>Contribution History for {userProfile.full_name}</CardTitle>
+          <CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5 text-primary"/>Contribution History for {userProfile.full_name}</CardTitle>
           <CardDescription>Overview of this user's monthly contributions.</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* ShadCN Table handles its own overflow. No extra wrapper needed here. */}
-          {/* The CardContent provides the visual boundary. */}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Payment Date</TableHead>
-                <TableHead>Month/Year of Contribution</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="hidden sm:table-cell">Recorded By</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {contributions && contributions.length > 0 ? (
-                contributions.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
-                    <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
-                    <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
-                    <TableCell className="hidden sm:table-cell break-words">{c.recorded_by_admin_name || (c.recorded_by_admin_id ? 'Admin' : 'System/User')}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
-                    No contributions found for this user.
-                  </TableCell>
+                  <TableHead>Payment Date</TableHead>
+                  <TableHead>Month/Year of Contribution</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="hidden sm:table-cell">Recorded By</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {contributions && contributions.length > 0 ? (
+                  contributions.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
+                      <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
+                      <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
+                      <TableCell className="hidden sm:table-cell break-words">{c.recorded_by_admin_name || (c.recorded_by_admin_id ? 'Admin' : 'System/User')}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
+                      No contributions found for this user.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><History className="h-5 w-5 text-primary"/>Emergency Request History for {userProfile.full_name}</CardTitle>
+          <CardDescription>Overview of this user's emergency fund requests.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoadingEmergencyRequests ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <p className="ml-2 text-muted-foreground">Loading requests...</p>
+            </div>
+          ) : emergencyRequests && emergencyRequests.length > 0 ? (
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Requested At</TableHead>
+                    <TableHead className="text-right">Amount Req.</TableHead>
+                    <TableHead className="text-right">Amount Ret.</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Exp. Return</TableHead>
+                    <TableHead>Last Repayment</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {emergencyRequests.map((req) => {
+                    const statusInfo = getRequestStatusBadgeInfo(req);
+                    return (
+                      <TableRow key={req.id}>
+                        <TableCell>{format(parseISO(req.requested_at), "MMM dd, yy HH:mm")}</TableCell>
+                        <TableCell className="text-right">{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{CURRENCY_SYMBOL}{(req.amount_returned || 0).toLocaleString()}</TableCell>
+                        <TableCell className="max-w-xs truncate break-words">{req.reason}</TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant={statusInfo.variant} 
+                            className={cn("capitalize min-w-[100px] text-center justify-center", 
+                            {'bg-yellow-500 hover:bg-yellow-600 text-white': statusInfo.text === 'Pending'},
+                            {'bg-green-500 hover:bg-green-600 text-white': statusInfo.text === 'Approved' }, 
+                            {'bg-green-600 hover:bg-green-700 text-white': statusInfo.text === 'Fully Repaid'},
+                            {'bg-red-500 hover:bg-red-600 text-white': statusInfo.text === 'Rejected' || statusInfo.text === 'Overdue' }
+                            )}
+                          >
+                            {statusInfo.text}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground text-xs">N/A</span>}</TableCell>
+                        <TableCell>{req.last_return_date ? format(parseISO(req.last_return_date), "MMM dd, yyyy") : <span className="text-muted-foreground text-xs">N/A</span>}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground py-6">No emergency requests found for this user.</p>
+          )}
         </CardContent>
       </Card>
     </div>
   );
 }
+
+    
