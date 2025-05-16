@@ -5,8 +5,8 @@ import type { EmergencyRequest, Profile } from "@/types";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle, MoreHorizontal, Eye, CalendarDays, TrendingUp, History, HandCoins, CalendarIcon } from "lucide-react";
-import { format, formatDistanceToNow, parseISO, isPast } from "date-fns";
+import { CheckCircle2, XCircle, MoreHorizontal, Eye, CalendarDays, HandCoins, CalendarIcon } from "lucide-react";
+import { format, parseISO, isPast } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import {
   DropdownMenu,
@@ -22,9 +22,9 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogClose,
+  DialogTrigger as ShadDialogTrigger, // Renamed to avoid conflict
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -35,7 +35,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger as ConfirmDialogTrigger, 
+  AlertDialogTrigger as ShadAlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -44,15 +44,15 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { VariantProps } from "class-variance-authority";
+import type { VariantProps } from "class-variance-authority";
 import React from "react";
 
 interface EmergencyRequestManagementTableProps {
   requests: EmergencyRequest[];
   users: Profile[];
-  onApproveRequest: (requestId: string, status: 'approved' | 'rejected') => void; // Combined for simplicity
+  onApproveRequest: (requestId: string, status: 'approved' | 'rejected') => void;
   onRecordRepayment: (requestId: string, amountRepaid: number, repaymentDate: Date) => Promise<void>;
 }
 
@@ -65,7 +65,11 @@ type RepaymentFormValues = z.infer<typeof repaymentSchema>;
 
 export const EmergencyRequestManagementTable = React.memo(function EmergencyRequestManagementTable({ requests, users, onApproveRequest, onRecordRepayment }: EmergencyRequestManagementTableProps) {
   const [selectedRequestForView, setSelectedRequestForView] = useState<EmergencyRequest | null>(null);
+  const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false);
+
   const [selectedRequestForRepayment, setSelectedRequestForRepayment] = useState<EmergencyRequest | null>(null);
+  const [isRepaymentDialogOpen, setIsRepaymentDialogOpen] = useState(false);
+  
   const [confirmAction, setConfirmAction] = useState<{ type: 'approve' | 'reject'; request: EmergencyRequest | null }>({ type: 'approve', request: null });
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
 
@@ -77,25 +81,25 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
     },
   });
 
-  const getUserName = (userId: string) => users.find(u => u.id === userId)?.full_name || "Unknown User";
+  const getUserName = useCallback((userId: string) => users.find(u => u.id === userId)?.full_name || "Unknown User", [users]);
 
-  const handleApprove = (request: EmergencyRequest) => {
+  const handleApprove = useCallback((request: EmergencyRequest) => {
     setConfirmAction({ type: 'approve', request });
     setIsConfirmDialogOpen(true);
-  };
+  }, []);
 
-  const handleReject = (request: EmergencyRequest) => {
+  const handleReject = useCallback((request: EmergencyRequest) => {
     setConfirmAction({ type: 'reject', request });
     setIsConfirmDialogOpen(true);
-  };
+  }, []);
 
-  const executeConfirmedAction = () => {
+  const executeConfirmedAction = useCallback(() => {
     if (confirmAction.request) {
       onApproveRequest(confirmAction.request.id, confirmAction.type);
     }
     setIsConfirmDialogOpen(false);
-    setConfirmAction({ type: 'approve', request: null });
-  };
+    setConfirmAction({ type: 'approve', request: null }); // Reset
+  }, [confirmAction, onApproveRequest]);
 
 
   const handleRepaymentSubmit = async (data: RepaymentFormValues) => {
@@ -108,6 +112,7 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
 
     try {
       await onRecordRepayment(selectedRequestForRepayment.id, data.amountRepaid, data.repaymentDate);
+      setIsRepaymentDialogOpen(false); // Close dialog on success
       setSelectedRequestForRepayment(null);
       repaymentForm.reset({ amountRepaid: 0, repaymentDate: new Date() });
     } catch (error) {
@@ -136,7 +141,6 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
 
   return (
     <>
-    {/* ShadCN Table handles its own overflow. No extra wrapper needed here. */}
     <Table>
       <TableHeader>
         <TableRow>
@@ -182,7 +186,6 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
                 </Badge>
               </TableCell>
               <TableCell className="text-right">
-                <Dialog onOpenChange={(isOpen) => { if(!isOpen) setSelectedRequestForView(null);}}>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" className="h-8 w-8 p-0">
@@ -192,182 +195,177 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      <DialogTrigger asChild>
-                        <DropdownMenuItem onSelect={() => setSelectedRequestForView(request)}>
-                          <Eye className="mr-2 h-4 w-4" /> View Details
-                        </DropdownMenuItem>
-                      </DialogTrigger>
+                      
+                      <Dialog open={isViewDetailsOpen && selectedRequestForView?.id === request.id} onOpenChange={(isOpen) => { setIsViewDetailsOpen(isOpen); if (!isOpen) setSelectedRequestForView(null); }}>
+                        <ShadDialogTrigger asChild>
+                          <DropdownMenuItem onSelect={() => { setSelectedRequestForView(request); setIsViewDetailsOpen(true); }}>
+                            <Eye className="mr-2 h-4 w-4" /> View Details
+                          </DropdownMenuItem>
+                        </ShadDialogTrigger>
+                        {selectedRequestForView && selectedRequestForView.id === request.id && (
+                          <DialogContent className="sm:max-w-lg">
+                            <DialogHeader>
+                              <DialogTitle>Emergency Request Details</DialogTitle>
+                              <DialogDescription>
+                                Reviewing request from {getUserName(selectedRequestForView.user_id)}.
+                              </DialogDescription>
+                            </DialogHeader>
+                            <div className="grid gap-4 py-4 text-sm">
+                              <InfoRow label="User:" value={getUserName(selectedRequestForView.user_id)} />
+                              <InfoRow label="Amount Requested:" value={`${CURRENCY_SYMBOL}${selectedRequestForView.amount_requested.toLocaleString()}`} />
+                              <InfoRow label="Amount Returned:" value={`${CURRENCY_SYMBOL}${(selectedRequestForView.amount_returned || 0).toLocaleString()}`} />
+                              <InfoRow label="Requested At:" value={format(parseISO(selectedRequestForView.requested_at), "MMM dd, yyyy HH:mm")} />
+                              <InfoRow
+                                label="Expected Return:"
+                                value={selectedRequestForView.return_date ? format(parseISO(selectedRequestForView.return_date), "MMM dd, yyyy") : "Not specified"}
+                              />
+                              <div className="grid grid-cols-4 items-start gap-4">
+                                <Label className="text-right col-span-1 pt-1 text-muted-foreground">Reason:</Label>
+                                <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto break-words">{selectedRequestForView.reason}</p>
+                              </div>
+                              <div className="grid grid-cols-4 items-start gap-4">
+                                <Label className="text-right col-span-1 pt-1 text-muted-foreground">Admin Notes:</Label>
+                                <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto break-words">
+                                  {selectedRequestForView.admin_notes || <span className="italic text-muted-foreground">No notes yet.</span>}
+                                </p>
+                              </div>
+                              <div className="grid grid-cols-4 items-center gap-4">
+                                <Label className="text-right col-span-1 text-muted-foreground">Status:</Label>
+                                <Badge
+                                  variant={getStatusBadgeVariant(selectedRequestForView)}
+                                  className={cn("capitalize col-span-3 w-fit justify-center",
+                                    {'bg-yellow-500 hover:bg-yellow-600 text-white': selectedRequestForView.status === 'pending'},
+                                    {'bg-green-500 hover:bg-green-600 text-white': selectedRequestForView.status === 'approved' && !selectedRequestForView.is_fully_repaid && !(selectedRequestForView.return_date && isPast(parseISO(selectedRequestForView.return_date)) && !selectedRequestForView.is_fully_repaid)},
+                                    {'bg-green-600 hover:bg-green-700 text-white': selectedRequestForView.is_fully_repaid},
+                                    {'bg-red-500 hover:bg-red-600 text-white': selectedRequestForView.status === 'rejected' || (selectedRequestForView.status === 'approved' && !selectedRequestForView.is_fully_repaid && selectedRequestForView.return_date && isPast(parseISO(selectedRequestForView.return_date))) }
+                                  )}
+                                >
+                                  {getRepaymentStatusText(selectedRequestForView)}
+                                </Badge>
+                              </div>
+                              {selectedRequestForView.reviewed_at && (
+                                <InfoRow
+                                  label="Reviewed:"
+                                  value={`${format(parseISO(selectedRequestForView.reviewed_at), "MMM dd, yyyy HH:mm")} by ${selectedRequestForView.reviewed_by_admin_name || 'Admin'}`}
+                                />
+                              )}
+                              {selectedRequestForView.last_return_date && (
+                                <InfoRow
+                                  label="Last Repayment:"
+                                  value={format(parseISO(selectedRequestForView.last_return_date), "MMM dd, yyyy HH:mm")}
+                                />
+                              )}
+                            </div>
+                            <DialogFooter className="sm:justify-end">
+                              <DialogClose asChild>
+                                  <Button type="button" variant="secondary" onClick={() => setIsViewDetailsOpen(false)}>Close</Button>
+                              </DialogClose>
+                              {selectedRequestForView.status === "pending" && (
+                                <>
+                                  <Button type="button" variant="destructive" onClick={() => { handleReject(selectedRequestForView); setIsViewDetailsOpen(false); }}>Reject</Button>
+                                  <Button type="button" onClick={() => { handleApprove(selectedRequestForView); setIsViewDetailsOpen(false);}}>Approve</Button>
+                                </>
+                              )}
+                            </DialogFooter>
+                          </DialogContent>
+                        )}
+                      </Dialog>
+
                       {request.status === "pending" && (
                         <>
                           <DropdownMenuSeparator />
-                          <ConfirmDialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => { e.preventDefault(); handleApprove(request);}} className="text-green-600 focus:text-green-600 focus:bg-green-50">
-                              <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
-                            </DropdownMenuItem>
-                          </ConfirmDialogTrigger>
-                          <ConfirmDialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => { e.preventDefault(); handleReject(request);}} className="text-red-600 focus:text-red-600 focus:bg-red-50">
-                              <XCircle className="mr-2 h-4 w-4" /> Reject
-                            </DropdownMenuItem>
-                          </ConfirmDialogTrigger>
+                          <DropdownMenuItem onSelect={() => handleApprove(request)} className="text-green-600 focus:text-green-600 focus:bg-green-50">
+                            <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleReject(request)} className="text-red-600 focus:text-red-600 focus:bg-red-50">
+                            <XCircle className="mr-2 h-4 w-4" /> Reject
+                          </DropdownMenuItem>
                         </>
                       )}
-                       {request.status === "approved" && !request.is_fully_repaid && (
-                        <DialogTrigger asChild>
-                          <DropdownMenuItem onSelect={() => setSelectedRequestForRepayment(request)}>
-                            <HandCoins className="mr-2 h-4 w-4 text-blue-500" /> Record Repayment
-                          </DropdownMenuItem>
-                        </DialogTrigger>
+                      {request.status === "approved" && !request.is_fully_repaid && (
+                        <Dialog open={isRepaymentDialogOpen && selectedRequestForRepayment?.id === request.id} onOpenChange={(isOpen) => { setIsRepaymentDialogOpen(isOpen); if (!isOpen) setSelectedRequestForRepayment(null); }}>
+                          <ShadDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={() => { setSelectedRequestForRepayment(request); repaymentForm.reset({ amountRepaid: (request.amount_requested || 0) - (request.amount_returned || 0), repaymentDate: new Date() }); setIsRepaymentDialogOpen(true);}}>
+                              <HandCoins className="mr-2 h-4 w-4 text-blue-500" /> Record Repayment
+                            </DropdownMenuItem>
+                          </ShadDialogTrigger>
+                          {selectedRequestForRepayment && selectedRequestForRepayment.id === request.id && (
+                            <DialogContent className="sm:max-w-md">
+                              <DialogHeader>
+                                <DialogTitle>Record Repayment</DialogTitle>
+                                <DialogDescription>
+                                  For {getUserName(selectedRequestForRepayment.user_id)}'s request of {CURRENCY_SYMBOL}{selectedRequestForRepayment.amount_requested.toLocaleString()}.
+                                  Outstanding: {CURRENCY_SYMBOL}{( (selectedRequestForRepayment.amount_requested || 0) - (selectedRequestForRepayment.amount_returned || 0) ).toLocaleString()}
+                                </DialogDescription>
+                              </DialogHeader>
+                              <Form {...repaymentForm}>
+                                <form onSubmit={repaymentForm.handleSubmit(handleRepaymentSubmit)} className="space-y-4 py-4">
+                                  <FormField
+                                    control={repaymentForm.control}
+                                    name="amountRepaid"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel>Amount Repaid ({CURRENCY_SYMBOL})</FormLabel>
+                                        <FormControl>
+                                          <Input type="number" placeholder="e.g., 500" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                  <FormField
+                                    control={repaymentForm.control}
+                                    name="repaymentDate"
+                                    render={({ field }) => (
+                                      <FormItem className="flex flex-col">
+                                        <FormLabel>Repayment Date</FormLabel>
+                                        <Popover>
+                                          <PopoverTrigger asChild>
+                                            <FormControl>
+                                              <Button
+                                                variant={"outline"}
+                                                className={cn(
+                                                  "w-full pl-3 text-left font-normal",
+                                                  !field.value && "text-muted-foreground"
+                                                )}
+                                              >
+                                                {field.value ? (
+                                                  format(field.value, "PPP")
+                                                ) : (
+                                                  <span>Pick a date</span>
+                                                )}
+                                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                              </Button>
+                                            </FormControl>
+                                          </PopoverTrigger>
+                                          <PopoverContent className="w-auto p-0" align="start">
+                                            <Calendar
+                                              mode="single"
+                                              selected={field.value}
+                                              onSelect={field.onChange}
+                                              disabled={(date) => date > new Date() || date < new Date("2000-01-01")}
+                                              initialFocus
+                                            />
+                                          </PopoverContent>
+                                        </Popover>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                  <DialogFooter>
+                                    <Button type="button" variant="outline" onClick={() => {setIsRepaymentDialogOpen(false); setSelectedRequestForRepayment(null);}}>Cancel</Button>
+                                    <Button type="submit" disabled={repaymentForm.formState.isSubmitting}>
+                                      {repaymentForm.formState.isSubmitting ? "Saving..." : "Record Repayment"}
+                                    </Button>
+                                  </DialogFooter>
+                                </form>
+                              </Form>
+                            </DialogContent>
+                          )}
+                        </Dialog>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                   {selectedRequestForView && (
-                    <DialogContent className="sm:max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle>Emergency Request Details</DialogTitle>
-                        <DialogDescription>
-                          Reviewing request from {getUserName(selectedRequestForView.user_id)}.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-4 text-sm">
-                        <InfoRow label="User:" value={getUserName(selectedRequestForView.user_id)} />
-                        <InfoRow label="Amount Requested:" value={`${CURRENCY_SYMBOL}${selectedRequestForView.amount_requested.toLocaleString()}`} />
-                        <InfoRow label="Amount Returned:" value={`${CURRENCY_SYMBOL}${(selectedRequestForView.amount_returned || 0).toLocaleString()}`} />
-                        <InfoRow label="Requested At:" value={format(parseISO(selectedRequestForView.requested_at), "MMM dd, yyyy HH:mm")} />
-                        <InfoRow
-                          label="Expected Return:"
-                          value={selectedRequestForView.return_date ? format(parseISO(selectedRequestForView.return_date), "MMM dd, yyyy") : "Not specified"}
-                        />
-                         <div className="grid grid-cols-4 items-start gap-4">
-                          <Label className="text-right col-span-1 pt-1 text-muted-foreground">Reason:</Label>
-                          <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto break-words">{selectedRequestForView.reason}</p>
-                        </div>
-                         <div className="grid grid-cols-4 items-start gap-4">
-                          <Label className="text-right col-span-1 pt-1 text-muted-foreground">Admin Notes:</Label>
-                          <p className="col-span-3 bg-muted/50 p-3 rounded-md max-h-40 overflow-y-auto break-words">
-                            {selectedRequestForView.admin_notes || <span className="italic text-muted-foreground">No notes yet.</span>}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label className="text-right col-span-1 text-muted-foreground">Status:</Label>
-                           <Badge
-                            variant={getStatusBadgeVariant(selectedRequestForView)}
-                            className={cn("capitalize col-span-3 w-fit justify-center",
-                              {'bg-yellow-500 hover:bg-yellow-600 text-white': selectedRequestForView.status === 'pending'},
-                              {'bg-green-500 hover:bg-green-600 text-white': selectedRequestForView.status === 'approved' && !selectedRequestForView.is_fully_repaid && !(selectedRequestForView.return_date && isPast(parseISO(selectedRequestForView.return_date)) && !selectedRequestForView.is_fully_repaid)},
-                              {'bg-green-600 hover:bg-green-700 text-white': selectedRequestForView.is_fully_repaid},
-                              {'bg-red-500 hover:bg-red-600 text-white': selectedRequestForView.status === 'rejected' || (selectedRequestForView.status === 'approved' && !selectedRequestForView.is_fully_repaid && selectedRequestForView.return_date && isPast(parseISO(selectedRequestForView.return_date))) }
-                            )}
-                          >
-                            {getRepaymentStatusText(selectedRequestForView)}
-                          </Badge>
-                        </div>
-                        {selectedRequestForView.reviewed_at && (
-                           <InfoRow
-                            label="Reviewed:"
-                            value={`${format(parseISO(selectedRequestForView.reviewed_at), "MMM dd, yyyy HH:mm")} by ${selectedRequestForView.reviewed_by_admin_name || 'Admin'}`}
-                           />
-                        )}
-                        {selectedRequestForView.last_return_date && (
-                           <InfoRow
-                            label="Last Repayment:"
-                            value={format(parseISO(selectedRequestForView.last_return_date), "MMM dd, yyyy HH:mm")}
-                           />
-                        )}
-                      </div>
-                      <DialogFooter className="sm:justify-end">
-                         <DialogClose asChild>
-                            <Button type="button" variant="secondary">Close</Button>
-                         </DialogClose>
-                        {selectedRequestForView.status === "pending" && (
-                          <>
-                           <ConfirmDialogTrigger asChild>
-                              <Button type="button" variant="destructive" onClick={() => handleReject(selectedRequestForView)}>Reject</Button>
-                            </ConfirmDialogTrigger>
-                            <ConfirmDialogTrigger asChild>
-                              <Button type="button" onClick={() => handleApprove(selectedRequestForView)}>Approve</Button>
-                            </ConfirmDialogTrigger>
-                          </>
-                        )}
-                      </DialogFooter>
-                    </DialogContent>
-                  )}
-                  {selectedRequestForRepayment && (
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Record Repayment</DialogTitle>
-                        <DialogDescription>
-                          For {getUserName(selectedRequestForRepayment.user_id)}'s request of {CURRENCY_SYMBOL}{selectedRequestForRepayment.amount_requested.toLocaleString()}.
-                          Outstanding: {CURRENCY_SYMBOL}{( (selectedRequestForRepayment.amount_requested || 0) - (selectedRequestForRepayment.amount_returned || 0) ).toLocaleString()}
-                        </DialogDescription>
-                      </DialogHeader>
-                       <Form {...repaymentForm}>
-                        <form onSubmit={repaymentForm.handleSubmit(handleRepaymentSubmit)} className="space-y-4 py-4">
-                          <FormField
-                            control={repaymentForm.control}
-                            name="amountRepaid"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Amount Repaid ({CURRENCY_SYMBOL})</FormLabel>
-                                <FormControl>
-                                  <Input type="number" placeholder="e.g., 500" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={repaymentForm.control}
-                            name="repaymentDate"
-                            render={({ field }) => (
-                              <FormItem className="flex flex-col">
-                                <FormLabel>Repayment Date</FormLabel>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <FormControl>
-                                      <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                          "w-full pl-3 text-left font-normal",
-                                          !field.value && "text-muted-foreground"
-                                        )}
-                                      >
-                                        {field.value ? (
-                                          format(field.value, "PPP")
-                                        ) : (
-                                          <span>Pick a date</span>
-                                        )}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                      </Button>
-                                    </FormControl>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                      mode="single"
-                                      selected={field.value}
-                                      onSelect={field.onChange}
-                                      disabled={(date) => date > new Date() || date < new Date("2000-01-01")}
-                                      initialFocus
-                                    />
-                                  </PopoverContent>
-                                </Popover>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <DialogFooter>
-                            <DialogClose asChild>
-                              <Button type="button" variant="outline" onClick={() => setSelectedRequestForRepayment(null)}>Cancel</Button>
-                            </DialogClose>
-                            <Button type="submit" disabled={repaymentForm.formState.isSubmitting}>
-                              {repaymentForm.formState.isSubmitting ? "Saving..." : "Record Repayment"}
-                            </Button>
-                          </DialogFooter>
-                        </form>
-                      </Form>
-                    </DialogContent>
-                  )}
-                </Dialog>
               </TableCell>
             </TableRow>
           ))
@@ -412,3 +410,4 @@ const InfoRow = ({ label, value }: { label: string, value: string | React.ReactN
   </div>
 );
 
+    
