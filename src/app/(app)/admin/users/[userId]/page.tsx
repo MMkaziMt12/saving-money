@@ -35,28 +35,53 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
   return data;
 }
 
+// Define the shape of data returned by the query before mapping
+type RawContributionData = Pick<Tables<'monthly_contributions'>, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_id'> & {
+  profile_admin: { full_name: string | null } | null;
+};
+
 async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("monthly_contributions")
-    .select("id, payment_date, month, year, amount, recorded_by_admin_name, recorded_by_admin_id")
+    .select(`
+      id, 
+      payment_date, 
+      month, 
+      year, 
+      amount, 
+      recorded_by_admin_id,
+      profile_admin:profiles!monthly_contributions_recorded_by_admin_id_fkey(full_name)
+    `)
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
 
   if (error) {
-    // Log the full error object for better diagnostics
-    console.error("Supabase error fetching user contributions for user ID " + userId + ":", JSON.stringify(error, null, 2));
-    // Throw a more informative error
+    console.error("Error fetching user contributions for user ID " + userId + ":", JSON.stringify(error, null, 2));
     throw new Error(error.message || `Failed to fetch contributions for user ${userId}. Code: ${error.code || 'N/A'}`);
   }
-  return data || [];
+  
+  const typedData = data as RawContributionData[] | null;
+
+  const mappedData = typedData?.map(item => ({
+    id: item.id,
+    payment_date: item.payment_date,
+    month: item.month,
+    year: item.year,
+    amount: item.amount,
+    recorded_by_admin_id: item.recorded_by_admin_id,
+    recorded_by_admin_name: item.profile_admin?.full_name || undefined,
+  })) || [];
+  
+  return mappedData;
 }
+
 
 async function fetchUserEmergencyRequestsForAdmin(userId: string): Promise<EmergencyRequest[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    .select("id, amount_requested, reason, requested_at, return_date, status, amount_returned, is_fully_repaid, last_return_date, admin_notes")
+    .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes")
     .eq("user_id", userId)
     .order("requested_at", { ascending: false });
 
@@ -355,5 +380,8 @@ export default function UserDetailPage() {
     </div>
   );
 }
+
+    
+
 
     
