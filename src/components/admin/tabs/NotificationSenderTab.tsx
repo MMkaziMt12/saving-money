@@ -13,10 +13,12 @@ import { Button } from "@/components/ui/button";
 
 const supabase = createClient();
 
-async function fetchUsersForNotifications(): Promise<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[]> {
+type UserForNotification = Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>;
+
+async function fetchUsersForNotifications(): Promise<UserForNotification[]> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, email, is_approved') // Optimized columns
+    .select('id, full_name, email, is_approved')
     .order('full_name', { ascending: true });
   if (error) {
     console.error("Error fetching users for notifications:", JSON.stringify(error, null, 2));
@@ -25,11 +27,12 @@ async function fetchUsersForNotifications(): Promise<Pick<Profile, 'id' | 'full_
   return data || [];
 }
 
-// Fetches specific fields for the dropdown in NotificationSender
-async function fetchAllEmergencyRequestsForNotificationsList(): Promise<Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user?: Pick<Profile, 'full_name'> | null }[]> {
+type EmergencyRequestForNotificationList = Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { user_name?: string };
+
+async function fetchAllEmergencyRequestsForNotificationsList(): Promise<EmergencyRequestForNotificationList[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
-    .select('id, user_id, reason, amount_requested, status, requested_at, profile_user:profiles!emergency_requests_user_id_fkey(full_name)') // Optimized
+    .select('id, user_id, reason, amount_requested, status, requested_at, profile_user:profiles!emergency_requests_user_id_fkey(full_name)')
     .order('requested_at', { ascending: false });
 
   if (error) {
@@ -41,7 +44,7 @@ async function fetchAllEmergencyRequestsForNotificationsList(): Promise<Pick<Eme
 
   return typedData?.map(req => ({
     ...req,
-    user_name: req.profile_user?.full_name || req.user_id || 'Unknown User', 
+    user_name: req.profile_user?.full_name || req.user_id,
   })) || [];
 }
 
@@ -54,6 +57,13 @@ interface SendNotificationPayload {
   relatedRequestId?: string | null;
 }
 
+interface EdgeFunctionResponse {
+  success: boolean;
+  createdNotifications?: { id: string, user_id: string, message: string }[]; // Adjust based on actual Edge Function response
+  error?: string;
+}
+
+
 export function NotificationSenderTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -64,7 +74,7 @@ export function NotificationSenderTab() {
     isError: isUsersError,
     error: usersErrorObj,
     refetch: refetchUsers
-  } = useQuery<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[], Error>({
+  } = useQuery<UserForNotification[], Error>({
     queryKey: ['allUsersForNotifications'],
     queryFn: fetchUsersForNotifications,
   });
@@ -75,15 +85,15 @@ export function NotificationSenderTab() {
     isError: isEmergencyRequestsError,
     error: emergencyRequestsErrorObj,
     refetch: refetchEmergencyRequests
-  } = useQuery<Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user?: Pick<Profile, 'full_name'> | null }[], Error>({
-    queryKey: ['allEmergencyRequestsForNotificationsList'], // Changed query key for clarity
+  } = useQuery<EmergencyRequestForNotificationList[], Error>({
+    queryKey: ['allEmergencyRequestsForNotificationsList'],
     queryFn: fetchAllEmergencyRequestsForNotificationsList,
   });
 
-  const sendNotificationMutation = useMutation<any, Error, SendNotificationPayload>({
+  const sendNotificationMutation = useMutation<EdgeFunctionResponse, Error, SendNotificationPayload>({
     mutationFn: async (payload) => {
       console.log("NotificationSenderTab: Invoking 'send-app-notification' Edge Function with payload:", JSON.stringify(payload, null, 2));
-      const { data, error } = await supabase.functions.invoke('send-app-notification', {
+      const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>('send-app-notification', {
         body: payload,
       });
 
@@ -91,20 +101,30 @@ export function NotificationSenderTab() {
 
       if (error) {
         console.error("NotificationSenderTab: Error invoking 'send-app-notification' function:", error);
-        throw error;
+        throw error; // Re-throw to be caught by onError
+      }
+      if (data && data.error) { // Check for application-level error from Edge function
+        console.error("NotificationSenderTab: Error from Edge Function business logic:", data.error);
+        throw new Error(data.error);
+      }
+      if (!data || !data.success) { // Handle cases where success might be false or data is unexpected
+        console.error("NotificationSenderTab: Edge Function did not return success or expected data format:", data);
+        throw new Error("Notification sending failed or returned unexpected response.");
       }
       console.log("NotificationSenderTab: Edge Function response data (parsed):", data);
       console.log("NotificationSenderTab: Specifically, createdNotifications:", data?.createdNotifications);
       return data;
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data) => {
       const createdCount = data?.createdNotifications?.length || 0;
       toast({
         title: "Notification Sent!",
         description: `Notifications dispatched. ${createdCount} notification(s) potentially created.`,
       });
-      // If admins have a way to see sent notifications, invalidate that query here.
-      // queryClient.invalidateQueries({ queryKey: ['adminSentNotifications'] });
+      if (createdCount > 0) {
+        // Invalidate queries for specific users if needed, or a general notification query for admins
+        // Example: data.createdNotifications.forEach(notif => queryClient.invalidateQueries(['userNotifications', notif.user_id]));
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -196,8 +216,7 @@ export function NotificationSenderTab() {
     try {
       await sendNotificationMutation.mutateAsync(payload);
     } catch (error) {
-      // Error is already handled by useMutation's onError
-      console.error("NotificationSenderTab: Error caught during sendNotificationMutation.mutateAsync call (should be handled by onError):", error);
+      console.error("NotificationSenderTab: Error caught during sendNotificationMutation.mutateAsync call:", error);
     }
   }, [users, emergencyRequests, sendNotificationMutation, toast]);
 
@@ -218,7 +237,7 @@ export function NotificationSenderTab() {
       <div className="flex flex-col items-center justify-center py-10 text-center px-4">
         <AlertTriangle className="h-10 w-10 text-destructive mb-3" />
         <p className="text-destructive mb-2">Error loading data.</p>
-        <p className="text-sm text-muted-foreground mb-4">{combinedError.message}</p>
+        <p className="text-sm text-muted-foreground mb-4">{combinedError?.message || "An unknown error occurred."}</p>
         <Button 
             onClick={() => {
                 if (usersErrorObj) refetchUsers();
@@ -232,15 +251,12 @@ export function NotificationSenderTab() {
     );
   }
   
-  // Pass loading states for individual queries if NotificationSender needs to disable parts of its UI
   return (
     <NotificationSender 
         users={users || []} 
-        emergencyRequests={emergencyRequests || []} // Pass the full list
+        emergencyRequests={emergencyRequests || []}
         onSend={handleSendNotification} 
         isSending={sendNotificationMutation.isPending} 
     />
   );
 }
-
-    

@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Notification } from "@/types";
+import type { Notification as AppNotification } from "@/types"; // Renamed to avoid conflict
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,9 @@ import { cn } from "@/lib/utils";
 const supabase = createClient();
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000;
 
-async function fetchUserNotifications(userId: string | undefined): Promise<Notification[]> {
+type NotificationForDisplay = Pick<AppNotification, 'id' | 'message' | 'created_at' | 'read_at' | 'link' | 'type'>;
+
+async function fetchUserNotifications(userId: string | undefined): Promise<NotificationForDisplay[]> {
   if (!userId) {
     console.log("NotificationsDisplay: fetchUserNotifications called with no userId. Returning empty array.");
     return [];
@@ -34,7 +36,7 @@ async function fetchUserNotifications(userId: string | undefined): Promise<Notif
   console.log(`NotificationsDisplay: Fetching notifications for user ${userId}`);
   const { data, error } = await supabase
     .from("notifications")
-    .select("id, message, created_at, read_at, link, type") // Optimized selection
+    .select("id, message, created_at, read_at, link, type") 
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(20);
@@ -47,7 +49,9 @@ async function fetchUserNotifications(userId: string | undefined): Promise<Notif
   return data || [];
 }
 
-async function markNotificationsAsRead(userId: string, notificationIds?: string[]): Promise<Pick<Notification, 'id' | 'read_at'>[]> { // Return minimal data
+type MarkedNotificationResult = Pick<AppNotification, 'id' | 'read_at'>;
+
+async function markNotificationsAsRead(userId: string, notificationIds?: string[]): Promise<MarkedNotificationResult[]> {
   if (!userId) {
     console.error("NotificationsDisplay: markAsReadMutation cannot run, user ID missing.");
     throw new Error("User ID missing");
@@ -63,7 +67,7 @@ async function markNotificationsAsRead(userId: string, notificationIds?: string[
     query = query.in("id", notificationIds);
   }
 
-  const { data, error } = await query.select('id, read_at'); // Select only what's needed
+  const { data, error } = await query.select('id, read_at').returns<MarkedNotificationResult[]>();
 
   if (error) {
     console.error("NotificationsDisplay: Error marking notifications as read:", JSON.stringify(error, null, 2));
@@ -76,7 +80,7 @@ async function markNotificationsAsRead(userId: string, notificationIds?: string[
 export function NotificationsDisplay() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [localNotifications, setLocalNotifications] = useState<Notification[]>([]);
+  const [localNotifications, setLocalNotifications] = useState<NotificationForDisplay[]>([]);
 
   const { 
     data: fetchedNotificationsData, 
@@ -84,7 +88,7 @@ export function NotificationsDisplay() {
     isError: isNotificationsError,
     error: notificationsErrorObj,
     refetch: refetchNotifications
-  } = useQuery<Notification[], Error>({
+  } = useQuery<NotificationForDisplay[], Error>({
     queryKey: ["userNotifications", user?.id],
     queryFn: () => fetchUserNotifications(user?.id),
     enabled: !!user,
@@ -130,14 +134,14 @@ export function NotificationsDisplay() {
     console.log(`NotificationsDisplay: Setting up Realtime subscription for user ${user.id} on 'notifications' table.`);
     const channel = supabase
       .channel(`notifications-user-${user.id}`)
-      .on<Notification>(
+      .on<NotificationForDisplay>( // Use the more specific type here
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
           console.log("NotificationsDisplay: Realtime INSERT event received:", payload);
-          const newNotification = payload.new as Notification;
+          const newNotification = payload.new;
           console.log("NotificationsDisplay: New notification data from Realtime:", newNotification);
-          if (newNotification && typeof newNotification === 'object' && 'id' in newNotification) {
+          if (newNotification && typeof newNotification === 'object' && 'id' in newNotification && 'message' in newNotification) {
             setLocalNotifications(prev => {
               if (prev.some(n => n.id === newNotification.id)) {
                 console.log("NotificationsDisplay: New notification from Realtime already exists in local state. Ignoring.", newNotification.id);
@@ -152,12 +156,12 @@ export function NotificationsDisplay() {
           }
         }
       )
-      .on<Notification>( 
+      .on<NotificationForDisplay>( 
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
              console.log("NotificationsDisplay: Realtime UPDATE event received:", payload);
-             const updatedNotification = payload.new as Notification;
+             const updatedNotification = payload.new;
              console.log("NotificationsDisplay: Updated notification data from Realtime:", updatedNotification);
              if (updatedNotification && typeof updatedNotification === 'object' && 'id' in updatedNotification) {
                 setLocalNotifications(prev => {
@@ -187,7 +191,7 @@ export function NotificationsDisplay() {
     };
   }, [user?.id]);
 
-  const markAsReadMutation = useMutation<Pick<Notification, 'id' | 'read_at'>[], Error, { notificationIds?: string[] }>({
+  const markAsReadMutation = useMutation<MarkedNotificationResult[], Error, { notificationIds?: string[] }>({
     mutationFn: ({ notificationIds }) => {
         if (!user?.id) {
             console.error("NotificationsDisplay: markAsReadMutation cannot run, user ID missing.");
@@ -205,11 +209,13 @@ export function NotificationsDisplay() {
           ).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
       } else if (!updatedDataFromServer || (Array.isArray(updatedDataFromServer) && updatedDataFromServer.length === 0 && markAsReadMutation.latestVariables?.notificationIds === undefined) ) {
+        // If marking all and server returns empty (meaning all were already read or no unread to mark), update local state
         setLocalNotifications(prev =>
           prev.map(n => n.read_at ? n : { ...n, read_at: new Date().toISOString() })
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
       }
+      // Optimistically update or just refetch
       queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] }); 
     },
     onError: (error) => {
@@ -249,7 +255,7 @@ export function NotificationsDisplay() {
     return null;
   }
 
-  console.log("NotificationsDisplay: Rendering. isLoading:", isLoadingNotifications, "localNotifications:", localNotifications.length, "Error:", notificationsErrorObj?.message);
+  console.log("NotificationsDisplay: Rendering. isLoadingNotifications:", isLoadingNotifications, "localNotifications count:", localNotifications.length, "Error:", notificationsErrorObj?.message);
 
   const showInitialLoader = isLoadingNotifications && localNotifications.length === 0 && !isNotificationsError;
 
@@ -272,7 +278,7 @@ export function NotificationsDisplay() {
       <DropdownMenuContent align="end" className="w-80 sm:w-96">
         <DropdownMenuLabel className="flex justify-between items-center">
           <span>Notifications</span>
-          {showInitialLoader && <Loader2 className="h-4 w-4 animate-spin" />}
+          {isLoadingNotifications && localNotifications.length === 0 && <Loader2 className="h-4 w-4 animate-spin" />}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         
@@ -341,12 +347,12 @@ export function NotificationsDisplay() {
 }
 
 interface NotificationItemProps {
-    notification: Notification;
+    notification: NotificationForDisplay; // Use specific type
     onMarkAsRead?: (notificationId: string) => void;
 }
 
 const NotificationItem = React.memo(({ notification, onMarkAsRead }: NotificationItemProps) => {
-    const timeAgo = formatDistanceToNowStrict(new Date(notification.created_at), { addSuffix: true });
+    const timeAgo = notification.created_at ? formatDistanceToNowStrict(new Date(notification.created_at), { addSuffix: true }) : 'unknown time';
     const isUnread = !notification.read_at;
 
     const itemBaseStyle = "flex flex-col items-start gap-1 p-2 rounded-sm w-full text-left relative";
@@ -368,9 +374,10 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
 
     const handleClickInternal = (e: React.MouseEvent<HTMLAnchorElement | HTMLDivElement>) => {
       if (isUnread && onMarkAsRead) {
-          if (!notification.link || (notification.link && (notification.link.startsWith('#') || (typeof window !== 'undefined' && window.location.pathname === new URL(notification.link, window.location.origin).pathname)))) { 
+          // Prevent dropdown close only if not navigating away
+          if (!notification.link || (notification.link.startsWith('#') || (typeof window !== 'undefined' && window.location.pathname === new URL(notification.link, window.location.origin).pathname))) {
               e.preventDefault();
-              e.stopPropagation();
+              e.stopPropagation(); // Stop event propagation to prevent dropdown from closing
           }
           onMarkAsRead(notification.id);
       }
@@ -393,5 +400,3 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
     );
 });
 NotificationItem.displayName = "NotificationItem";
-
-    

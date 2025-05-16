@@ -15,10 +15,12 @@ import { Button } from "@/components/ui/button";
 
 const supabase = createClient();
 
-async function fetchAdminProfiles(): Promise<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[]> {
+type AdminProfileForContribution = Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>;
+
+async function fetchAdminProfiles(): Promise<AdminProfileForContribution[]> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, email, is_approved') // Optimized columns
+    .select('id, full_name, email, is_approved')
     .order('full_name', { ascending: true });
   if (error) {
     console.error("Error fetching admin profiles for contributions:", JSON.stringify(error, null, 2));
@@ -27,14 +29,19 @@ async function fetchAdminProfiles(): Promise<Pick<Profile, 'id' | 'full_name' | 
   return data || [];
 }
 
-async function fetchAdminContributions(): Promise<MonthlyContribution[]> {
+type AdminContribution = MonthlyContribution & {
+  user_name?: string;
+  recorded_by_admin_name?: string;
+};
+
+async function fetchAdminContributions(): Promise<AdminContribution[]> {
   const { data: rawContributions, error } = await supabase
     .from('monthly_contributions')
     .select(`
       id, user_id, payment_date, month, year, amount, recorded_by_admin_id,
       profile_user:profiles!monthly_contributions_user_id_fkey(full_name),
       profile_admin:profiles!monthly_contributions_recorded_by_admin_id_fkey(full_name)
-    `) // Optimized columns
+    `)
     .order('payment_date', { ascending: false });
 
   if (error) {
@@ -42,18 +49,17 @@ async function fetchAdminContributions(): Promise<MonthlyContribution[]> {
     throw error;
   }
 
-  const typedData = rawContributions as (Omit<Tables<'monthly_contributions'>, 'user_id' | 'recorded_by_admin_id'> & {
+  const typedData = rawContributions as (Pick<Tables<'monthly_contributions'>, 'id' | 'payment_date' | 'month' | 'year' | 'amount'> & {
     user_id: string;
     recorded_by_admin_id: string | null;
     profile_user: { full_name: string | null } | null;
     profile_admin: { full_name: string | null } | null;
   })[] | null;
 
-
   return typedData?.map(c => ({
     ...c,
-    user_name: c.profile_user?.full_name || c.user_id,
-    recorded_by_admin_name: c.profile_admin?.full_name || c.recorded_by_admin_id,
+    user_name: c.profile_user?.full_name, // Use undefined if null
+    recorded_by_admin_name: c.profile_admin?.full_name, // Use undefined if null
   })) || [];
 }
 
@@ -62,7 +68,9 @@ type AddContributionPayload = {
   adminProfileId: string;
 };
 
-async function addContributions({ formData, adminProfileId }: AddContributionPayload): Promise<Pick<MonthlyContribution, 'id'>[]> { // Return only IDs
+type AddedContributionId = Pick<MonthlyContribution, 'id'>;
+
+async function addContributions({ formData, adminProfileId }: AddContributionPayload): Promise<AddedContributionId[]> {
   const contributionsToInsert = [];
   let currentMonth = formData.month;
   let currentYear = formData.year;
@@ -87,8 +95,8 @@ async function addContributions({ formData, adminProfileId }: AddContributionPay
   const { data, error } = await supabase
     .from('monthly_contributions')
     .insert(contributionsToInsert)
-    .select('id') // Select only id
-    .returns<Pick<MonthlyContribution, 'id'>[]>();
+    .select('id')
+    .returns<AddedContributionId[]>();
 
   if (error) {
     console.error("Error adding contribution(s):", JSON.stringify(error, null, 2));
@@ -110,7 +118,7 @@ export function ContributionManagementTab() {
     isError: isUsersError,
     error: usersErrorObj,
     refetch: refetchUsers
-  } = useQuery<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[], Error>({
+  } = useQuery<AdminProfileForContribution[], Error>({
     queryKey: ['adminProfilesForContributions'],
     queryFn: fetchAdminProfiles,
   });
@@ -121,12 +129,12 @@ export function ContributionManagementTab() {
     isError: isContributionsError,
     error: contributionsErrorObj,
     refetch: refetchContributions
-  } = useQuery<MonthlyContribution[], Error>({
+  } = useQuery<AdminContribution[], Error>({
     queryKey: ['adminContributions'],
     queryFn: fetchAdminContributions,
   });
 
-  const addContributionMutation = useMutation<Pick<MonthlyContribution, 'id'>[], Error, AddContributionFormValues>({
+  const addContributionMutation = useMutation<AddedContributionId[], Error, AddContributionFormValues>({
     mutationFn: (formData) => {
       if (!adminProfile?.id) {
         const err = new Error("Admin profile not found for recording contribution.");
@@ -137,10 +145,10 @@ export function ContributionManagementTab() {
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminContributions'] });
-      queryClient.invalidateQueries({ queryKey: ['userContributions', variables.userId] }); // For dashboard
-      queryClient.invalidateQueries({ queryKey: ['allUserContributionsForStatus', variables.userId]}); // For dashboard status
+      queryClient.invalidateQueries({ queryKey: ['userContributions', variables.userId] }); 
+      queryClient.invalidateQueries({ queryKey: ['allUserContributionsForStatus', variables.userId]});
       queryClient.invalidateQueries({ queryKey: ['totalFamilySavings']}); 
-      queryClient.invalidateQueries({ queryKey: ["userProfile", variables.userId] }); // Invalidate user detail page contributions
+      queryClient.invalidateQueries({ queryKey: ["userProfile", variables.userId] }); 
       toast({ title: "Success", description: `${variables.numberOfMonths} contribution(s) for ${MONTHLY_CONTRIBUTION_AMOUNT} each recorded for ${users?.find(u => u.id === variables.userId)?.full_name}.` });
     },
     onError: (error: Error) => {
@@ -164,7 +172,7 @@ export function ContributionManagementTab() {
     );
   }
 
-  if (combinedError && (!users || !contributions)) { // Show error only if no stale data for crucial parts
+  if (combinedError && (!users || !contributions)) {
      return (
       <div className="flex flex-col items-center justify-center py-10 text-center px-4">
         <AlertTriangle className="h-10 w-10 text-destructive mb-3" />
@@ -182,30 +190,15 @@ export function ContributionManagementTab() {
 
   return (
     <ContributionManagement
-      users={users || []} // Pass empty array if users still undefined but no error (should be handled by loader)
-      contributions={contributions || []} // Pass empty array if contributions still undefined but no error
+      users={users || []}
+      contributions={contributions || []}
       onAddContribution={handleAddContribution}
-      // Pass loading/error states for individual parts if ContributionManagement component is further broken down
-      isLoadingUsers={isLoadingUsers && !!users} // Pass true if refetching in background
+      isLoadingUsers={isLoadingUsers && !!users}
       isErrorUsers={isUsersError}
       usersErrorMsg={usersErrorObj?.message}
-      isLoadingContributions={isLoadingContributions && !!contributions} // Pass true if refetching in background
+      isLoadingContributions={isLoadingContributions && !!contributions}
       isErrorContributions={isContributionsError}
       contributionsErrorMsg={contributionsErrorObj?.message}
     />
   );
 }
-
-// Extending ContributionManagementProps to include loading/error states for finer-grained UI control
-declare module '@/components/admin/ContributionManagement' {
-  interface ContributionManagementProps {
-    isLoadingUsers?: boolean;
-    isErrorUsers?: boolean;
-    usersErrorMsg?: string;
-    isLoadingContributions?: boolean;
-    isErrorContributions?: boolean;
-    contributionsErrorMsg?: string;
-  }
-}
-
-    

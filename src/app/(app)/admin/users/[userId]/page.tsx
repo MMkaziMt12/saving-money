@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Loader2, User, Mail, Phone, Shield, CalendarDays, ArrowLeft, AlertTriangle, DollarSign, ListChecks, History, Search, RefreshCw } from "lucide-react";
-import { format, parseISO, isPast, differenceInCalendarMonths, getYear, getMonth } from "date-fns"; // Added date-fns functions
+import { format, parseISO, isPast, differenceInCalendarMonths, getYear, getMonth } from "date-fns"; 
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -27,9 +27,9 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
     .from("profiles")
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at') // Optimized columns
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active')
     .eq("id", userId)
-    .single();
+    .single<Profile>();
   if (error) {
     console.error("Error fetching user profile on detail page:", JSON.stringify(error, null, 2));
     throw error;
@@ -37,11 +37,13 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
   return data;
 }
 
+type UserContributionForDetail = Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>;
+
 type RawContributionData = Pick<Tables<'monthly_contributions'>, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_id'> & {
   profile_admin: { full_name: string | null } | null;
 };
 
-async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[]> {
+async function fetchUserContributions(userId: string): Promise<UserContributionForDetail[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("monthly_contributions")
@@ -53,18 +55,19 @@ async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContr
       amount, 
       recorded_by_admin_id,
       profile_admin:profiles!monthly_contributions_recorded_by_admin_id_fkey(full_name)
-    `) // Optimized columns
+    `) 
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
 
   if (error) {
-    console.error("Error fetching user contributions for user ID " + userId + ":", JSON.stringify(error, null, 2));
-    throw error;
+    const errorMsg = `Error fetching user contributions for user ID ${userId}: ${error.message} (Code: ${error.code})`;
+    console.error(errorMsg, JSON.stringify(error, null, 2));
+    throw new Error(errorMsg);
   }
   
   const typedData = data as RawContributionData[] | null;
 
-  const mappedData = typedData?.map(item => ({
+  const mappedData: UserContributionForDetail[] = typedData?.map(item => ({
     id: item.id,
     payment_date: item.payment_date,
     month: item.month,
@@ -77,11 +80,13 @@ async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContr
   return mappedData;
 }
 
-async function fetchUserEmergencyRequestsForAdmin(userId: string): Promise<EmergencyRequest[]> {
+type UserEmergencyRequestForAdminDetail = Pick<EmergencyRequest, 'id' | 'amount_requested' | 'amount_returned' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'is_fully_repaid' | 'last_return_date' | 'admin_notes'>;
+
+async function fetchUserEmergencyRequestsForAdmin(userId: string): Promise<UserEmergencyRequestForAdminDetail[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes") // Optimized columns
+    .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes")
     .eq("user_id", userId)
     .order("requested_at", { ascending: false });
 
@@ -112,7 +117,7 @@ const InfoItem = React.memo(({ icon: Icon, label, value, valueClass }: InfoItemP
 });
 InfoItem.displayName = 'InfoItem';
 
-const getRequestStatusBadgeInfo = (request: EmergencyRequest): { variant: VariantProps<typeof Badge>["variant"], text: string } => {
+const getRequestStatusBadgeInfo = (request: UserEmergencyRequestForAdminDetail): { variant: VariantProps<typeof Badge>["variant"], text: string } => {
     if (request.is_fully_repaid) {
       return { variant: "success", text: "Fully Repaid" };
     }
@@ -173,8 +178,8 @@ export default function UserDetailPage() {
     isError: isContributionsError,
     error: contributionsErrorObj,
     refetch: refetchContributions
-  } = useQuery<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[], Error>({
-    queryKey: ["userContributions", userId],
+  } = useQuery<UserContributionForDetail[], Error>({
+    queryKey: ["userContributionsForAdminDetail", userId], // Unique query key
     queryFn: () => fetchUserContributions(userId),
     enabled: !!userId && isAdmin,
   });
@@ -185,7 +190,7 @@ export default function UserDetailPage() {
     isError: isEmergencyRequestsError,
     error: emergencyRequestsErrorObj,
     refetch: refetchEmergencyRequests
-  } = useQuery<EmergencyRequest[], Error>({
+  } = useQuery<UserEmergencyRequestForAdminDetail[], Error>({
     queryKey: ["userEmergencyRequestsForAdmin", userId],
     queryFn: () => fetchUserEmergencyRequestsForAdmin(userId),
     enabled: !!userId && isAdmin,
@@ -195,7 +200,7 @@ export default function UserDetailPage() {
     if (!contributions) return [];
     const searchTermLower = contributionSearchTerm.toLowerCase();
     return contributions.filter(c => {
-      const paymentDate = format(parseISO(c.payment_date), "MMM dd, yyyy").toLowerCase();
+      const paymentDate = c.payment_date ? format(parseISO(c.payment_date), "MMM dd, yyyy").toLowerCase() : "";
       const contributionFor = format(new Date(c.year, c.month - 1), "MMMM yyyy").toLowerCase();
       const amount = String(c.amount).toLowerCase();
       const recordedBy = (c.recorded_by_admin_name || 'System/User').toLowerCase();
@@ -330,7 +335,7 @@ export default function UserDetailPage() {
             <InfoItem icon={Mail} label="Email" value={userProfile.email || "N/A"} />
             <InfoItem icon={Phone} label="Phone" value={userProfile.phone || "N/A"} />
             <InfoItem icon={Shield} label="Account Status" value={userProfile.is_approved ? "Approved" : "Pending Approval"} valueClass={userProfile.is_approved ? "text-green-600 font-semibold" : "text-orange-500 font-semibold"} />
-            <InfoItem icon={CalendarDays} label="Account Created" value={format(joinedAtDate, "MMMM dd, yyyy")} />
+            <InfoItem icon={CalendarDays} label="Account Created" value={userProfile.created_at ? format(parseISO(userProfile.created_at), "MMMM dd, yyyy") : 'N/A'} />
             <InfoItem icon={DollarSign} label="Total Contributed" value={`${CURRENCY_SYMBOL}${totalPaidByUser.toLocaleString()}`} valueClass="text-green-600 font-semibold" />
             <InfoItem icon={AlertTriangle} label="Pending Amount" value={`${CURRENCY_SYMBOL}${pendingAmount.toLocaleString()}`} valueClass={pendingAmount > 0 ? "text-orange-500 font-semibold" : "text-green-600 font-semibold"} />
         </CardContent>
@@ -377,7 +382,7 @@ export default function UserDetailPage() {
                 ) : paginatedContributions && paginatedContributions.length > 0 ? (
                   paginatedContributions.map((c) => (
                     <TableRow key={c.id}>
-                      <TableCell>{format(parseISO(c.payment_date), "MMM dd, yyyy")}</TableCell>
+                      <TableCell>{c.payment_date ? format(parseISO(c.payment_date), "MMM dd, yyyy") : 'N/A'}</TableCell>
                       <TableCell>{format(new Date(c.year, c.month - 1), "MMMM yyyy")}</TableCell>
                       <TableCell className="text-right">{CURRENCY_SYMBOL}{c.amount.toLocaleString()}</TableCell>
                       <TableCell className="hidden sm:table-cell break-words">{c.recorded_by_admin_name || (c.recorded_by_admin_id ? 'Admin' : 'System/User')}</TableCell>
@@ -449,7 +454,7 @@ export default function UserDetailPage() {
                     const statusInfo = getRequestStatusBadgeInfo(req);
                     return (
                       <TableRow key={req.id}>
-                        <TableCell>{format(parseISO(req.requested_at), "MMM dd, yy HH:mm")}</TableCell>
+                        <TableCell>{req.requested_at ? format(parseISO(req.requested_at), "MMM dd, yy HH:mm") : 'N/A'}</TableCell>
                         <TableCell className="text-right">{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
                         <TableCell className="text-right">{CURRENCY_SYMBOL}{(req.amount_returned || 0).toLocaleString()}</TableCell>
                         <TableCell className="max-w-xs truncate break-words">{req.reason}</TableCell>
@@ -482,5 +487,3 @@ export default function UserDetailPage() {
     </div>
   );
 }
-
-    

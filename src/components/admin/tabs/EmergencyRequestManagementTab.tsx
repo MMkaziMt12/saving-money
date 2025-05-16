@@ -16,10 +16,12 @@ import { parseISO, isPast } from "date-fns";
 const supabase = createClient();
 const ITEMS_PER_PAGE_REQUESTS = 10;
 
-async function fetchAdminProfilesForEmergency(): Promise<Pick<Profile, 'id' | 'full_name'>[]> {
+type AdminProfileForEmergency = Pick<Profile, 'id' | 'full_name'>;
+
+async function fetchAdminProfilesForEmergency(): Promise<AdminProfileForEmergency[]> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name'); // Optimized
+    .select('id, full_name');
   if (error) {
     console.error("Error fetching admin profiles for emergency:", JSON.stringify(error, null, 2));
     throw error;
@@ -27,7 +29,12 @@ async function fetchAdminProfilesForEmergency(): Promise<Pick<Profile, 'id' | 'f
   return data || [];
 }
 
-async function fetchAdminEmergencyRequests(): Promise<EmergencyRequest[]> {
+type AdminEmergencyRequest = EmergencyRequest & {
+  user_name?: string;
+  reviewed_by_admin_name?: string;
+};
+
+async function fetchAdminEmergencyRequests(): Promise<AdminEmergencyRequest[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
     .select(`
@@ -35,7 +42,7 @@ async function fetchAdminEmergencyRequests(): Promise<EmergencyRequest[]> {
       amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
       profile_user:profiles!emergency_requests_user_id_fkey(full_name),
       profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
-    `) // Optimized columns
+    `)
     .order('requested_at', { ascending: false });
 
   if (error) {
@@ -50,8 +57,8 @@ async function fetchAdminEmergencyRequests(): Promise<EmergencyRequest[]> {
 
   return typedData?.map(req => ({
       ...req,
-      user_name: req.profile_user?.full_name || req.user_id,
-      reviewed_by_admin_name: req.profile_admin?.full_name || req.reviewed_by_admin_id,
+      user_name: req.profile_user?.full_name,
+      reviewed_by_admin_name: req.profile_admin?.full_name,
   })) || [];
 }
 
@@ -61,7 +68,9 @@ type UpdateRequestPayload = {
   adminProfileId: string;
 };
 
-async function updateEmergencyRequestStatus({ requestId, status, adminProfileId }: UpdateRequestPayload): Promise<Pick<EmergencyRequest, 'id' | 'status' | 'user_id'>> { // Return only needed fields
+type UpdatedRequestStatus = Pick<EmergencyRequest, 'id' | 'status' | 'user_id'>;
+
+async function updateEmergencyRequestStatus({ requestId, status, adminProfileId }: UpdateRequestPayload): Promise<UpdatedRequestStatus> {
   const { data, error } = await supabase
     .from('emergency_requests')
     .update({ 
@@ -71,14 +80,14 @@ async function updateEmergencyRequestStatus({ requestId, status, adminProfileId 
       updated_at: new Date().toISOString() 
     })
     .eq('id', requestId)
-    .select('id, status, user_id') // Optimized selection
+    .select('id, status, user_id')
     .single();
   if (error) {
     console.error("Error updating emergency request status:", JSON.stringify(error, null, 2));
     throw error;
   }
   if (!data) throw new Error("Failed to update request, no data returned.");
-  return data as Pick<EmergencyRequest, 'id' | 'status' | 'user_id'>; 
+  return data; 
 }
 
 type RecordRepaymentPayload = {
@@ -88,10 +97,12 @@ type RecordRepaymentPayload = {
   adminProfileId: string; 
 };
 
-async function recordRepayment({ requestId, amountRepaid, repaymentDate }: RecordRepaymentPayload): Promise<Pick<EmergencyRequest, 'id' | 'user_id'>> { // Return only needed fields
+type RecordedRepaymentResult = Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_returned' | 'is_fully_repaid' | 'last_return_date'>;
+
+async function recordRepayment({ requestId, amountRepaid, repaymentDate }: RecordRepaymentPayload): Promise<RecordedRepaymentResult> {
   const { data: existingRequest, error: fetchError } = await supabase
     .from('emergency_requests')
-    .select('amount_requested, amount_returned, user_id') // Fetch user_id as well
+    .select('amount_requested, amount_returned, user_id')
     .eq('id', requestId)
     .single();
 
@@ -113,7 +124,7 @@ async function recordRepayment({ requestId, amountRepaid, repaymentDate }: Recor
       updated_at: new Date().toISOString(),
     })
     .eq('id', requestId)
-    .select('id, user_id') // Select only id and user_id
+    .select('id, user_id, amount_returned, is_fully_repaid, last_return_date')
     .single();
 
   if (error) {
@@ -121,7 +132,7 @@ async function recordRepayment({ requestId, amountRepaid, repaymentDate }: Recor
     throw error;
   }
   if (!data) throw new Error("Failed to record repayment, no data returned.");
-  return data as Pick<EmergencyRequest, 'id' | 'user_id'>;
+  return data;
 }
 
 
@@ -139,7 +150,7 @@ export function EmergencyRequestManagementTab() {
     isError: isUsersError,
     error: usersErrorObj,
     refetch: refetchUsers
-  } = useQuery<Pick<Profile, 'id' | 'full_name'>[], Error>({
+  } = useQuery<AdminProfileForEmergency[], Error>({
     queryKey: ['adminProfilesForEmergency'],
     queryFn: fetchAdminProfilesForEmergency,
   });
@@ -150,21 +161,21 @@ export function EmergencyRequestManagementTab() {
     isError: isRequestsError,
     error: requestsErrorObj,
     refetch: refetchRequests
-  } = useQuery<EmergencyRequest[], Error>({
+  } = useQuery<AdminEmergencyRequest[], Error>({
     queryKey: ['adminEmergencyRequests'],
     queryFn: fetchAdminEmergencyRequests,
   });
 
-  const updateRequestMutation = useMutation<Pick<EmergencyRequest, 'id' | 'status' | 'user_id'>, Error, UpdateRequestPayload>({
+  const updateRequestMutation = useMutation<UpdatedRequestStatus, Error, UpdateRequestPayload>({
     mutationFn: updateEmergencyRequestStatus,
     onSuccess: (updatedRequestData, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
-      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] }); // For dashboard
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] }); // For dashboard
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] }); // For request form
+      queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] }); 
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] }); 
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] }); 
       queryClient.invalidateQueries({ queryKey: ['currentUserActiveEmergencyRequests', updatedRequestData.user_id]}); 
       queryClient.invalidateQueries({ queryKey: ["emergencyRequestDetails", variables.requestId] });
-      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequestsForAdmin", updatedRequestData.user_id] }); // For admin user detail page
+      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequestsForAdmin", updatedRequestData.user_id] }); 
       toast({ title: "Success", description: `Emergency request ${updatedRequestData.status}.` });
     },
     onError: (error: Error) => {
@@ -172,7 +183,7 @@ export function EmergencyRequestManagementTab() {
     },
   });
 
-  const recordRepaymentMutation = useMutation<Pick<EmergencyRequest, 'id' | 'user_id'>, Error, RecordRepaymentPayload>({
+  const recordRepaymentMutation = useMutation<RecordedRepaymentResult, Error, RecordRepaymentPayload>({
     mutationFn: recordRepayment,
     onSuccess: (updatedRequestData, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
@@ -246,7 +257,7 @@ export function EmergencyRequestManagementTab() {
       <div className="flex flex-col items-center justify-center py-10 text-center px-4">
         <AlertTriangle className="h-10 w-10 text-destructive mb-3" />
         <p className="text-destructive mb-2">Error loading data for emergency requests.</p>
-        <p className="text-sm text-muted-foreground mb-4">{combinedError.message}</p>
+        <p className="text-sm text-muted-foreground mb-4">{combinedError.message || "An unknown error occurred."}</p>
         <Button onClick={() => {
           if(usersErrorObj) refetchUsers();
           if(requestsErrorObj) refetchRequests();
@@ -257,8 +268,8 @@ export function EmergencyRequestManagementTab() {
     );
   }
   
-  const showUsersLoader = isLoadingUsers && !!users; // Inline loader if refetching users
-  const showRequestsLoader = isLoadingRequests && !!requests; // Inline loader if refetching requests
+  const showUsersLoader = isLoadingUsers && !!users; 
+  const showRequestsLoader = isLoadingRequests && !!requests; 
 
   return (
     <div className="space-y-4">
@@ -281,12 +292,14 @@ export function EmergencyRequestManagementTab() {
             <Loader2 className="h-5 w-5 animate-spin mr-2"/> Refreshing request list...
         </div>
        )}
-      <EmergencyRequestManagementTable 
-        requests={paginatedRequests} 
-        users={users || []} 
-        onApproveRequest={handleUpdateRequest} 
-        onRecordRepayment={handleRecordRepayment}
-      />
+      <div className="overflow-x-auto rounded-md border">
+        <EmergencyRequestManagementTable 
+          requests={paginatedRequests} 
+          users={users || []} 
+          onApproveRequest={handleUpdateRequest} 
+          onRecordRepayment={handleRecordRepayment}
+        />
+      </div>
       {totalPages > 1 && (
         <div className="flex items-center justify-end space-x-2 pt-4">
           <Button
@@ -313,5 +326,3 @@ export function EmergencyRequestManagementTab() {
     </div>
   );
 }
-
-    

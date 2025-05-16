@@ -22,7 +22,12 @@ import React, { useEffect } from "react";
 
 const supabase = createClient();
 
-async function fetchEmergencyRequestDetails(requestId: string): Promise<EmergencyRequest | null> {
+type EmergencyRequestDetail = EmergencyRequest & {
+    profile_user?: Pick<Profile, 'full_name' | 'avatar_url'> | null;
+    profile_admin?: Pick<Profile, 'full_name'> | null;
+};
+
+async function fetchEmergencyRequestDetails(requestId: string): Promise<EmergencyRequestDetail | null> {
   if (!requestId) return null;
   const { data, error } = await supabase
     .from("emergency_requests")
@@ -31,21 +36,23 @@ async function fetchEmergencyRequestDetails(requestId: string): Promise<Emergenc
       amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
       profile_user:profiles!emergency_requests_user_id_fkey(full_name, avatar_url),
       profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
-    `) // Optimized columns
+    `)
     .eq("id", requestId)
-    .single();
+    .single<EmergencyRequestDetail>(); 
   if (error) {
     console.error("Error fetching emergency request details:", JSON.stringify(error, null, 2));
     throw error;
   }
-  return data as EmergencyRequest | null; 
+  return data; 
 }
 
-async function fetchRelatedNotifications(requestId: string): Promise<AppNotification[]> {
+type RelatedNotification = Pick<AppNotification, 'id' | 'message' | 'created_at' | 'read_at' | 'link'>;
+
+async function fetchRelatedNotifications(requestId: string): Promise<RelatedNotification[]> {
   if (!requestId) return [];
   const { data, error } = await supabase
     .from("notifications")
-    .select("id, message, created_at, read_at, link") // Optimized columns
+    .select("id, message, created_at, read_at, link")
     .eq("related_request_id", requestId)
     .order("created_at", { ascending: false });
   if (error) {
@@ -75,7 +82,7 @@ const InfoItem = React.memo(({ icon: Icon, label, value, valueClass }: InfoItemP
 });
 InfoItem.displayName = 'InfoItem';
 
-const getStatusBadgeVariant = (request: EmergencyRequest | null): VariantProps<typeof Badge>["variant"] => {
+const getStatusBadgeVariant = (request: EmergencyRequestDetail | null): VariantProps<typeof Badge>["variant"] => {
     if (!request) return "outline";
     if (request.is_fully_repaid) return "success";
     if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive"; 
@@ -85,7 +92,7 @@ const getStatusBadgeVariant = (request: EmergencyRequest | null): VariantProps<t
     return "outline";
   };
 
-  const getRepaymentStatusText = (request: EmergencyRequest | null) => {
+  const getRepaymentStatusText = (request: EmergencyRequestDetail | null) => {
     if (!request) return "Unknown";
     if (request.is_fully_repaid) return "Fully Repaid";
     if (request.status === 'approved') {
@@ -114,7 +121,7 @@ export default function EmergencyRequestDetailPage() {
     isError: isRequestError,
     error: requestErrorObj,
     refetch: refetchRequestDetails
-  } = useQuery<EmergencyRequest | null, Error>({
+  } = useQuery<EmergencyRequestDetail | null, Error>({
     queryKey: ["emergencyRequestDetails", requestId],
     queryFn: () => fetchEmergencyRequestDetails(requestId),
     enabled: !!requestId && !!user,
@@ -126,7 +133,7 @@ export default function EmergencyRequestDetailPage() {
     isError: isNotificationsError,
     error: notificationsErrorObj,
     refetch: refetchNotifications
-  } = useQuery<AppNotification[], Error>({
+  } = useQuery<RelatedNotification[], Error>({
     queryKey: ["relatedNotifications", requestId],
     queryFn: () => fetchRelatedNotifications(requestId),
     enabled: !!requestId && !!user,
@@ -187,7 +194,7 @@ export default function EmergencyRequestDetailPage() {
   
   const requesterProfile = requestDetails.profile_user;
   const adminProfile = requestDetails.profile_admin;
-  const requestedAtDate = requestDetails.requested_at ? parseISO(requestDetails.requested_at) : new Date();
+  const requestedAtDate = requestDetails.requested_at ? parseISO(requestDetails.requested_at) : null;
   const returnDate = requestDetails.return_date ? parseISO(requestDetails.return_date) : null;
   const reviewedAtDate = requestDetails.reviewed_at ? parseISO(requestDetails.reviewed_at) : null;
   const lastReturnDate = requestDetails.last_return_date ? parseISO(requestDetails.last_return_date) : null;
@@ -236,7 +243,7 @@ export default function EmergencyRequestDetailPage() {
             <InfoItem icon={User} label="Requested By" value={requesterProfile?.full_name || "N/A"} />
             <InfoItem icon={DollarSign} label="Amount Requested" value={`${CURRENCY_SYMBOL}${requestDetails.amount_requested.toLocaleString()}`} valueClass="font-semibold text-primary" />
             <InfoItem icon={DollarSign} label="Amount Returned" value={`${CURRENCY_SYMBOL}${(requestDetails.amount_returned || 0).toLocaleString()}`} valueClass={requestDetails.amount_returned && requestDetails.amount_returned > 0 ? "text-green-600 font-semibold" : ""} />
-            <InfoItem icon={CalendarDays} label="Requested At" value={format(requestedAtDate, "MMMM dd, yyyy HH:mm")} />
+            <InfoItem icon={CalendarDays} label="Requested At" value={requestedAtDate ? format(requestedAtDate, "MMMM dd, yyyy HH:mm") : 'N/A'} />
             {returnDate && <InfoItem icon={CalendarDays} label="Expected Return Date" value={format(returnDate, "MMMM dd, yyyy")} />}
             {lastReturnDate && <InfoItem icon={CalendarDays} label="Last Repayment Date" value={format(lastReturnDate, "MMMM dd, yyyy HH:mm")} />}
             {reviewedAtDate && adminProfile && <InfoItem icon={Shield} label="Reviewed By" value={`${adminProfile.full_name} on ${format(reviewedAtDate, "MMMM dd, yyyy HH:mm")}`} />}
@@ -290,5 +297,3 @@ export default function EmergencyRequestDetailPage() {
     </div>
   );
 }
-
-    

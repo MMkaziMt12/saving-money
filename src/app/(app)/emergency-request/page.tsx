@@ -35,11 +35,13 @@ type EmergencyRequestFormValues = z.infer<typeof emergencyRequestSchema>;
 
 const supabase = createClient();
 
-async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefined): Promise<EmergencyRequest[]> {
+type UserActiveEmergencyRequest = Pick<EmergencyRequest, 'id' | 'amount_requested' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'is_fully_repaid' | 'amount_returned'>;
+
+async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefined): Promise<UserActiveEmergencyRequest[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned") // Optimized columns
+    .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned")
     .eq("user_id", userId)
     .in("status", ["pending", "approved"]) 
     .order("requested_at", { ascending: false });
@@ -72,7 +74,7 @@ async function fetchTotalFamilySavingsRPC(): Promise<number> {
   return savings;
 }
 
-const RequestTableDisplay = React.memo(({ requests }: { requests: EmergencyRequest[] }) => {
+const RequestTableDisplay = React.memo(({ requests }: { requests: UserActiveEmergencyRequest[] }) => {
   if (!requests || requests.length === 0) return null;
   return (
     <div className="overflow-x-auto rounded-md border">
@@ -91,7 +93,7 @@ const RequestTableDisplay = React.memo(({ requests }: { requests: EmergencyReque
             <TableRow key={req.id}>
               <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
               <TableCell className="hidden sm:table-cell max-w-xs truncate text-ellipsis whitespace-nowrap overflow-hidden break-words">{req.reason}</TableCell>
-              <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy")}</TableCell>
+              <TableCell>{req.requested_at ? format(parseISO(req.requested_at), "MMM dd, yyyy") : 'N/A'}</TableCell>
               <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : "N/A"}</TableCell>
               <TableCell className="text-center">
                   <Badge
@@ -120,7 +122,7 @@ export default function EmergencyRequestPage() {
   const form = useForm<EmergencyRequestFormValues>({
     resolver: zodResolver(emergencyRequestSchema),
     defaultValues: {
-      amount: 0,
+      amount: undefined, // Use undefined for number inputs that can be empty
       reason: "",
       return_date: undefined,
     },
@@ -132,7 +134,7 @@ export default function EmergencyRequestPage() {
     isError: isExistingRequestsError,
     error: existingRequestsErrorObj,
     refetch: refetchExistingRequests
-  } = useQuery<EmergencyRequest[], Error>({
+  } = useQuery<UserActiveEmergencyRequest[], Error>({
     queryKey: ["currentUserActiveEmergencyRequests", user?.id],
     queryFn: () => fetchCurrentUserActiveEmergencyRequests(user?.id),
     enabled: !!user,
@@ -189,7 +191,7 @@ export default function EmergencyRequestPage() {
       user_id: user.id,
       amount_requested: data.amount,
       reason: data.reason,
-      return_date: data.return_date.toISOString(),
+      return_date: data.return_date.toISOString(), // This is now mandatory
       status: 'pending',
       requested_at: new Date().toISOString(),
       updated_at: new Date().toISOString(), 
@@ -202,17 +204,18 @@ export default function EmergencyRequestPage() {
         description: error.message || "Could not submit your request. Please try again.",
         variant: "destructive",
       });
+      throw error; // Re-throw to be caught by TanStack Mutation if used later
     } else {
       toast({
         title: "Request Submitted!",
         description: `Your request for ${CURRENCY_SYMBOL}${data.amount} has been submitted for approval.`,
         variant: "default",
       });
-      form.reset({ amount: 0, reason: "", return_date: undefined });
+      form.reset({ amount: undefined, reason: "", return_date: undefined });
       queryClient.invalidateQueries({ queryKey: ["currentUserActiveEmergencyRequests", user?.id] });
-      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] }); // For dashboard
+      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] }); 
       queryClient.invalidateQueries({ queryKey: ["totalFamilySavingsForRequestForm"] });
-      queryClient.invalidateQueries({ queryKey: ["totalFamilySavings"] }); // For dashboard
+      queryClient.invalidateQueries({ queryKey: ["totalFamilySavings"] }); 
     }
   }
 
@@ -310,8 +313,8 @@ export default function EmergencyRequestPage() {
               <br />
               {(isLoadingTotalSavings && totalFamilySavings === undefined && !isTotalSavingsError) ? (
                   <span className="text-sm text-muted-foreground italic">Loading available fund balance...</span>
-              ) : !isTotalSavingsError ? (
-                  <span className="text-sm text-primary font-medium">Current Available Fund Balance: {CURRENCY_SYMBOL}{(totalFamilySavings ?? 0).toLocaleString()}</span>
+              ) : !isTotalSavingsError && totalFamilySavings !== undefined ? (
+                  <span className="text-sm text-primary font-medium">Current Available Fund Balance: {CURRENCY_SYMBOL}{totalFamilySavings.toLocaleString()}</span>
               ) : null }
             </CardDescription>
           </CardHeader>
@@ -325,7 +328,7 @@ export default function EmergencyRequestPage() {
                     <FormItem>
                       <FormLabel>Amount Requested ({CURRENCY_SYMBOL})</FormLabel>
                       <FormControl>
-                        <Input type="number" placeholder="e.g., 5000" {...field} disabled={form.formState.isSubmitting || isLoadingTotalSavings || totalFamilySavings === undefined} />
+                        <Input type="number" placeholder="e.g., 5000" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || undefined)} disabled={form.formState.isSubmitting || isLoadingTotalSavings || totalFamilySavings === undefined} />
                       </FormControl>
                       <FormDescription>
                         Enter the total amount you require.
@@ -415,5 +418,3 @@ export default function EmergencyRequestPage() {
     </div>
   );
 }
-
-    

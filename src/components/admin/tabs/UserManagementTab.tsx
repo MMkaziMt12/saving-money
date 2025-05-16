@@ -18,7 +18,7 @@ const ITEMS_PER_PAGE = 10;
 async function fetchUsers(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, is_active') // Optimized columns
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active') // Ensure updated_at is fetched if needed
     .order('created_at', { ascending: false });
   if (error) {
     console.error("Error fetching users in UserManagementTab:", JSON.stringify(error, null, 2));
@@ -32,7 +32,7 @@ async function updateUserProfile(userId: string, updates: Partial<Profile>): Pro
     .from('profiles')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', userId)
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, is_active, updated_at') // Optimized columns
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active')
     .single();
   if (error) {
     console.error("Error updating user profile in UserManagementTab:", JSON.stringify(error, null, 2));
@@ -43,7 +43,6 @@ async function updateUserProfile(userId: string, updates: Partial<Profile>): Pro
 }
 
 async function deleteUserProfile(userId: string): Promise<void> {
-  // Note: This only deletes from 'profiles' table. Auth user deletion is separate.
   const { error } = await supabase.from('profiles').delete().eq('id', userId);
   if (error) {
     console.error("Error deleting user profile in UserManagementTab:", JSON.stringify(error, null, 2));
@@ -63,7 +62,7 @@ export function UserManagementTab() {
     data: users, 
     isLoading: isLoadingUsers, 
     isError: isUsersError,
-    error: usersErrorObj, // Renamed to avoid conflict
+    error: usersErrorObj,
     refetch: refetchUsers
   } = useQuery<Profile[], Error>({
     queryKey: ['adminUsers'],
@@ -71,12 +70,12 @@ export function UserManagementTab() {
   });
 
   const mutationOptions = {
-    onSuccess: (data: Profile | void, variables: string | { userId: string; updates?: Partial<Profile> }) => {
+    onSuccess: (updatedProfileData: Profile | void, variables: string | { userId: string; updates?: Partial<Profile> }) => {
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
       const targetUserId = typeof variables === 'string' ? variables : variables.userId;
       queryClient.invalidateQueries({ queryKey: ["userProfile", targetUserId] });
 
-      const userName = users?.find(u => u.id === targetUserId)?.full_name || "User";
+      const userName = (updatedProfileData as Profile)?.full_name || users?.find(u => u.id === targetUserId)?.full_name || "User";
       
       if (typeof variables === 'string') { 
          toast({ title: "Success", description: `${userName} profile deleted.` });
@@ -158,7 +157,6 @@ export function UserManagementTab() {
   const handleRevokeAdmin = useCallback((userId: string) => revokeAdminMutation.mutate(userId), [revokeAdminMutation]);
   const handleDeleteUser = useCallback((userId: string) => deleteUserMutation.mutate(userId), [deleteUserMutation]);
 
-
   if (isLoadingUsers && !users && !isUsersError) {
     return (
       <div className="flex items-center justify-center py-10">
@@ -168,7 +166,7 @@ export function UserManagementTab() {
     );
   }
 
-  if (isUsersError && !users) { // Show error only if no stale data to display
+  if (isUsersError && !users) { 
     return (
       <div className="flex flex-col items-center justify-center py-10 text-center px-4">
         <AlertTriangle className="h-10 w-10 text-destructive mb-3" />
@@ -194,22 +192,24 @@ export function UserManagementTab() {
             setCurrentPage(1);
           }}
           className="pl-10 w-full md:w-1/2 lg:w-1/3"
-          disabled={isLoadingUsers && !!users} // Disable if refetching in background
+          disabled={isLoadingUsers && !!users}
         />
       </div>
-      {isLoadingUsers && !!users && ( // Inline loader if refetching with stale data
+      {isLoadingUsers && !!users && ( 
         <div className="py-4 flex items-center justify-center text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin mr-2"/> Refreshing user list...
         </div>
       )}
-      <UserManagementTable 
-        users={paginatedUsers} 
-        onApproveUser={handleApproveUser}
-        onRejectUser={handleRejectUser}
-        onMakeAdmin={handleMakeAdmin}
-        onRevokeAdmin={handleRevokeAdmin}
-        onDeleteUser={handleDeleteUser}
-      />
+      <div className="overflow-x-auto rounded-md border">
+        <UserManagementTable 
+          users={paginatedUsers} 
+          onApproveUser={handleApproveUser}
+          onRejectUser={handleRejectUser}
+          onMakeAdmin={handleMakeAdmin}
+          onRevokeAdmin={handleRevokeAdmin}
+          onDeleteUser={handleDeleteUser}
+        />
+      </div>
       {totalPages > 1 && (
         <div className="flex items-center justify-end space-x-2 pt-4">
           <Button
@@ -236,5 +236,3 @@ export function UserManagementTab() {
     </div>
   );
 }
-
-    
