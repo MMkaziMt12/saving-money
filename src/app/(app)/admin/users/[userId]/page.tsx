@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Loader2, User, Mail, Phone, Shield, CalendarDays, ArrowLeft, AlertTriangle, DollarSign, ListChecks, History, Search } from "lucide-react";
+import { Loader2, User, Mail, Phone, Shield, CalendarDays, ArrowLeft, AlertTriangle, DollarSign, ListChecks, History, Search, RefreshCw } from "lucide-react";
 import { format, parseISO, isPast } from "date-fns";
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
@@ -27,17 +27,16 @@ async function fetchUserProfile(userId: string): Promise<Profile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
     .from("profiles")
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at')
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at') // Specific columns
     .eq("id", userId)
     .single();
   if (error) {
-    console.error("Error fetching user profile:", JSON.stringify(error, null, 2));
-    throw new Error(error.message || `Failed to fetch profile for user ${userId}. Code: ${error.code || 'N/A'}`);
+    console.error("Error fetching user profile on detail page:", JSON.stringify(error, null, 2));
+    throw error; // Propagate error
   }
   return data;
 }
 
-// Define the shape of data returned by the query before mapping
 type RawContributionData = Pick<Tables<'monthly_contributions'>, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_id'> & {
   profile_admin: { full_name: string | null } | null;
 };
@@ -54,13 +53,13 @@ async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContr
       amount, 
       recorded_by_admin_id,
       profile_admin:profiles!monthly_contributions_recorded_by_admin_id_fkey(full_name)
-    `)
+    `) // Specific columns
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
 
   if (error) {
     console.error("Error fetching user contributions for user ID " + userId + ":", JSON.stringify(error, null, 2));
-    throw new Error(error.message || `Failed to fetch contributions for user ${userId}. Code: ${error.code || 'N/A'}`);
+    throw error; // Propagate error
   }
   
   const typedData = data as RawContributionData[] | null;
@@ -78,22 +77,20 @@ async function fetchUserContributions(userId: string): Promise<Pick<MonthlyContr
   return mappedData;
 }
 
-
 async function fetchUserEmergencyRequestsForAdmin(userId: string): Promise<EmergencyRequest[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes")
+    .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes") // Specific columns
     .eq("user_id", userId)
     .order("requested_at", { ascending: false });
 
   if (error) {
     console.error("Error fetching user emergency requests for admin detail page:", JSON.stringify(error, null, 2));
-    throw new Error(error.message || `Failed to fetch emergency requests for user ${userId}. Code: ${error.code || 'N/A'}`);
+    throw error; // Propagate error
   }
   return data || [];
 }
-
 
 interface InfoItemProps {
   icon: React.ElementType;
@@ -115,7 +112,6 @@ const InfoItem = React.memo(({ icon: Icon, label, value, valueClass }: InfoItemP
 });
 InfoItem.displayName = 'InfoItem';
 
-
 const getRequestStatusBadgeInfo = (request: EmergencyRequest): { variant: VariantProps<typeof Badge>["variant"], text: string } => {
     if (request.is_fully_repaid) {
       return { variant: "success", text: "Fully Repaid" };
@@ -134,7 +130,6 @@ const getRequestStatusBadgeInfo = (request: EmergencyRequest): { variant: Varian
     }
     return { variant: "outline", text: request.status || "Unknown" };
 };
-
 
 export default function UserDetailPage() {
   const params = useParams();
@@ -160,19 +155,34 @@ export default function UserDetailPage() {
     }
   }, [adminUser, isAdmin, authLoading, adminIsApproved, router, toast]);
 
-  const { data: userProfile, isLoading: isLoadingProfile, error: profileError } = useQuery<Profile | null, Error>({
+  const { 
+    data: userProfile, 
+    isLoading: isLoadingProfile, 
+    error: profileError,
+    refetch: refetchUserProfile
+  } = useQuery<Profile | null, Error>({
     queryKey: ["userProfile", userId],
     queryFn: () => fetchUserProfile(userId),
     enabled: !!userId && isAdmin,
   });
 
-  const { data: contributions, isLoading: isLoadingContributions, error: contributionsError } = useQuery<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[], Error>({
+  const { 
+    data: contributions, 
+    isLoading: isLoadingContributions, 
+    error: contributionsError,
+    refetch: refetchContributions
+  } = useQuery<Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>[], Error>({
     queryKey: ["userContributions", userId],
     queryFn: () => fetchUserContributions(userId),
     enabled: !!userId && isAdmin,
   });
 
-  const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests, error: emergencyRequestsError } = useQuery<EmergencyRequest[], Error>({
+  const { 
+    data: emergencyRequests, 
+    isLoading: isLoadingEmergencyRequests, 
+    error: emergencyRequestsError,
+    refetch: refetchEmergencyRequests
+  } = useQuery<EmergencyRequest[], Error>({
     queryKey: ["userEmergencyRequestsForAdmin", userId],
     queryFn: () => fetchUserEmergencyRequestsForAdmin(userId),
     enabled: !!userId && isAdmin,
@@ -200,7 +210,6 @@ export default function UserDetailPage() {
 
   const totalContributionPages = Math.ceil(filteredContributions.length / ITEMS_PER_PAGE_CONTRIBUTIONS_DETAIL);
 
-
   const getInitials = (name: string | null | undefined) => {
     if (!name) return "U";
     const names = name.split(" ");
@@ -217,7 +226,7 @@ export default function UserDetailPage() {
     );
   }
 
-  if (!isAdmin && adminUser) {
+  if (!isAdmin && adminUser) { // Should be caught by useEffect redirect, but as a fallback.
      return (
       <div className="flex items-center justify-center h-screen py-10">
         <p className="text-lg text-destructive">Access Denied. You are not an administrator.</p>
@@ -225,7 +234,11 @@ export default function UserDetailPage() {
     );
   }
 
-  if (isLoadingProfile || isLoadingContributions || isLoadingEmergencyRequests) {
+  const combinedError = profileError || contributionsError || emergencyRequestsError;
+  const combinedIsLoading = (isLoadingProfile && !userProfile) || (isLoadingContributions && !contributions) || (isLoadingEmergencyRequests && !emergencyRequests);
+
+
+  if (combinedIsLoading) {
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -234,15 +247,22 @@ export default function UserDetailPage() {
     );
   }
 
-  if (profileError || contributionsError || emergencyRequestsError) {
+  if (combinedError) {
     return (
       <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <p className="text-destructive mb-2">Error loading user details.</p>
         <p className="text-sm text-muted-foreground mb-4">
-          {profileError?.message || contributionsError?.message || emergencyRequestsError?.message}
+          {combinedError.message}
         </p>
-        <Button onClick={() => router.back()} variant="outline">
+        <Button onClick={() => {
+            if (profileError) refetchUserProfile();
+            if (contributionsError) refetchContributions();
+            if (emergencyRequestsError) refetchEmergencyRequests();
+        }} variant="outline">
+          <RefreshCw className="mr-2 h-4 w-4" /> Try again
+        </Button>
+        <Button onClick={() => router.back()} variant="link" className="mt-2">
           <ArrowLeft className="mr-2 h-4 w-4" /> Go Back
         </Button>
       </div>
@@ -335,7 +355,7 @@ export default function UserDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoadingContributions ? (
+                {isLoadingContributions && !contributions ? (
                     <TableRow><TableCell colSpan={4} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
                 ) : paginatedContributions && paginatedContributions.length > 0 ? (
                   paginatedContributions.map((c) => (
@@ -388,7 +408,7 @@ export default function UserDetailPage() {
           <CardDescription>Overview of this user's emergency fund requests.</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoadingEmergencyRequests ? (
+          {isLoadingEmergencyRequests && !emergencyRequests ? (
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
               <p className="ml-2 text-muted-foreground">Loading requests...</p>

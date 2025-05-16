@@ -31,11 +31,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
     if (!userId) {
-      console.warn("fetchProfile called with no userId.");
+      console.warn("AuthContext: fetchProfile called with no userId.");
       return null;
     }
     try {
-      // Optimized: Select only necessary profile fields
       const { data, error, status } = await supabase
         .from('profiles')
         .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active, last_login')
@@ -43,45 +42,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .single();
 
       if (error) {
-        if (status === 406) {
-          console.warn(`Profile not found for user ID: ${userId}. Status: ${status}.`);
+        if (status === 406) { // Profile not found
+          console.warn(`AuthContext: Profile not found for user ID: ${userId}. Status: ${status}. This is expected for new users before profile creation.`);
+          return null; // Return null, not an error, if profile simply doesn't exist yet.
         } else {
-          console.error(`Error fetching profile for user ID: ${userId}. Status: ${status}. Message: ${error.message}.`);
-          toast({
-            title: `Profile Fetch Error (Status ${status})`,
-            description: `Failed to load profile: ${error.message}`,
-            variant: "destructive",
-          });
+          console.error(`AuthContext: Error fetching profile for user ID: ${userId}. Status: ${status}. Message: ${error.message}.`, error);
+          throw error; // Re-throw other database errors.
         }
-        return null;
       }
       
-      if (!data) {
-        console.warn(`No profile data returned for user ID: ${userId}, even without a database error (status ${status}).`);
-        return null;
+      if (!data && status !== 406) { // Should not happen if no error and status isn't 406
+          console.warn(`AuthContext: No profile data returned for user ID: ${userId}, even without a database error (status ${status}).`);
       }
       return data;
     } catch (catchedError: any) {
-      console.error(`Exception during fetchProfile for user ID: ${userId}:`, catchedError.message, catchedError);
-      toast({
-        title: "Profile Fetch Exception",
-        description: "An unexpected error occurred while fetching your profile.",
-        variant: "destructive",
-      });
-      return null;
+      console.error(`AuthContext: Exception during fetchProfile for user ID: ${userId}:`, catchedError.message, catchedError);
+      // Do not toast here as this function is called internally during auth flow.
+      // Re-throw the error so calling code (like useQuery) can handle it.
+      throw catchedError;
     }
-  }, [toast]); // Removed supabase from dependencies as it's stable from createClient()
+  }, []); // supabase and toast are stable, no need to include if not directly used in useCallback's logic that changes
 
   useEffect(() => {
     setIsLoading(true);
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, session: Session | null) => {
-        console.log('Auth State Change Event:', event, 'Session:', session);
+        console.log('AuthContext: Auth State Change Event:', event, 'Session:', session);
         const currentUser = session?.user ?? null;
         if (currentUser) {
-          const fetchedProfileData = await fetchProfile(currentUser.id);
-          setUser({ ...currentUser, profile: fetchedProfileData } as AppUser);
-          setProfile(fetchedProfileData);
+          try {
+            const fetchedProfileData = await fetchProfile(currentUser.id);
+            setUser({ ...currentUser, profile: fetchedProfileData } as AppUser); // Cast to AppUser
+            setProfile(fetchedProfileData);
+          } catch (error) {
+            console.error("AuthContext: Failed to fetch profile during onAuthStateChange:", error);
+            // User might be authenticated but profile fetch failed. Set user, profile to null.
+            setUser(currentUser as AppUser); // User might still be useful even if profile fetch fails
+            setProfile(null);
+            // Optionally toast an error, but be mindful of multiple toasts during auth flow.
+          }
         } else {
           setUser(null);
           setProfile(null);
@@ -90,14 +89,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     );
 
+    // Initial session check
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      console.log('Initial getSession:', session);
+      console.log('AuthContext: Initial getSession result:', session);
       if (session) {
-        const fetchedProfileData = await fetchProfile(session.user.id);
-        setUser({ ...session.user, profile: fetchedProfileData } as AppUser);
-        setProfile(fetchedProfileData);
+        try {
+          const fetchedProfileData = await fetchProfile(session.user.id);
+          setUser({ ...session.user, profile: fetchedProfileData } as AppUser); // Cast to AppUser
+          setProfile(fetchedProfileData);
+        } catch (error) {
+            console.error("AuthContext: Failed to fetch profile during initial getSession:", error);
+            setUser(session.user as AppUser);
+            setProfile(null);
+        }
       }
       setIsLoading(false);
+    }).catch(error => {
+        console.error("AuthContext: Error in initial getSession promise:", error);
+        setIsLoading(false);
     });
     
     return () => {
@@ -110,7 +119,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
-    setIsLoading(false);
+    // No need to setIsLoading(false) here if onAuthStateChange handles it,
+    // but to be safe and immediate:
+    setIsLoading(false); 
   };
   
   const value = {
@@ -118,7 +129,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     profile,
     isLoading,
     isAdmin: profile?.role === 'admin',
-    isApproved: !!profile?.is_approved,
+    isApproved: !!profile?.is_approved, // Ensure boolean
     setProfile, 
     fetchProfile,
     signOut,

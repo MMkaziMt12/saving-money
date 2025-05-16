@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Send, Loader2, CalendarIcon, Info, AlertTriangle } from "lucide-react";
+import { Send, Loader2, CalendarIcon, Info, AlertTriangle, RefreshCw } from "lucide-react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
@@ -39,14 +39,14 @@ async function fetchCurrentUserActiveEmergencyRequests(userId: string | undefine
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
-    .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned")
+    .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned") // Specific columns
     .eq("user_id", userId)
     .in("status", ["pending", "approved"]) 
     .order("requested_at", { ascending: false });
 
   if (error) {
     console.error("Error fetching user's active emergency requests:", error);
-    throw new Error(error.message);
+    throw error; // Propagate error
   }
   return data || [];
 }
@@ -55,7 +55,7 @@ async function fetchTotalFamilySavingsRPC(): Promise<number> {
   const { data, error } = await supabase.rpc('get_total_family_savings');
   if (error) {
     console.error("Error fetching total family savings via RPC on request page:", error.message, error);
-    throw new Error(error.message);
+    throw error; // Propagate error
   }
   if (data === null || data === undefined) {
     console.warn("RPC 'get_total_family_savings' returned null or undefined on request page. Defaulting to 0.");
@@ -72,36 +72,37 @@ async function fetchTotalFamilySavingsRPC(): Promise<number> {
 const RequestTableDisplay = React.memo(({ requests }: { requests: EmergencyRequest[] }) => {
   if (!requests || requests.length === 0) return null;
   return (
-    // ShadCN Table handles its own overflow.
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Amount</TableHead>
-          <TableHead className="hidden sm:table-cell">Reason</TableHead>
-          <TableHead>Requested On</TableHead>
-          <TableHead>Expected Return</TableHead>
-          <TableHead className="text-center">Status</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {requests.map(req => (
-          <TableRow key={req.id}>
-            <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
-            <TableCell className="hidden sm:table-cell max-w-xs truncate text-ellipsis whitespace-nowrap overflow-hidden break-words">{req.reason}</TableCell>
-            <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy")}</TableCell>
-            <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : "N/A"}</TableCell>
-            <TableCell className="text-center">
-                <Badge
-                    variant={req.status === 'approved' ? (req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'destructive' : 'success') : req.status === 'pending' ? 'secondary' : 'outline'}
-                    className="capitalize"
-                >
-                    {req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'Overdue' : req.status}
-                </Badge>
-            </TableCell>
+    <div className="overflow-x-auto rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Amount</TableHead>
+            <TableHead className="hidden sm:table-cell">Reason</TableHead>
+            <TableHead>Requested On</TableHead>
+            <TableHead>Expected Return</TableHead>
+            <TableHead className="text-center">Status</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {requests.map(req => (
+            <TableRow key={req.id}>
+              <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
+              <TableCell className="hidden sm:table-cell max-w-xs truncate text-ellipsis whitespace-nowrap overflow-hidden break-words">{req.reason}</TableCell>
+              <TableCell>{format(parseISO(req.requested_at), "MMM dd, yyyy")}</TableCell>
+              <TableCell>{req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : "N/A"}</TableCell>
+              <TableCell className="text-center">
+                  <Badge
+                      variant={req.status === 'approved' ? (req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'destructive' : 'success') : req.status === 'pending' ? 'secondary' : 'outline'}
+                      className="capitalize"
+                  >
+                      {req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && !req.is_fully_repaid ? 'Overdue' : req.status}
+                  </Badge>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 });
 RequestTableDisplay.displayName = "RequestTableDisplay";
@@ -122,13 +123,23 @@ export default function EmergencyRequestPage() {
     },
   });
 
-  const { data: existingRequests, isLoading: isLoadingExistingRequests } = useQuery<EmergencyRequest[], Error>({
+  const { 
+    data: existingRequests, 
+    isLoading: isLoadingExistingRequests,
+    error: existingRequestsError,
+    refetch: refetchExistingRequests
+  } = useQuery<EmergencyRequest[], Error>({
     queryKey: ["currentUserActiveEmergencyRequests", user?.id],
     queryFn: () => fetchCurrentUserActiveEmergencyRequests(user?.id),
     enabled: !!user,
   });
 
-  const { data: totalFamilySavings, isLoading: isLoadingTotalSavings } = useQuery<number, Error>({
+  const { 
+    data: totalFamilySavings, 
+    isLoading: isLoadingTotalSavings,
+    error: totalSavingsError,
+    refetch: refetchTotalSavings
+  } = useQuery<number, Error>({
     queryKey: ["totalFamilySavingsForRequestForm"],
     queryFn: fetchTotalFamilySavingsRPC,
   });
@@ -194,9 +205,9 @@ export default function EmergencyRequestPage() {
       });
       form.reset({ amount: 0, reason: "", return_date: undefined });
       queryClient.invalidateQueries({ queryKey: ["currentUserActiveEmergencyRequests", user?.id] });
-      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] });
+      queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequests"] }); // For dashboard
       queryClient.invalidateQueries({ queryKey: ["totalFamilySavingsForRequestForm"] });
-      queryClient.invalidateQueries({ queryKey: ["totalFamilySavings"] });
+      queryClient.invalidateQueries({ queryKey: ["totalFamilySavings"] }); // For dashboard
     }
   }
 
@@ -213,11 +224,12 @@ export default function EmergencyRequestPage() {
      return null;
   }
 
-  const showSummaryCard = !isLoadingExistingRequests && (pendingRequests.length > 0 || approvedOutstandingRequests.length > 0);
+  const showSummaryCard = (!isLoadingExistingRequests && (pendingRequests.length > 0 || approvedOutstandingRequests.length > 0)) || existingRequestsError;
+  const showFormCard = !totalSavingsError;
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-0 max-w-3xl space-y-8">
-      {isLoadingExistingRequests && !existingRequests ? (
+      {isLoadingExistingRequests && !existingRequests && !existingRequestsError ? (
         <Card className="shadow-md">
           <CardHeader><CardTitle className="text-lg">Loading Your Active Requests...</CardTitle></CardHeader>
           <CardContent className="flex justify-center py-6"><Loader2 className="h-8 w-8 animate-spin text-primary" /></CardContent>
@@ -231,23 +243,29 @@ export default function EmergencyRequestPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {pendingRequests.length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold mb-2 text-foreground/90">Pending Requests ({pendingRequests.length})</h3>
-                <div className="rounded-md border"> {/* Added border wrapper for table */}
-                  <RequestTableDisplay requests={pendingRequests} />
-                </div>
+            {existingRequestsError && (
+              <div className="text-center py-4">
+                <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
+                <p className="text-destructive mb-1">Error loading your requests.</p>
+                <p className="text-sm text-muted-foreground mb-3">{existingRequestsError.message}</p>
+                <Button onClick={() => refetchExistingRequests()} variant="outline" size="sm">
+                  <RefreshCw className="mr-2 h-4 w-4" /> Try again
+                </Button>
               </div>
             )}
-            {pendingRequests.length > 0 && approvedOutstandingRequests.length > 0 && (
+            {!existingRequestsError && pendingRequests.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold mb-2 text-foreground/90">Pending Requests ({pendingRequests.length})</h3>
+                <RequestTableDisplay requests={pendingRequests} />
+              </div>
+            )}
+            {!existingRequestsError && pendingRequests.length > 0 && approvedOutstandingRequests.length > 0 && (
               <hr className="my-6 border-border" />
             )}
-            {approvedOutstandingRequests.length > 0 && (
+            {!existingRequestsError && approvedOutstandingRequests.length > 0 && (
               <div>
                 <h3 className="text-lg font-semibold mb-2 text-foreground/90">Approved & Outstanding Requests ({approvedOutstandingRequests.length})</h3>
-                <div className="rounded-md border"> {/* Added border wrapper for table */}
-                  <RequestTableDisplay requests={approvedOutstandingRequests} />
-                </div>
+                <RequestTableDisplay requests={approvedOutstandingRequests} />
                 {totalOutstandingAmount > 0 && (
                     <p className="mt-4 text-sm font-medium text-muted-foreground">
                         Total outstanding from approved requests: <span className="font-semibold text-primary">{CURRENCY_SYMBOL}{totalOutstandingAmount.toLocaleString()}</span>
@@ -255,119 +273,140 @@ export default function EmergencyRequestPage() {
                 )}
               </div>
             )}
+            {!existingRequestsError && existingRequests?.length === 0 && (
+                <p className="text-center text-muted-foreground py-4">You have no active emergency requests.</p>
+            )}
           </CardContent>
         </Card>
       ) : null}
 
-      <Card className="shadow-xl">
-        <CardHeader>
-          <CardTitle className="text-2xl font-bold">Request New Emergency Fund</CardTitle>
-          <CardDescription>
-            Need financial assistance? Fill out the form below. All requests are subject to admin approval.
-            <br />
-            {isLoadingTotalSavings ? (
-                <span className="text-sm text-muted-foreground italic">Loading available fund balance...</span>
-            ) : (
-                <span className="text-sm text-primary font-medium">Current Available Fund Balance: {CURRENCY_SYMBOL}{(totalFamilySavings ?? 0).toLocaleString()}</span>
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField
-                control={form.control}
-                name="amount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Amount Requested ({CURRENCY_SYMBOL})</FormLabel>
-                    <FormControl>
-                      <Input type="number" placeholder="e.g., 5000" {...field} disabled={form.formState.isSubmitting || isLoadingTotalSavings} />
-                    </FormControl>
-                    <FormDescription>
-                      Enter the total amount you require.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="reason"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Reason for Request</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Describe the emergency and why you need the funds (e.g., urgent medical bill, unexpected home repair)."
-                        className="min-h-[120px]"
-                        {...field}
-                        disabled={form.formState.isSubmitting}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Please be specific. This will help admins review your request. (Min. 10 characters)
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="return_date"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Expected Return Date</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant={"outline"}
-                            className={cn(
-                              "w-full pl-3 text-left font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                            disabled={form.formState.isSubmitting}
-                          >
-                            {field.value ? (
-                              format(field.value, "PPP")
-                            ) : (
-                              <span>Pick a date</span>
-                            )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value || undefined}
-                          onSelect={field.onChange}
-                          disabled={(date) =>
-                            date < new Date(new Date().setDate(new Date().getDate() -1))
-                          }
-                          initialFocus
+      {totalSavingsError && (
+         <Card className="shadow-xl">
+            <CardHeader>
+                <CardTitle className="text-2xl font-bold">Request New Emergency Fund</CardTitle>
+            </CardHeader>
+            <CardContent className="text-center py-6">
+                <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
+                <p className="text-destructive mb-1">Error loading fund balance.</p>
+                <p className="text-sm text-muted-foreground mb-3">{totalSavingsError.message}</p>
+                <Button onClick={() => refetchTotalSavings()} variant="outline" size="sm">
+                  <RefreshCw className="mr-2 h-4 w-4" /> Try again
+                </Button>
+            </CardContent>
+         </Card>
+      )}
+
+      {showFormCard && (
+        <Card className="shadow-xl">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold">Request New Emergency Fund</CardTitle>
+            <CardDescription>
+              Need financial assistance? Fill out the form below. All requests are subject to admin approval.
+              <br />
+              {isLoadingTotalSavings && totalFamilySavings === undefined ? (
+                  <span className="text-sm text-muted-foreground italic">Loading available fund balance...</span>
+              ) : (
+                  <span className="text-sm text-primary font-medium">Current Available Fund Balance: {CURRENCY_SYMBOL}{(totalFamilySavings ?? 0).toLocaleString()}</span>
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <FormField
+                  control={form.control}
+                  name="amount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Amount Requested ({CURRENCY_SYMBOL})</FormLabel>
+                      <FormControl>
+                        <Input type="number" placeholder="e.g., 5000" {...field} disabled={form.formState.isSubmitting || isLoadingTotalSavings || totalFamilySavings === undefined} />
+                      </FormControl>
+                      <FormDescription>
+                        Enter the total amount you require.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="reason"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reason for Request</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Describe the emergency and why you need the funds (e.g., urgent medical bill, unexpected home repair)."
+                          className="min-h-[120px]"
+                          {...field}
+                          disabled={form.formState.isSubmitting}
                         />
-                      </PopoverContent>
-                    </Popover>
-                    <FormDescription>
-                      When do you expect to return this amount? This is a required field.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button type="submit" className="w-full md:w-auto" disabled={form.formState.isSubmitting || isLoadingTotalSavings}>
-                {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (
-                  <>
-                    <Send className="mr-2 h-4 w-4" /> Submit Request
-                  </>
-                )}
-              </Button>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
+                      </FormControl>
+                      <FormDescription>
+                        Please be specific. This will help admins review your request. (Min. 10 characters)
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="return_date"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Expected Return Date</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "w-full pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                              disabled={form.formState.isSubmitting}
+                            >
+                              {field.value ? (
+                                format(field.value, "PPP")
+                              ) : (
+                                <span>Pick a date</span>
+                              )}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value || undefined}
+                            onSelect={field.onChange}
+                            disabled={(date) =>
+                              date < new Date(new Date().setDate(new Date().getDate() -1))
+                            }
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormDescription>
+                        When do you expect to return this amount? This is a required field.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit" className="w-full md:w-auto" disabled={form.formState.isSubmitting || isLoadingTotalSavings || totalFamilySavings === undefined}>
+                  {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (
+                    <>
+                      <Send className="mr-2 h-4 w-4" /> Submit Request
+                    </>
+                  )}
+                </Button>
+              </form>
+            </Form>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, CheckCircle2, XCircle, Clock, CalendarDays, Hourglass, DollarSign, AlertTriangle, Eye } from "lucide-react";
+import { Loader2, Search, CheckCircle2, XCircle, Clock, CalendarDays, Hourglass, DollarSign, AlertTriangle, Eye, RefreshCw } from "lucide-react";
 import { format, parseISO, isPast } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,8 @@ import React from "react";
 interface EmergencyRequestHistoryTableProps {
   requests: EmergencyRequest[] | undefined;
   isLoading: boolean;
+  error: Error | null;
+  onRetry: () => void;
   title: string;
   description: string;
   showUserName?: boolean;
@@ -33,6 +35,8 @@ interface EmergencyRequestHistoryTableProps {
 export const EmergencyRequestHistoryTable = React.memo(function EmergencyRequestHistoryTable({
   requests,
   isLoading,
+  error,
+  onRetry,
   title,
   description,
   showUserName = false,
@@ -65,7 +69,7 @@ export const EmergencyRequestHistoryTable = React.memo(function EmergencyRequest
     return { variant: "outline", text: request.status || "Unknown", icon: <Clock className="h-3 w-3" /> };
   };
 
-  if (isLoading && (!requests || requests.length === 0) && totalCount === 0) {
+  if (isLoading && !requests && !error) {
     return (
       <Card className="shadow-lg">
         <CardHeader>
@@ -78,6 +82,26 @@ export const EmergencyRequestHistoryTable = React.memo(function EmergencyRequest
       </Card>
     );
   }
+
+  if (error) {
+     return (
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+           <CardDescription>{description}</CardDescription>
+        </CardHeader>
+        <CardContent className="text-center py-10">
+          <AlertTriangle className="h-10 w-10 text-destructive mx-auto mb-3" />
+          <p className="text-destructive mb-2">Error loading emergency requests.</p>
+          <p className="text-sm text-muted-foreground mb-4">{error.message}</p>
+          <Button onClick={onRetry} variant="outline">
+            <RefreshCw className="mr-2 h-4 w-4" /> Try again
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
 
   return (
     <Card className="shadow-lg">
@@ -94,79 +118,79 @@ export const EmergencyRequestHistoryTable = React.memo(function EmergencyRequest
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="pl-10 w-full md:w-1/2"
-            disabled={isLoading && requests && requests.length > 0}
+            disabled={isLoading && !!requests} // Disable if refetching in background
           />
         </div>
-        {/* ShadCN Table component handles its own overflow internally. No extra wrapper needed. */}
-        {/* The CardContent provides the visual boundary. */}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {showUserName && <TableHead>Requested By</TableHead>}
-              <TableHead>Requested At</TableHead>
-              <TableHead>Amount Req.</TableHead>
-              {isGlobalView && <TableHead>Amount Ret.</TableHead>}
-              <TableHead>Reason</TableHead>
-              <TableHead>Exp. Return</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              {isGlobalView && <TableHead className="text-right">Actions</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && requests && requests.length > 0 ? (
-               <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
-            ) : requests && requests.length > 0 ? (
-              requests.map((req) => {
-                const statusInfo = getStatusBadgeInfo(req);
-                return (
-                  <TableRow key={req.id}>
-                    {showUserName && <TableCell className="break-words">{req.user_name || req.user_id}</TableCell>}
-                    <TableCell>{format(parseISO(req.requested_at), "MMM dd, yy HH:mm")}</TableCell>
-                    <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
-                    {isGlobalView && <TableCell>{CURRENCY_SYMBOL}{(req.amount_returned || 0).toLocaleString()}</TableCell>}
-                    <TableCell className="max-w-xs truncate break-words">{req.reason}</TableCell>
-                    <TableCell>
-                      {req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground">N/A</span>}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge 
-                        variant={statusInfo.variant} 
-                        className={cn("capitalize flex items-center justify-center gap-1.5 min-w-[110px]",
-                          {'bg-yellow-500 hover:bg-yellow-600 text-white': statusInfo.text === 'Pending'},
-                          {'bg-blue-500 hover:bg-blue-600 text-white': statusInfo.text === 'Approved'},
-                          {'bg-green-600 hover:bg-green-700 text-white': statusInfo.text === 'Fully Repaid'},
-                          {'bg-red-500 hover:bg-red-600 text-white': statusInfo.text === 'Rejected' || statusInfo.text === 'Overdue' }
-                        )}
-                      >
-                        {statusInfo.icon}
-                        {statusInfo.text}
-                      </Badge>
-                    </TableCell>
-                    {isGlobalView && (
-                      <TableCell className="text-right">
-                        <Button asChild variant="ghost" size="icon" className="h-8 w-8 p-0">
-                          <Link href={`/requests/${req.id}`} title="View Details">
-                            <Eye className="h-4 w-4" />
-                            <span className="sr-only">View Details</span>
-                          </Link>
-                        </Button>
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {showUserName && <TableHead>Requested By</TableHead>}
+                <TableHead>Requested At</TableHead>
+                <TableHead>Amount Req.</TableHead>
+                {isGlobalView && <TableHead>Amount Ret.</TableHead>}
+                <TableHead>Reason</TableHead>
+                <TableHead>Exp. Return</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                {isGlobalView && <TableHead className="text-right">Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading && !!requests ? ( // Show spinner inside table if refetching with stale data
+                 <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /></TableCell></TableRow>
+              ) : requests && requests.length > 0 ? (
+                requests.map((req) => {
+                  const statusInfo = getStatusBadgeInfo(req);
+                  return (
+                    <TableRow key={req.id}>
+                      {showUserName && <TableCell className="break-words">{req.user_name || req.user_id}</TableCell>}
+                      <TableCell>{format(parseISO(req.requested_at), "MMM dd, yy HH:mm")}</TableCell>
+                      <TableCell>{CURRENCY_SYMBOL}{req.amount_requested.toLocaleString()}</TableCell>
+                      {isGlobalView && <TableCell>{CURRENCY_SYMBOL}{(req.amount_returned || 0).toLocaleString()}</TableCell>}
+                      <TableCell className="max-w-xs truncate break-words">{req.reason}</TableCell>
+                      <TableCell>
+                        {req.return_date ? format(parseISO(req.return_date), "MMM dd, yyyy") : <span className="text-muted-foreground">N/A</span>}
                       </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })
-            ) : (
-              <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center text-muted-foreground h-24">{totalCount === 0 ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
-            )}
-          </TableBody>
-        </Table>
+                      <TableCell className="text-center">
+                        <Badge 
+                          variant={statusInfo.variant} 
+                          className={cn("capitalize flex items-center justify-center gap-1.5 min-w-[110px]",
+                            {'bg-yellow-500 hover:bg-yellow-600 text-white': statusInfo.text === 'Pending'},
+                            {'bg-blue-500 hover:bg-blue-600 text-white': statusInfo.text === 'Approved'}, // Using default blue for approved
+                            {'bg-green-600 hover:bg-green-700 text-white': statusInfo.text === 'Fully Repaid'},
+                            {'bg-red-500 hover:bg-red-600 text-white': statusInfo.text === 'Rejected' || statusInfo.text === 'Overdue' }
+                          )}
+                        >
+                          {statusInfo.icon}
+                          {statusInfo.text}
+                        </Badge>
+                      </TableCell>
+                      {isGlobalView && (
+                        <TableCell className="text-right">
+                          <Button asChild variant="ghost" size="icon" className="h-8 w-8 p-0">
+                            <Link href={`/requests/${req.id}`} title="View Details">
+                              <Eye className="h-4 w-4" />
+                              <span className="sr-only">View Details</span>
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })
+              ) : (
+                <TableRow><TableCell colSpan={showUserName ? (isGlobalView ? 8 : 7) : (isGlobalView ? 7 : 6)} className="text-center text-muted-foreground h-24">{totalCount === 0 && !searchTerm ? 'No emergency requests found.' : 'No results for your search.'}</TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
         {totalPages > 1 && (
           <div className="flex items-center justify-end space-x-2 pt-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1 || (isLoading && requests && requests.length > 0)}
+              disabled={currentPage === 1 || (isLoading && !!requests)}
             >
               Previous
             </Button>
@@ -177,7 +201,7 @@ export const EmergencyRequestHistoryTable = React.memo(function EmergencyRequest
               variant="outline"
               size="sm"
               onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage === totalPages || (isLoading && requests && requests.length > 0)}
+              disabled={currentPage === totalPages || (isLoading && !!requests)}
             >
               Next
             </Button>

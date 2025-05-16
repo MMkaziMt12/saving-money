@@ -5,41 +5,42 @@ import type { Profile, EmergencyRequest } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { NotificationSender } from "@/components/admin/NotificationSender";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw, AlertTriangle } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { NotificationFormValues } from "@/components/admin/NotificationSender";
 import { useCallback } from "react";
+import { Button } from "@/components/ui/button";
 
 const supabase = createClient();
 
 async function fetchUsersForNotifications(): Promise<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[]> {
   const { data, error } = await supabase
     .from('profiles')
-    // Optimized: Select specific columns
-    .select('id, full_name, email, is_approved')
+    .select('id, full_name, email, is_approved') // Specific columns
     .order('full_name', { ascending: true });
-  if (error) throw new Error(`Error fetching users for notifications: ${error.message}`);
+  if (error) {
+    console.error("Error fetching users for notifications:", error);
+    throw error; // Propagate error
+  }
   return data || [];
 }
 
 async function fetchAllEmergencyRequestsForNotifications(): Promise<Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user?: Pick<Profile, 'full_name'> | null }[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
-    // Optimized: Select specific columns and from joined profile
-    .select('id, user_id, reason, amount_requested, status, requested_at, profile_user:profiles!emergency_requests_user_id_fkey(full_name)')
+    .select('id, user_id, reason, amount_requested, status, requested_at, profile_user:profiles!emergency_requests_user_id_fkey(full_name)') // Specific columns
     .order('requested_at', { ascending: false });
 
   if (error) {
     console.error("Error fetching emergency requests for notifications:", error);
-    throw new Error(`Error fetching emergency requests for notifications: ${error.message}`);
+    throw error; // Propagate error
   }
   
   return rawRequests?.map(req => ({
     ...req,
-    user_name: req.profile_user?.full_name || req.user_id || 'Unknown User', 
+    user_name: (req.profile_user as Pick<Profile, 'full_name'>)?.full_name || req.user_id || 'Unknown User', 
   })) || [];
 }
-
 
 interface SendNotificationPayload {
   targetUserIds: string[];
@@ -54,16 +55,25 @@ export function NotificationSenderTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: users, isLoading: isLoadingUsers, error: usersError } = useQuery<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[], Error>({
+  const { 
+    data: users, 
+    isLoading: isLoadingUsers, 
+    error: usersError,
+    refetch: refetchUsers
+  } = useQuery<Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>[], Error>({
     queryKey: ['allUsersForNotifications'],
     queryFn: fetchUsersForNotifications,
   });
 
-  const { data: emergencyRequests, isLoading: isLoadingEmergencyRequests, error: emergencyRequestsError } = useQuery<Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user?: Pick<Profile, 'full_name'> | null }[], Error>({
+  const { 
+    data: emergencyRequests, 
+    isLoading: isLoadingEmergencyRequests, 
+    error: emergencyRequestsError,
+    refetch: refetchEmergencyRequests
+  } = useQuery<Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user?: Pick<Profile, 'full_name'> | null }[], Error>({
     queryKey: ['allEmergencyRequestsForNotifications'],
     queryFn: fetchAllEmergencyRequestsForNotifications,
   });
-
 
   const sendNotificationMutation = useMutation<any, Error, SendNotificationPayload>({
     mutationFn: async (payload) => {
@@ -76,7 +86,7 @@ export function NotificationSenderTab() {
 
       if (error) {
         console.error("NotificationSenderTab: Error invoking 'send-app-notification' function:", error);
-        throw new Error(error.message || "Failed to send notification via Edge Function.");
+        throw error; // Propagate error for useMutation's onError
       }
       console.log("NotificationSenderTab: Edge Function response data (parsed):", data);
       console.log("NotificationSenderTab: Specifically, createdNotifications:", data?.createdNotifications);
@@ -88,17 +98,20 @@ export function NotificationSenderTab() {
         title: "Notification Sent!",
         description: `Notifications dispatched. ${createdCount} notification(s) potentially created.`,
       });
+      // Potentially invalidate notifications queries if you have a table listing sent notifications
+      // queryClient.invalidateQueries({ queryKey: ['adminSentNotifications'] });
     },
     onError: (error: Error) => {
       toast({
         title: "Sending Failed",
-        description: error.message || "Could not send notification.",
+        description: error.message || "Could not send notification. Check Edge Function logs.",
         variant: "destructive",
       });
     },
   });
 
   const handleSendNotification = useCallback(async (formData: NotificationFormValues) => {
+    console.log("NotificationSenderTab: Preparing to send notification. Form data:", formData);
     if (!users) {
       toast({ title: "Error", description: "User list not loaded yet. Cannot send notification.", variant: "destructive" });
       console.error("NotificationSenderTab: Users array is not available.");
@@ -108,9 +121,7 @@ export function NotificationSenderTab() {
     let targetUserIds: string[] = [];
     const selectedTarget = formData.targetUser;
 
-    console.log("NotificationSenderTab: Preparing to send notification. Form data:", formData);
     console.log("NotificationSenderTab: Available users for targeting:", users.map(u => ({id: u.id, name: u.full_name, approved: u.is_approved})));
-
 
     if (selectedTarget === "all_users") {
       targetUserIds = users.filter(u => u.is_approved).map(u => u.id);
@@ -132,13 +143,12 @@ export function NotificationSenderTab() {
         const request = emergencyRequests?.find(r => r.id === formData.selectedEmergencyRequestId);
         if (request?.user_id) {
             targetUserIds = [request.user_id];
-             console.log("NotificationSenderTab: Targeting user from selected emergency request. ID:", targetUserIds);
+            console.log("NotificationSenderTab: Targeting user from selected emergency request. ID:", targetUserIds);
         } else {
             toast({ title: "Error", description: "Could not determine target user from selected emergency request.", variant: "destructive" });
             return;
         }
     }
-
 
     if (targetUserIds.length === 0 && selectedTarget !== "all_pending_contribution") {
       console.warn("NotificationSenderTab: No target user IDs determined. Notification not sent. Selected target was:", selectedTarget);
@@ -162,7 +172,6 @@ export function NotificationSenderTab() {
         console.log(`NotificationSenderTab: Emergency request selected. Link: ${finalLink}, Related Request ID: ${relatedRequestIdValue}`);
     }
 
-
     const payload: SendNotificationPayload = {
       targetUserIds,
       message: messageToSend,
@@ -182,14 +191,12 @@ export function NotificationSenderTab() {
     try {
       await sendNotificationMutation.mutateAsync(payload);
     } catch (error) {
-      console.error("NotificationSenderTab: Error caught during sendNotificationMutation.mutateAsync call:", error);
+      // Error is already handled by useMutation's onError
+      console.error("NotificationSenderTab: Error caught during sendNotificationMutation.mutateAsync call (should be handled by onError):", error);
     }
   }, [users, emergencyRequests, sendNotificationMutation, toast]);
 
-  const isLoading = isLoadingUsers || isLoadingEmergencyRequests || sendNotificationMutation.isPending;
-  const queryError = usersError || emergencyRequestsError;
-
-  if (isLoadingUsers || (isLoadingEmergencyRequests && (!emergencyRequests || !users))) { 
+  if ((isLoadingUsers && !users) || (isLoadingEmergencyRequests && !emergencyRequests)) { 
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -198,16 +205,22 @@ export function NotificationSenderTab() {
     );
   }
 
+  const queryError = usersError || emergencyRequestsError;
   if (queryError) {
      return (
-      <div className="flex flex-col items-center justify-center py-10">
-        <p className="text-destructive">Error: {queryError.message}</p>
-        <button 
-            onClick={() => queryClient.invalidateQueries({ queryKey: ['allUsersForNotifications', 'allEmergencyRequestsForNotifications'] })} 
-            className="mt-2 text-primary hover:underline"
+      <div className="flex flex-col items-center justify-center py-10 text-center">
+        <AlertTriangle className="h-10 w-10 text-destructive mb-3" />
+        <p className="text-destructive mb-2">Error loading data.</p>
+        <p className="text-sm text-muted-foreground mb-4">{queryError.message}</p>
+        <Button 
+            onClick={() => {
+                if (usersError) refetchUsers();
+                if (emergencyRequestsError) refetchEmergencyRequests();
+            }} 
+            variant="outline"
         >
-            Try again
-        </button>
+            <RefreshCw className="mr-2 h-4 w-4" /> Try again
+        </Button>
       </div>
     );
   }
@@ -215,8 +228,15 @@ export function NotificationSenderTab() {
   return (
     <NotificationSender 
         users={users || []} 
-        // Optimized: Pass only necessary fields from emergency requests
-        emergencyRequests={emergencyRequests?.map(er => ({ id: er.id, user_id: er.user_id, reason: er.reason, amount_requested: er.amount_requested, status: er.status, requested_at: er.requested_at, profile_user: er.profile_user })) || []}
+        emergencyRequests={emergencyRequests?.map(er => ({ 
+            id: er.id, 
+            user_id: er.user_id, 
+            reason: er.reason, 
+            amount_requested: er.amount_requested, 
+            status: er.status, 
+            requested_at: er.requested_at, 
+            profile_user: er.profile_user 
+        })) || []}
         onSend={handleSendNotification} 
         isSending={sendNotificationMutation.isPending} 
     />

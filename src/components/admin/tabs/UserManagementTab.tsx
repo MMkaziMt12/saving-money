@@ -6,7 +6,7 @@ import type { Profile } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { UserManagementTable } from "@/components/admin/UserManagementTable";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, RefreshCw, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -18,10 +18,12 @@ const ITEMS_PER_PAGE = 10;
 async function fetchUsers(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')
-    // Optimized: Select specific columns
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, is_active')
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, is_active') // Specific columns
     .order('created_at', { ascending: false });
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Error fetching users in UserManagementTab:", error);
+    throw error; // Propagate error
+  }
   return data || [];
 }
 
@@ -30,17 +32,22 @@ async function updateUserProfile(userId: string, updates: Partial<Profile>): Pro
     .from('profiles')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', userId)
-    // Optimized: Select specific columns after update
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, is_active')
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, is_active') // Select specific columns
     .single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Error updating user profile in UserManagementTab:", error);
+    throw error; // Propagate error
+  }
   if (!data) throw new Error("User profile not found after update.");
   return data;
 }
 
 async function deleteUserProfile(userId: string): Promise<void> {
   const { error } = await supabase.from('profiles').delete().eq('id', userId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Error deleting user profile in UserManagementTab:", error);
+    throw error; // Propagate error
+  }
 }
 
 export function UserManagementTab() {
@@ -51,7 +58,12 @@ export function UserManagementTab() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: users, isLoading, error: usersError } = useQuery<Profile[], Error>({
+  const { 
+    data: users, 
+    isLoading: isLoadingUsers, 
+    error: usersError,
+    refetch: refetchUsers
+  } = useQuery<Profile[], Error>({
     queryKey: ['adminUsers'],
     queryFn: fetchUsers,
   });
@@ -59,7 +71,12 @@ export function UserManagementTab() {
   const mutationOptions = {
     onSuccess: (data: Profile | void, variables: string | { userId: string; updates?: Partial<Profile> }) => {
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
-      const userName = users?.find(u => u.id === (typeof variables === 'string' ? variables : variables.userId))?.full_name || "User";
+      // Also invalidate user detail if it exists, assuming key format ["userProfile", userId]
+      const targetUserId = typeof variables === 'string' ? variables : variables.userId;
+      queryClient.invalidateQueries({ queryKey: ["userProfile", targetUserId] });
+
+
+      const userName = users?.find(u => u.id === targetUserId)?.full_name || "User";
       
       if (typeof variables === 'string') { 
          toast({ title: "Success", description: `${userName} profile deleted.` });
@@ -78,25 +95,25 @@ export function UserManagementTab() {
     },
   };
 
-  const approveUserMutation = useMutation({
+  const approveUserMutation = useMutation<Profile, Error, string>({
     mutationFn: (userId: string) => updateUserProfile(userId, { is_approved: true }),
     ...mutationOptions,
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {is_approved: true }})
   });
 
-  const rejectUserMutation = useMutation({
+  const rejectUserMutation = useMutation<Profile, Error, string>({
     mutationFn: (userId: string) => updateUserProfile(userId, { is_approved: false }),
     ...mutationOptions,
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {is_approved: false }})
   });
 
-  const makeAdminMutation = useMutation({
+  const makeAdminMutation = useMutation<Profile, Error, string>({
     mutationFn: (userId: string) => updateUserProfile(userId, { role: 'admin' }),
     ...mutationOptions,
      onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: { role: 'admin' }})
   });
 
-  const revokeAdminMutation = useMutation({
+  const revokeAdminMutation = useMutation<Profile, Error, string>({
     mutationFn: (userId: string) => {
       if (authUser?.id === userId && users?.filter(u => u.role === 'admin').length <= 1) {
         throw new Error("Cannot revoke the last admin's privileges.");
@@ -107,7 +124,7 @@ export function UserManagementTab() {
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {role: 'user' }})
   });
 
-  const deleteUserMutation = useMutation({
+  const deleteUserMutation = useMutation<void, Error, string>({
     mutationFn: (userId: string) => {
       if (authUser?.id === userId) {
         throw new Error("Cannot delete your own profile.");
@@ -142,7 +159,7 @@ export function UserManagementTab() {
   const handleDeleteUser = useCallback((userId: string) => deleteUserMutation.mutate(userId), [deleteUserMutation]);
 
 
-  if (isLoading) {
+  if (isLoadingUsers && !users) { // Show loader only if no stale data
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -153,9 +170,13 @@ export function UserManagementTab() {
 
   if (usersError) {
     return (
-      <div className="flex flex-col items-center justify-center py-10">
-        <p className="text-destructive">Error fetching users: {usersError.message}</p>
-        <button onClick={() => queryClient.invalidateQueries({ queryKey: ['adminUsers'] })} className="mt-2 text-primary hover:underline">Try again</button>
+      <div className="flex flex-col items-center justify-center py-10 text-center">
+        <AlertTriangle className="h-10 w-10 text-destructive mb-3" />
+        <p className="text-destructive mb-2">Error fetching users.</p>
+        <p className="text-sm text-muted-foreground mb-4">{usersError.message}</p>
+        <Button onClick={() => refetchUsers()} variant="outline">
+          <RefreshCw className="mr-2 h-4 w-4" /> Try again
+        </Button>
       </div>
     );
   }

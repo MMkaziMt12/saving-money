@@ -11,7 +11,7 @@ import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, User, Mail, Phone, Shield, CalendarDays, MessageSquare, ArrowLeft, AlertTriangle, DollarSign, Info, ListChecks, Hash, ExternalLink } from "lucide-react";
+import { Loader2, User, Mail, Phone, Shield, CalendarDays, MessageSquare, ArrowLeft, AlertTriangle, DollarSign, Info, ListChecks, Hash, ExternalLink, RefreshCw } from "lucide-react";
 import { format, parseISO, formatDistanceToNowStrict, isPast } from "date-fns";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
@@ -31,12 +31,12 @@ async function fetchEmergencyRequestDetails(requestId: string): Promise<Emergenc
       amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
       profile_user:profiles!emergency_requests_user_id_fkey(full_name, avatar_url),
       profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
-    `)
+    `) // Specific columns
     .eq("id", requestId)
     .single();
   if (error) {
     console.error("Error fetching emergency request details:", error);
-    throw new Error(error.message);
+    throw error; // Propagate error
   }
   return data as EmergencyRequest | null; 
 }
@@ -45,12 +45,12 @@ async function fetchRelatedNotifications(requestId: string): Promise<AppNotifica
   if (!requestId) return [];
   const { data, error } = await supabase
     .from("notifications")
-    .select("id, message, created_at, read_at, link")
+    .select("id, message, created_at, read_at, link") // Specific columns
     .eq("related_request_id", requestId)
     .order("created_at", { ascending: false });
   if (error) {
     console.error("Error fetching related notifications:", error);
-    throw new Error(error.message);
+    throw error; // Propagate error
   }
   return data || [];
 }
@@ -78,7 +78,7 @@ InfoItem.displayName = 'InfoItem';
 const getStatusBadgeVariant = (request: EmergencyRequest | null): VariantProps<typeof Badge>["variant"] => {
     if (!request) return "outline";
     if (request.is_fully_repaid) return "success";
-    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive";
+    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive"; 
     if (request.status === "approved") return "default"; 
     if (request.status === "rejected") return "destructive";
     if (request.status === "pending") return "secondary"; 
@@ -108,13 +108,23 @@ export default function EmergencyRequestDetailPage() {
     }
   }, [user, authLoading, isApproved, router]);
 
-  const { data: requestDetails, isLoading: isLoadingRequest, error: requestError } = useQuery<EmergencyRequest | null, Error>({
+  const { 
+    data: requestDetails, 
+    isLoading: isLoadingRequest, 
+    error: requestError,
+    refetch: refetchRequestDetails
+  } = useQuery<EmergencyRequest | null, Error>({
     queryKey: ["emergencyRequestDetails", requestId],
     queryFn: () => fetchEmergencyRequestDetails(requestId),
     enabled: !!requestId && !!user,
   });
 
-  const { data: notifications, isLoading: isLoadingNotifications, error: notificationsError } = useQuery<AppNotification[], Error>({
+  const { 
+    data: notifications, 
+    isLoading: isLoadingNotifications, 
+    error: notificationsError,
+    refetch: refetchNotifications
+  } = useQuery<AppNotification[], Error>({
     queryKey: ["relatedNotifications", requestId],
     queryFn: () => fetchRelatedNotifications(requestId),
     enabled: !!requestId && !!user,
@@ -127,7 +137,10 @@ export default function EmergencyRequestDetailPage() {
     return (names[0][0]?.toUpperCase() || "") + (names[names.length - 1][0]?.toUpperCase() || "");
   };
 
-  if (authLoading || (isLoadingRequest && !requestDetails) || (isLoadingNotifications && !notifications)) {
+  const combinedIsLoading = (isLoadingRequest && !requestDetails) || (isLoadingNotifications && !notifications);
+  const combinedError = requestError || notificationsError;
+
+  if (authLoading || (combinedIsLoading && !combinedError)) { // Show main loader if auth or initial data load is happening
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -136,15 +149,21 @@ export default function EmergencyRequestDetailPage() {
     );
   }
 
-  if (requestError || notificationsError) {
+  if (combinedError) {
     return (
       <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <p className="text-destructive mb-2">Error loading request details.</p>
         <p className="text-sm text-muted-foreground mb-4">
-          {requestError?.message || notificationsError?.message}
+          {combinedError.message}
         </p>
-        <Button onClick={() => router.back()} variant="outline">
+        <Button onClick={() => {
+          if (requestError) refetchRequestDetails();
+          if (notificationsError) refetchNotifications();
+        }} variant="outline">
+          <RefreshCw className="mr-2 h-4 w-4" /> Try again
+        </Button>
+        <Button onClick={() => router.back()} variant="link" className="mt-2">
           <ArrowLeft className="mr-2 h-4 w-4" /> Go Back
         </Button>
       </div>
@@ -188,7 +207,7 @@ export default function EmergencyRequestDetailPage() {
                     <AvatarFallback className="text-2xl md:text-3xl">{getInitials(requesterProfile.full_name)}</AvatarFallback>
                 </Avatar>
             )}
-            <div className="flex-1">
+            <div className="flex-1 text-center md:text-left">
               <CardTitle className="text-xl md:text-2xl font-bold mb-1">Emergency Request Details</CardTitle>
               <CardDescription className="text-sm md:text-md text-muted-foreground">
                 Submitted by: <span className="font-semibold text-primary">{requesterProfile?.full_name || "Unknown User"}</span>
@@ -232,7 +251,7 @@ export default function EmergencyRequestDetailPage() {
           <CardDescription>History of communications regarding this emergency request.</CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoadingNotifications ? (
+          {isLoadingNotifications && !notifications && !notificationsError ? (
             <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
           ) : notifications && notifications.length > 0 ? (
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2 rounded-md border p-3">
@@ -251,6 +270,15 @@ export default function EmergencyRequestDetailPage() {
                 </div>
               ))}
             </div>
+          ) : notificationsError ? (
+             <div className="text-center py-4">
+                <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
+                <p className="text-destructive mb-1">Error loading notifications.</p>
+                <p className="text-sm text-muted-foreground mb-3">{notificationsError.message}</p>
+                <Button onClick={() => refetchNotifications()} variant="outline" size="sm">
+                  <RefreshCw className="mr-2 h-4 w-4" /> Try again
+                </Button>
+              </div>
           ) : (
             <p className="text-center text-muted-foreground py-6">No notifications found for this request.</p>
           )}

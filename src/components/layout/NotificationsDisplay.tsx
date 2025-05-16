@@ -8,7 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Bell, CheckCheck, Loader2, ExternalLink } from "lucide-react";
+import { Bell, CheckCheck, Loader2, ExternalLink, AlertTriangle, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,24 +34,23 @@ async function fetchUserNotifications(userId: string | undefined): Promise<Notif
   console.log(`NotificationsDisplay: Fetching notifications for user ${userId} (initial or polled)`);
   const { data, error } = await supabase
     .from("notifications")
-    // Optimized: Select specific columns
-    .select("id, message, created_at, read_at, link, type")
+    .select("id, message, created_at, read_at, link, type") // Specific columns
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(20);
 
   if (error) {
     console.error("NotificationsDisplay: Error fetching notifications:", error);
-    throw new Error(error.message);
+    throw error; // Propagate error
   }
   console.log(`NotificationsDisplay: Notifications for user ${userId} fetched:`, data?.length || 0);
   return data || [];
 }
 
-async function markNotificationsAsRead(userId: string, notificationIds?: string[]): Promise<any> {
+async function markNotificationsAsRead(userId: string, notificationIds?: string[]): Promise<Pick<Notification, 'id' | 'read_at'>[]> {
   if (!userId) {
     console.error("NotificationsDisplay: markAsReadMutation cannot run, user ID missing.");
-    return Promise.reject(new Error("User ID missing"));
+    throw new Error("User ID missing");
   }
   console.log(`NotificationsDisplay: Marking notifications as read for user ${userId}. IDs:`, notificationIds || "all unread");
   let query = supabase
@@ -68,19 +67,23 @@ async function markNotificationsAsRead(userId: string, notificationIds?: string[
 
   if (error) {
     console.error("NotificationsDisplay: Error marking notifications as read:", error);
-    throw new Error(error.message);
+    throw error; // Propagate error
   }
   console.log("NotificationsDisplay: Notifications marked as read, server response:", data);
-  return data;
+  return data || [];
 }
-
 
 export function NotificationsDisplay() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [localNotifications, setLocalNotifications] = useState<Notification[]>([]);
 
-  const { data: fetchedNotificationsData, isLoading: isLoadingNotifications } = useQuery<Notification[], Error>({
+  const { 
+    data: fetchedNotificationsData, 
+    isLoading: isLoadingNotifications,
+    error: notificationsError,
+    refetch: refetchNotifications
+  } = useQuery<Notification[], Error>({
     queryKey: ["userNotifications", user?.id],
     queryFn: () => fetchUserNotifications(user?.id),
     enabled: !!user,
@@ -92,9 +95,10 @@ export function NotificationsDisplay() {
       setLocalNotifications(prevLocal => {
         const newNotificationsMap = new Map(data.map(n => [n.id, n]));
         const combined = [
-          ...data,
-          ...prevLocal.filter(n => !newNotificationsMap.has(n.id))
+          ...data, // Prioritize fresh data from fetch
+          ...prevLocal.filter(n => !newNotificationsMap.has(n.id)) // Add old local items not in fresh data
         ];
+        // Sort and limit
         return combined.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20);
       });
     },
@@ -103,6 +107,8 @@ export function NotificationsDisplay() {
     }
   });
 
+  // This useEffect ensures that if fetchedNotificationsData changes (e.g., due to polling or manual refetch),
+  // localNotifications is updated. This is a bit redundant with onSuccess but provides a safeguard.
   useEffect(() => {
     if (fetchedNotificationsData) {
         console.log("NotificationsDisplay: useEffect detected change in fetchedNotificationsData, updating localNotifications state with fetched data length:", fetchedNotificationsData.length);
@@ -125,7 +131,7 @@ export function NotificationsDisplay() {
 
     console.log(`NotificationsDisplay: Setting up Realtime subscription for user ${user.id} on 'notifications' table.`);
     const channel = supabase
-      .channel(`notifications-user-${user.id}`)
+      .channel(`notifications-user-${user.id}`) // Unique channel per user
       .on<Notification>(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
@@ -135,6 +141,7 @@ export function NotificationsDisplay() {
           console.log("NotificationsDisplay: New notification data from Realtime:", newNotification);
           if (newNotification && typeof newNotification === 'object' && 'id' in newNotification) {
             setLocalNotifications(prev => {
+              // Avoid duplicates if already present
               if (prev.some(n => n.id === newNotification.id)) {
                 console.log("NotificationsDisplay: New notification from Realtime already exists in local state. Ignoring to prevent duplicate.", newNotification.id);
                 return prev;
@@ -148,7 +155,7 @@ export function NotificationsDisplay() {
           }
         }
       )
-      .on<Notification>(
+      .on<Notification>( // Listen for updates, e.g., if another session marks as read
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
         (payload) => {
@@ -181,13 +188,13 @@ export function NotificationsDisplay() {
       console.log(`NotificationsDisplay: Removing Realtime channel subscription for user ${user.id}`);
       supabase.removeChannel(channel).catch(err => console.error("NotificationsDisplay: Error removing channel", err));
     };
-  }, [user?.id]);
+  }, [user?.id]); // Only re-subscribe if user ID changes
 
-  const markAsReadMutation = useMutation<any, Error, { notificationIds?: string[] }>({
+  const markAsReadMutation = useMutation<Pick<Notification, 'id' | 'read_at'>[], Error, { notificationIds?: string[] }>({
     mutationFn: ({ notificationIds }) => {
         if (!user?.id) {
             console.error("NotificationsDisplay: markAsReadMutation cannot run, user ID missing.");
-            return Promise.reject(new Error("User ID missing"));
+            throw new Error("User ID missing");
         }
         return markNotificationsAsRead(user.id, notificationIds);
     },
@@ -197,7 +204,7 @@ export function NotificationsDisplay() {
         const updatedIds = updatedDataFromServer.map(n => n.id);
         setLocalNotifications(prev =>
           prev.map(n =>
-            updatedIds.includes(n.id) ? { ...n, read_at: new Date().toISOString() } : n
+            updatedIds.includes(n.id) ? { ...n, read_at: updatedDataFromServer.find(ud => ud.id === n.id)?.read_at || new Date().toISOString() } : n
           ).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
       } else if (!updatedDataFromServer || (Array.isArray(updatedDataFromServer) && updatedDataFromServer.length === 0 && markAsReadMutation.latestVariables?.notificationIds === undefined) ) {
@@ -207,7 +214,8 @@ export function NotificationsDisplay() {
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 20)
         );
       }
-      queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] });
+      // Invalidate to ensure consistency if other clients/tabs are open, though realtime should also handle this.
+      queryClient.invalidateQueries({ queryKey: ["userNotifications", user?.id] }); 
     },
     onError: (error) => {
       console.error("NotificationsDisplay: Failed to mark notifications as read via mutation:", error);
@@ -237,7 +245,7 @@ export function NotificationsDisplay() {
   const handleMarkAllAsRead = useCallback(() => {
     if (unreadNotifications.length > 0 && user?.id) {
       console.log("NotificationsDisplay: Handling mark all as read.");
-      markAsReadMutation.mutate({}); // No specific IDs means mark all unread for the user
+      markAsReadMutation.mutate({}); 
     }
   }, [unreadNotifications.length, user?.id, markAsReadMutation]);
 
@@ -246,7 +254,7 @@ export function NotificationsDisplay() {
     return null;
   }
 
-  console.log("NotificationsDisplay: Rendering. isLoadingNotifications:", isLoadingNotifications, "localNotifications count:", localNotifications.length);
+  console.log("NotificationsDisplay: Rendering. isLoadingNotifications:", isLoadingNotifications, "localNotifications count:", localNotifications.length, "Error:", notificationsError?.message);
 
   return (
     <DropdownMenu>
@@ -267,17 +275,29 @@ export function NotificationsDisplay() {
       <DropdownMenuContent align="end" className="w-80 sm:w-96">
         <DropdownMenuLabel className="flex justify-between items-center">
           <span>Notifications</span>
-          {(isLoadingNotifications && localNotifications.length === 0) && <Loader2 className="h-4 w-4 animate-spin" />}
+          {(isLoadingNotifications && localNotifications.length === 0 && !notificationsError) && <Loader2 className="h-4 w-4 animate-spin" />}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {(!isLoadingNotifications && localNotifications.length === 0) && (
+        
+        {notificationsError && (
+          <div className="p-4 text-center text-sm text-destructive">
+            <AlertTriangle className="inline-block mr-2 h-4 w-4" />
+            Error loading notifications.
+            <Button variant="link" size="sm" onClick={() => refetchNotifications()} className="block mx-auto mt-1">
+                <RefreshCw className="mr-1 h-3 w-3" /> Try again
+            </Button>
+          </div>
+        )}
+
+        {(!isLoadingNotifications && localNotifications.length === 0 && !notificationsError) && (
           <DropdownMenuItem disabled className="text-center text-muted-foreground py-4">
             No new notifications
           </DropdownMenuItem>
         )}
-        {(localNotifications.length > 0 || (isLoadingNotifications && localNotifications.length === 0) ) && (
+
+        {(localNotifications.length > 0 || (isLoadingNotifications && localNotifications.length === 0 && !notificationsError) ) && !notificationsError && (
           <ScrollArea className="h-[300px] sm:h-[400px]">
-             {(isLoadingNotifications && localNotifications.length === 0) && (
+             {(isLoadingNotifications && localNotifications.length === 0 && !notificationsError) && (
                 <div className="flex justify-center items-center h-full">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
@@ -305,7 +325,7 @@ export function NotificationsDisplay() {
             )}
           </ScrollArea>
         )}
-        {unreadNotifications.length > 0 && (
+        {unreadNotifications.length > 0 && !notificationsError && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -333,13 +353,13 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
     const isUnread = !notification.read_at;
 
     const itemBaseStyle = "flex flex-col items-start gap-1 p-2 rounded-sm w-full text-left relative";
-    const unreadSpecificStyle = isUnread ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/50";
+    const unreadSpecificStyle = isUnread ? "bg-primary/5 ring-1 ring-primary/20" : "hover:bg-muted/50";
 
 
     const content = (
         <div className={cn(itemBaseStyle, unreadSpecificStyle, isUnread ? "pl-4" : "")}>
            {isUnread && <span className="absolute left-1.5 top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-primary"></span>}
-            <p className={cn("text-sm leading-snug", isUnread ? "font-medium text-foreground" : "text-foreground")}>{notification.message}</p>
+            <p className={cn("text-sm leading-snug break-words", isUnread ? "font-semibold text-foreground" : "text-foreground")}>{notification.message}</p>
             <div className="flex justify-between w-full items-center">
                 <span className={cn("text-xs", isUnread ? "text-primary/80" : "text-muted-foreground")}>{timeAgo}</span>
                 {notification.link && (
@@ -351,7 +371,9 @@ const NotificationItem = React.memo(({ notification, onMarkAsRead }: Notificatio
 
     const handleClickInternal = (e: React.MouseEvent<HTMLAnchorElement | HTMLDivElement>) => {
       if (isUnread && onMarkAsRead) {
-          if (!notification.link) { // Only prevent dropdown close if not navigating and simply marking as read
+          // Only prevent dropdown close if not navigating (i.e., no link or link is internal to same page)
+          // and simply marking as read. If it's a link to another page, let it close.
+          if (!notification.link || (notification.link && (notification.link.startsWith('#') || (typeof window !== 'undefined' && window.location.pathname === new URL(notification.link, window.location.origin).pathname)))) { 
               e.preventDefault();
               e.stopPropagation();
           }

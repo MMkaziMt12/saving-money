@@ -6,7 +6,7 @@ import type { EmergencyRequest, Profile } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { EmergencyRequestManagementTable } from "@/components/admin/EmergencyRequestManagementTable";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, RefreshCw, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -20,29 +20,34 @@ const ITEMS_PER_PAGE_REQUESTS = 10;
 async function fetchAdminProfilesForEmergency(): Promise<Pick<Profile, 'id' | 'full_name'>[]> {
   const { data, error } = await supabase
     .from('profiles')
-    // Optimized: Select only id and full_name
-    .select('id, full_name');
-  if (error) throw new Error(`Error fetching users: ${error.message}`);
+    .select('id, full_name'); // Optimized
+  if (error) {
+    console.error("Error fetching admin profiles for emergency:", error);
+    throw error; // Propagate error
+  }
   return data || [];
 }
 
 async function fetchAdminEmergencyRequests(): Promise<EmergencyRequest[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
-    // Optimized: Select specific columns and from joined tables
     .select(`
       id, user_id, amount_requested, reason, status, requested_at, return_date,
-      amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at,
+      amount_returned, is_fully_repaid, last_return_date, admin_notes, reviewed_at, reviewed_by_admin_id,
       profile_user:profiles!emergency_requests_user_id_fkey(full_name),
       profile_admin:profiles!emergency_requests_reviewed_by_admin_id_fkey(full_name)
-    `)
+    `) // Specific columns from emergency_requests and joined tables
     .order('requested_at', { ascending: false });
-  if (error) throw new Error(`Error fetching emergency requests: ${error.message}`);
+
+  if (error) {
+    console.error("Error fetching admin emergency requests:", error);
+    throw error; // Propagate error
+  }
   
   return rawRequests?.map(req => ({
       ...req,
-      user_name: (req.profile_user as Pick<Profile, 'full_name'>)?.full_name || req.user_id, // Type assertion
-      reviewed_by_admin_name: (req.profile_admin as Pick<Profile, 'full_name'>)?.full_name || req.reviewed_by_admin_id, // Type assertion
+      user_name: (req.profile_user as Pick<Profile, 'full_name'>)?.full_name || req.user_id,
+      reviewed_by_admin_name: (req.profile_admin as Pick<Profile, 'full_name'>)?.full_name || req.reviewed_by_admin_id,
   })) || [];
 }
 
@@ -62,31 +67,33 @@ async function updateEmergencyRequestStatus({ requestId, status, adminProfileId 
       updated_at: new Date().toISOString() 
     })
     .eq('id', requestId)
-    // Optimized: select specific columns after update
-    .select('id, status, reviewed_by_admin_id, reviewed_at, updated_at')
+    .select('id, status, reviewed_by_admin_id, reviewed_at, updated_at') // Specific columns
     .single();
-  if (error) throw new Error(`Error updating request: ${error.message}`);
+  if (error) {
+    console.error("Error updating emergency request status:", error);
+    throw error; // Propagate error
+  }
   if (!data) throw new Error("Failed to update request, no data returned.");
-  return data as EmergencyRequest; // Cast needed as select is partial
+  return data as EmergencyRequest; 
 }
 
 type RecordRepaymentPayload = {
   requestId: string;
   amountRepaid: number;
   repaymentDate: Date;
-  adminProfileId: string; // Though not directly used in update, good for context/logging if needed
+  adminProfileId: string; 
 };
 
 async function recordRepayment({ requestId, amountRepaid, repaymentDate }: RecordRepaymentPayload): Promise<EmergencyRequest> {
   const { data: existingRequest, error: fetchError } = await supabase
     .from('emergency_requests')
-    // Optimized: Select only needed fields
-    .select('amount_requested, amount_returned')
+    .select('amount_requested, amount_returned') // Minimal columns needed
     .eq('id', requestId)
     .single();
 
   if (fetchError || !existingRequest) {
-    throw new Error(fetchError?.message || "Could not find existing request to record repayment.");
+    console.error("Error fetching existing request for repayment:", fetchError);
+    throw fetchError || new Error("Could not find existing request to record repayment.");
   }
 
   const currentAmountReturned = existingRequest.amount_returned || 0;
@@ -102,13 +109,15 @@ async function recordRepayment({ requestId, amountRepaid, repaymentDate }: Recor
       updated_at: new Date().toISOString(),
     })
     .eq('id', requestId)
-    // Optimized: select specific columns after update
-    .select('id, amount_returned, last_return_date, is_fully_repaid, updated_at')
+    .select('id, amount_returned, last_return_date, is_fully_repaid, updated_at') // Specific columns
     .single();
 
-  if (error) throw new Error(`Error recording repayment: ${error.message}`);
+  if (error) {
+    console.error("Error recording repayment:", error);
+    throw error; // Propagate error
+  }
   if (!data) throw new Error("Failed to record repayment, no data returned.");
-  return data as EmergencyRequest; // Cast needed as select is partial
+  return data as EmergencyRequest; 
 }
 
 
@@ -120,25 +129,37 @@ export function EmergencyRequestManagementTab() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: users, isLoading: isLoadingUsers, error: usersError } = useQuery<Pick<Profile, 'id' | 'full_name'>[], Error>({
+  const { 
+    data: users, 
+    isLoading: isLoadingUsers, 
+    error: usersError,
+    refetch: refetchUsers
+  } = useQuery<Pick<Profile, 'id' | 'full_name'>[], Error>({
     queryKey: ['adminProfilesForEmergency'],
     queryFn: fetchAdminProfilesForEmergency,
   });
 
-  const { data: requests, isLoading: isLoadingRequests, error: requestsError } = useQuery<EmergencyRequest[], Error>({
+  const { 
+    data: requests, 
+    isLoading: isLoadingRequests, 
+    error: requestsError,
+    refetch: refetchRequests
+  } = useQuery<EmergencyRequest[], Error>({
     queryKey: ['adminEmergencyRequests'],
     queryFn: fetchAdminEmergencyRequests,
   });
 
   const updateRequestMutation = useMutation<EmergencyRequest, Error, UpdateRequestPayload>({
     mutationFn: updateEmergencyRequestStatus,
-    onSuccess: (data) => {
+    onSuccess: (updatedRequestData, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
       queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] });
       queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] });
       queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] });
-      queryClient.invalidateQueries({ queryKey: ['currentUserActiveEmergencyRequests']}); // Invalidate user's active requests on their form page
-      toast({ title: "Success", description: `Emergency request ${data.status}.` });
+      queryClient.invalidateQueries({ queryKey: ['currentUserActiveEmergencyRequests']}); 
+      queryClient.invalidateQueries({ queryKey: ["emergencyRequestDetails", variables.requestId] });
+      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequestsForAdmin", updatedRequestData.user_id] });
+      toast({ title: "Success", description: `Emergency request ${updatedRequestData.status}.` });
     },
     onError: (error: Error) => {
       toast({ title: "Error updating request", description: error.message, variant: "destructive" });
@@ -147,13 +168,15 @@ export function EmergencyRequestManagementTab() {
 
   const recordRepaymentMutation = useMutation<EmergencyRequest, Error, RecordRepaymentPayload>({
     mutationFn: recordRepayment,
-    onSuccess: (data, variables) => {
+    onSuccess: (updatedRequestData, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
       queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequests'] });
       queryClient.invalidateQueries({ queryKey: ['totalFamilySavings'] });
       queryClient.invalidateQueries({ queryKey: ['totalFamilySavingsForRequestForm'] });
       queryClient.invalidateQueries({ queryKey: ['currentUserActiveEmergencyRequests']});
-       const repaidThisTime = variables.amountRepaid;
+      queryClient.invalidateQueries({ queryKey: ["emergencyRequestDetails", variables.requestId] });
+      queryClient.invalidateQueries({ queryKey: ["userEmergencyRequestsForAdmin", updatedRequestData.user_id] });
+      const repaidThisTime = variables.amountRepaid;
       toast({ title: "Success", description: `Repayment of ${CURRENCY_SYMBOL}${repaidThisTime.toLocaleString()} recorded.` });
     },
     onError: (error: Error) => {
@@ -186,7 +209,7 @@ export function EmergencyRequestManagementTab() {
       return (
         userName.toLowerCase().includes(searchTermLower) ||
         req.reason.toLowerCase().includes(searchTermLower) ||
-        req.status.toLowerCase().includes(searchTermLower) ||
+        req.status?.toLowerCase().includes(searchTermLower) ||
         (req.is_fully_repaid && "repaid".includes(searchTermLower)) ||
         (!req.is_fully_repaid && req.status === 'approved' && req.return_date && isPast(parseISO(req.return_date)) && "overdue".includes(searchTermLower))
       );
@@ -200,10 +223,7 @@ export function EmergencyRequestManagementTab() {
 
   const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE_REQUESTS);
 
-  const isLoading = isLoadingUsers || isLoadingRequests;
-  const queryError = usersError || requestsError;
-
-  if (isLoading) {
+  if ((isLoadingUsers && !users) || (isLoadingRequests && !requests)) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -212,11 +232,19 @@ export function EmergencyRequestManagementTab() {
     );
   }
 
+  const queryError = usersError || requestsError;
   if (queryError) {
      return (
-      <div className="flex flex-col items-center justify-center py-10">
-        <p className="text-destructive">Error: {queryError.message}</p>
-        <button onClick={() => queryClient.invalidateQueries({queryKey: ['adminProfilesForEmergency', 'adminEmergencyRequests']})} className="mt-2 text-primary hover:underline">Try again</button>
+      <div className="flex flex-col items-center justify-center py-10 text-center">
+        <AlertTriangle className="h-10 w-10 text-destructive mb-3" />
+        <p className="text-destructive mb-2">Error loading data.</p>
+        <p className="text-sm text-muted-foreground mb-4">{queryError.message}</p>
+        <Button onClick={() => {
+          if(usersError) refetchUsers();
+          if(requestsError) refetchRequests();
+        }} variant="outline">
+          <RefreshCw className="mr-2 h-4 w-4" /> Try again
+        </Button>
       </div>
     );
   }
@@ -240,7 +268,7 @@ export function EmergencyRequestManagementTab() {
         requests={paginatedRequests} 
         users={users || []} 
         onApproveRequest={handleUpdateRequest} 
-        onRejectRequest={handleUpdateRequest} 
+        // onRejectRequest is handled by onApproveRequest with status 'rejected'
         onRecordRepayment={handleRecordRepayment}
       />
       {totalPages > 1 && (
