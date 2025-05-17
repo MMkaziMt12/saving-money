@@ -83,10 +83,11 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
   const { user: authUser, profile: authProfile, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const supabase = createClientComponentClient(); // Client-side Supabase client
+  const supabase = createClientComponentClient(); 
 
   const user = authUser || (initialUserId && initialProfile ? { id: initialUserId, profile: initialProfile } : null);
   const profile = authProfile || initialProfile;
+  const currentUserId = user?.id; // Use this for query key and enabling query
 
   const form = useForm<EmergencyRequestFormValues>({
     resolver: zodResolver(emergencyRequestSchema),
@@ -104,12 +105,16 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
     error: existingRequestsErrorObj,
     refetch: refetchExistingRequests
   } = useQuery<UserActiveEmergencyRequest[], Error>({
-    queryKey: ["currentUserActiveEmergencyRequests", user?.id],
+    queryKey: ["currentUserActiveEmergencyRequests", currentUserId],
     queryFn: () => {
-      if (!user?.id) return Promise.resolve([]);
-      return fetchCurrentUserActiveEmergencyRequests(supabase, user.id);
+      if (!currentUserId) { // Guard against calling with undefined userId
+        console.log("EmergencyRequestClientContent: fetchCurrentUserActiveEmergencyRequests skipped, no currentUserId.");
+        return Promise.resolve([]);
+      }
+      console.log(`EmergencyRequestClientContent: Fetching active requests for user: ${currentUserId}`);
+      return fetchCurrentUserActiveEmergencyRequests(supabase, currentUserId);
     },
-    enabled: !!user?.id,
+    enabled: !!currentUserId, // Ensure query only runs when currentUserId is available
   });
 
   const { 
@@ -119,8 +124,8 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
     error: totalSavingsErrorObj,
     refetch: refetchTotalSavings
   } = useQuery<number, Error>({
-    queryKey: ["totalFamilySavingsForRequestForm"], // Using the same key as prefetched on server
-    queryFn: () => fetchTotalFamilySavingsRPC(supabase),
+    queryKey: ["totalFamilySavingsForRequestForm"], 
+    queryFn: () => fetchTotalFamilySavingsRPC(supabase), // Pass client-side supabase instance
   });
 
   const addEmergencyRequestMutation = useMutation({
@@ -149,7 +154,9 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
             variant: "default",
         });
         form.reset({ amount: undefined, reason: "", return_date: undefined });
-        queryClient.invalidateQueries({ queryKey: ["currentUserActiveEmergencyRequests", user?.id] });
+        if(user?.id) {
+          queryClient.invalidateQueries({ queryKey: ["currentUserActiveEmergencyRequests", user.id] });
+        }
         queryClient.invalidateQueries({ queryKey: ["allFamilyEmergencyRequestsForDashboard"] }); 
         queryClient.invalidateQueries({ queryKey: ["totalFamilySavingsForRequestForm"] });
         queryClient.invalidateQueries({ queryKey: ["totalFamilySavings"] }); 
@@ -211,7 +218,7 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
   }
 
   if (!user || !profile) {
-     router.replace("/login"); // Should be handled by layout, but as a fallback
+     router.replace("/login"); 
      return null;
   }
 

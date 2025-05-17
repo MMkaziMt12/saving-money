@@ -16,7 +16,7 @@ export default async function EmergencyRequestPageSSR() {
   const { data: { user: authUser } } = await supabase.auth.getUser();
   
   let initialProfile: Profile | null = null;
-  if (authUser) {
+  if (authUser?.id) { // Ensure authUser and authUser.id exist
     try {
       initialProfile = await fetchUserProfileFromServer(authUser.id, supabase);
     } catch (error) {
@@ -28,15 +28,17 @@ export default async function EmergencyRequestPageSSR() {
 
   const queryClient = new QueryClient();
 
-  if (initialUserWithProfile?.id) {
+  if (initialUserWithProfile?.id && typeof initialUserWithProfile.id === 'string') { // Ensure ID is a string
     await queryClient.prefetchQuery({
       queryKey: ["currentUserActiveEmergencyRequests", initialUserWithProfile.id],
       queryFn: () => fetchCurrentUserActiveEmergencyRequests(supabase, initialUserWithProfile.id),
     });
+  } else {
+    console.warn("EmergencyRequestPageSSR (Server): Skipping prefetch for currentUserActiveEmergencyRequests due to missing or invalid user ID.");
   }
 
   await queryClient.prefetchQuery({
-    queryKey: ["totalFamilySavingsForRequestForm"], // Using a distinct key for this page if needed, or could use "totalFamilySavings"
+    queryKey: ["totalFamilySavingsForRequestForm"], 
     queryFn: () => fetchTotalFamilySavingsRPC(supabase),
   });
 
