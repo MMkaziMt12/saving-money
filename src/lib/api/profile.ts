@@ -41,13 +41,19 @@ export async function fetchUserProfileFromServer(
     if (data) {
       console.log(`API: Profile successfully fetched from server for ${userId}.`);
       // Only set client-side cache if this function was called from the client without a supabaseClient instance
-      if (typeof window !== 'undefined' && !supabaseClient) { 
+      if (typeof window !== 'undefined' && !supabaseClient && data.id === userId) { 
         localStorage.setItem("fft_user_profile", JSON.stringify(data));
       }
     } else {
        console.warn(`API: No profile data returned from server for ${userId}, though no explicit error. Status: ${status}`);
        if (typeof window !== 'undefined' && !supabaseClient) {
-         localStorage.removeItem("fft_user_profile");
+         const cached = localStorage.getItem("fft_user_profile");
+         if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed.id === userId) {
+                localStorage.removeItem("fft_user_profile");
+            }
+         }
        }
     }
     return data;

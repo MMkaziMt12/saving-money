@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import type { Profile } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { EmergencyRequestManagementTable } from "@/components/admin/EmergencyRequestManagementTable";
@@ -22,7 +22,8 @@ import {
   type UpdatedRequestStatusAdmin,
   type RecordRepaymentPayloadAdmin,
   type RecordedRepaymentResultAdmin
-} from "@/lib/api/admin"; // Updated imports
+} from "@/lib/api/admin";
+import { createClient } from "@/lib/supabase/client"; // For mutations & client-side fetches
 
 const ITEMS_PER_PAGE_REQUESTS = 10;
 
@@ -30,6 +31,7 @@ export function EmergencyRequestManagementTab() {
   const { toast } = useToast();
   const { profile: adminProfile } = useAuth();
   const queryClient = useQueryClient();
+  const supabase = createClient(); // Client for client-side operations
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -42,7 +44,7 @@ export function EmergencyRequestManagementTab() {
     refetch: refetchUsers
   } = useQuery<AdminProfileForEmergency[], Error>({
     queryKey: ['adminProfilesForEmergency'],
-    queryFn: fetchAdminProfilesForEmergency,
+    queryFn: () => fetchAdminProfilesForEmergency(supabase),
   });
 
   const { 
@@ -53,11 +55,11 @@ export function EmergencyRequestManagementTab() {
     refetch: refetchRequests
   } = useQuery<AdminEmergencyRequest[], Error>({
     queryKey: ['adminEmergencyRequests'],
-    queryFn: fetchAdminEmergencyRequests,
+    queryFn: () => fetchAdminEmergencyRequests(supabase),
   });
 
   const updateRequestMutation = useMutation<UpdatedRequestStatusAdmin, Error, UpdateRequestPayloadAdmin>({
-    mutationFn: updateEmergencyRequestStatusAdmin,
+    mutationFn: (payload) => updateEmergencyRequestStatusAdmin(supabase, payload), // Pass client-side supabase
     onSuccess: (updatedRequestData, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
       queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequestsForDashboard'] }); 
@@ -73,7 +75,7 @@ export function EmergencyRequestManagementTab() {
   });
 
   const recordRepaymentMutation = useMutation<RecordedRepaymentResultAdmin, Error, RecordRepaymentPayloadAdmin>({
-    mutationFn: recordRepaymentAdmin,
+    mutationFn: (payload) => recordRepaymentAdmin(supabase, payload), // Pass client-side supabase
     onSuccess: (updatedRequestData, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminEmergencyRequests'] });
       queryClient.invalidateQueries({ queryKey: ['allFamilyEmergencyRequestsForDashboard'] });
@@ -127,10 +129,10 @@ export function EmergencyRequestManagementTab() {
 
   const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE_REQUESTS);
 
-  const combinedIsLoading = (isLoadingUsers && !users && !isUsersError) || (isLoadingRequests && !requests && !isRequestsError);
+  const combinedIsLoading = (isLoadingUsers && !users) || (isLoadingRequests && !requests);
   const combinedError = usersErrorObj || requestsErrorObj;
 
-  if (combinedIsLoading) {
+  if (combinedIsLoading && !combinedError) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

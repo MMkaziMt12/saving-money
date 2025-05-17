@@ -1,6 +1,7 @@
 
 "use client";
 
+import React, { useCallback } from "react";
 import type { Profile } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -8,16 +9,13 @@ import { NotificationSender } from "@/components/admin/NotificationSender";
 import { Loader2, RefreshCw, AlertTriangle } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { NotificationFormValues } from "@/components/admin/NotificationSender";
-import { useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { 
   fetchUsersForNotificationsAdmin, 
   fetchAllEmergencyRequestsForNotificationsListAdmin,
   type UserForNotificationAdmin,
   type EmergencyRequestForNotificationListAdmin
-} from "@/lib/api/admin"; // Updated imports
-
-const supabase = createClient();
+} from "@/lib/api/admin";
 
 interface SendNotificationPayload {
   targetUserIds: string[];
@@ -25,7 +23,7 @@ interface SendNotificationPayload {
   type?: string;
   link?: string | null;
   subject?: string | null;
-  relatedRequestId?: string | null;
+  relatedRequestId?: string | null; // Added this
 }
 
 interface EdgeFunctionResponse {
@@ -37,6 +35,7 @@ interface EdgeFunctionResponse {
 export function NotificationSenderTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const supabase = createClient(); // Client for client-side operations
 
   const { 
     data: users, 
@@ -46,7 +45,7 @@ export function NotificationSenderTab() {
     refetch: refetchUsers
   } = useQuery<UserForNotificationAdmin[], Error>({
     queryKey: ['allUsersForNotificationsAdmin'],
-    queryFn: fetchUsersForNotificationsAdmin,
+    queryFn: () => fetchUsersForNotificationsAdmin(supabase),
   });
 
   const { 
@@ -57,7 +56,7 @@ export function NotificationSenderTab() {
     refetch: refetchEmergencyRequests
   } = useQuery<EmergencyRequestForNotificationListAdmin[], Error>({
     queryKey: ['allEmergencyRequestsForNotificationsListAdmin'],
-    queryFn: fetchAllEmergencyRequestsForNotificationsListAdmin,
+    queryFn: () => fetchAllEmergencyRequestsForNotificationsListAdmin(supabase),
   });
 
   const sendNotificationMutation = useMutation<EdgeFunctionResponse, Error, SendNotificationPayload>({
@@ -145,7 +144,7 @@ export function NotificationSenderTab() {
 
     if (targetUserIds.length === 0 && selectedTarget !== "all_pending_contribution") {
       console.warn("NotificationSenderTab: No target user IDs determined. Notification not sent. Selected target was:", selectedTarget);
-      if (formData.messageType !== 'emergencyRequestUpdate' || !formData.selectedEmergencyRequestId) { // Avoid double toast if target was derived from request
+      if (formData.messageType !== 'emergencyRequestUpdate' || !formData.selectedEmergencyRequestId) { 
         toast({ title: "No Targets", description: "No valid users selected or found for notification. Please check the target audience.", variant: "destructive" });
       }
       return;
@@ -162,7 +161,7 @@ export function NotificationSenderTab() {
     let relatedRequestIdValue: string | null = null;
 
     if (formData.messageType === 'emergencyRequestUpdate' && formData.selectedEmergencyRequestId) {
-        finalLink = `/requests/${formData.selectedEmergencyRequestId}`;
+        finalLink = `/requests/${formData.selectedEmergencyRequestId}`; 
         relatedRequestIdValue = formData.selectedEmergencyRequestId;
         console.log(`NotificationSenderTab: Emergency request selected. Link: ${finalLink}, Related Request ID: ${relatedRequestIdValue}`);
     }
@@ -189,10 +188,10 @@ export function NotificationSenderTab() {
     }
   }, [users, emergencyRequests, sendNotificationMutation, toast]);
 
-  const combinedIsLoading = (isLoadingUsers && !users && !isUsersError) || (isLoadingEmergencyRequests && !emergencyRequests && !isEmergencyRequestsError);
+  const combinedIsLoading = (isLoadingUsers && !users) || (isLoadingEmergencyRequests && !emergencyRequests);
   const combinedError = usersErrorObj || emergencyRequestsErrorObj;
 
-  if (combinedIsLoading) { 
+  if (combinedIsLoading && !combinedError) { 
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -201,7 +200,7 @@ export function NotificationSenderTab() {
     );
   }
 
-  if (combinedError && (!users || (isLoadingEmergencyRequests && !emergencyRequests))) { // Allow to proceed if only emergencyRequests fail but users are loaded
+  if (combinedError && (!users || (isLoadingEmergencyRequests && !emergencyRequests))) { 
      return (
       <div className="flex flex-col items-center justify-center py-10 text-center px-4">
         <AlertTriangle className="h-10 w-10 text-destructive mb-3" />

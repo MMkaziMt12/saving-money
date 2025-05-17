@@ -1,15 +1,7 @@
 
-// "use client"; // This file can be used by both server and client, so no "use client" directive at the top
-
+// This file can be used by both server and client.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createClient as createClientComponentClient } from "@/lib/supabase/client"; // For client-side fallback
 import type { EmergencyRequest, Profile, Notification as AppNotification } from "@/types";
-
-// Helper to get a Supabase client: uses provided or creates a new client-side one
-const getSupabaseClient = (providedClient?: SupabaseClient) => {
-  return providedClient || createClientComponentClient();
-};
-
 
 // For user's own emergency request form page
 export type UserActiveEmergencyRequest = Pick<EmergencyRequest, 'id' | 'amount_requested' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'is_fully_repaid' | 'amount_returned'>;
@@ -20,7 +12,7 @@ export async function fetchCurrentUserActiveEmergencyRequests(
 ): Promise<UserActiveEmergencyRequest[]> {
   console.log(`API: fetchCurrentUserActiveEmergencyRequests called for userId: ${userId} (Type: ${typeof userId})`);
 
-  if (!userId || typeof userId !== 'string') {
+  if (!userId || typeof userId !== 'string') { // Guard against invalid userId
     console.warn("API: fetchCurrentUserActiveEmergencyRequests: userId is undefined or not a string. Returning empty array.");
     return [];
   }
@@ -29,7 +21,7 @@ export async function fetchCurrentUserActiveEmergencyRequests(
     const { data, error } = await supabaseClient
       .from("emergency_requests")
       .select("id, amount_requested, reason, requested_at, return_date, status, is_fully_repaid, amount_returned")
-      .eq("user_id", userId) // userId is now guaranteed to be a string
+      .eq("user_id", userId)
       .in("status", ["pending", "approved"]) 
       .order("requested_at", { ascending: false });
 
@@ -40,9 +32,8 @@ export async function fetchCurrentUserActiveEmergencyRequests(
     console.log(`API: Successfully fetched ${data?.length || 0} active emergency requests for user ${userId}`);
     return data || [];
   } catch (error) {
-    // Catch any other unexpected errors during the fetch operation
     console.error(`API: Unexpected error in fetchCurrentUserActiveEmergencyRequests for user ${userId}:`, error);
-    throw error; // Re-throw to be handled by TanStack Query
+    throw error; 
   }
 }
 

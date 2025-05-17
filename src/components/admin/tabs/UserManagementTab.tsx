@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import type { Profile } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { UserManagementTable } from "@/components/admin/UserManagementTable";
@@ -10,7 +10,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { fetchAdminUsers, updateUserProfileAdmin, deleteUserProfileAdmin } from "@/lib/api/admin"; // Updated import
+import { fetchAdminUsers, updateUserProfileAdmin, deleteUserProfileAdmin } from "@/lib/api/admin";
+import { createClient } from "@/lib/supabase/client"; // For mutations
 
 const ITEMS_PER_PAGE = 10;
 
@@ -18,6 +19,7 @@ export function UserManagementTab() {
   const { toast } = useToast();
   const { user: authUser } = useAuth();
   const queryClient = useQueryClient();
+  const supabase = createClient(); // Client for mutations
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -30,16 +32,15 @@ export function UserManagementTab() {
     refetch: refetchUsers
   } = useQuery<Profile[], Error>({
     queryKey: ['adminUsers'],
-    queryFn: fetchAdminUsers,
+    queryFn: () => fetchAdminUsers(supabase), // Pass client-side supabase
   });
 
   const mutationOptions = {
     onSuccess: (updatedProfileData: Profile | void, variables: string | { userId: string; updates?: Partial<Profile> }) => {
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
       const targetUserId = typeof variables === 'string' ? variables : variables.userId;
-      queryClient.invalidateQueries({ queryKey: ["userProfileForAdmin", targetUserId] }); // Use specific key for admin user detail
-      queryClient.invalidateQueries({ queryKey: ["userProfile", targetUserId] }); // Invalidate generic user profile for AuthContext consistency if needed
-
+      queryClient.invalidateQueries({ queryKey: ["userProfileForAdmin", targetUserId] }); 
+      queryClient.invalidateQueries({ queryKey: ["userProfile", targetUserId] });
 
       const userName = (updatedProfileData as Profile)?.full_name || users?.find(u => u.id === targetUserId)?.full_name || "User";
       
@@ -61,19 +62,19 @@ export function UserManagementTab() {
   };
 
   const approveUserMutation = useMutation<Profile, Error, string>({
-    mutationFn: (userId: string) => updateUserProfileAdmin(userId, { is_approved: true }),
+    mutationFn: (userId: string) => updateUserProfileAdmin(supabase, userId, { is_approved: true }),
     ...mutationOptions,
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {is_approved: true }})
   });
 
   const rejectUserMutation = useMutation<Profile, Error, string>({
-    mutationFn: (userId: string) => updateUserProfileAdmin(userId, { is_approved: false }),
+    mutationFn: (userId: string) => updateUserProfileAdmin(supabase, userId, { is_approved: false }),
     ...mutationOptions,
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {is_approved: false }})
   });
 
   const makeAdminMutation = useMutation<Profile, Error, string>({
-    mutationFn: (userId: string) => updateUserProfileAdmin(userId, { role: 'admin' }),
+    mutationFn: (userId: string) => updateUserProfileAdmin(supabase, userId, { role: 'admin' }),
     ...mutationOptions,
      onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: { role: 'admin' }})
   });
@@ -83,7 +84,7 @@ export function UserManagementTab() {
       if (authUser?.id === userId && users?.filter(u => u.role === 'admin').length <= 1) {
         throw new Error("Cannot revoke the last admin's privileges.");
       }
-      return updateUserProfileAdmin(userId, { role: 'user' });
+      return updateUserProfileAdmin(supabase, userId, { role: 'user' });
     },
     ...mutationOptions,
     onSuccess: (data, userId) => mutationOptions.onSuccess(data, { userId, updates: {role: 'user' }})
@@ -94,7 +95,7 @@ export function UserManagementTab() {
       if (authUser?.id === userId) {
         throw new Error("Cannot delete your own profile.");
       }
-      return deleteUserProfileAdmin(userId);
+      return deleteUserProfileAdmin(supabase, userId);
     },
     ...mutationOptions,
     onSuccess: (_, userId) => mutationOptions.onSuccess(undefined, userId)
@@ -123,7 +124,7 @@ export function UserManagementTab() {
   const handleRevokeAdmin = useCallback((userId: string) => revokeAdminMutation.mutate(userId), [revokeAdminMutation]);
   const handleDeleteUser = useCallback((userId: string) => deleteUserMutation.mutate(userId), [deleteUserMutation]);
 
-  if (isLoadingUsers && !users && !isUsersError) {
+  if (isLoadingUsers && !users) { // Initial load
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -132,7 +133,7 @@ export function UserManagementTab() {
     );
   }
 
-  if (isUsersError && !users) { 
+  if (isUsersError && !users) { // Critical error
     return (
       <div className="flex flex-col items-center justify-center py-10 text-center px-4">
         <AlertTriangle className="h-10 w-10 text-destructive mb-3" />
@@ -158,10 +159,10 @@ export function UserManagementTab() {
             setCurrentPage(1);
           }}
           className="pl-10 w-full md:w-1/2 lg:w-1/3"
-          disabled={isLoadingUsers && !!users}
+          disabled={isLoadingUsers && !!users} // Disable if refetching with stale data
         />
       </div>
-      {isLoadingUsers && !!users && ( 
+      {isLoadingUsers && !!users && ( // Inline loader for refetches
         <div className="py-4 flex items-center justify-center text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin mr-2"/> Refreshing user list...
         </div>

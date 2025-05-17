@@ -1,15 +1,14 @@
 
-"use client";
+// "use client"; // Removed as these can be called server-side
 
-import { createClient } from "@/lib/supabase/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Profile, MonthlyContribution, EmergencyRequest } from "@/types";
-import type { AddContributionFormValues } from "@/components/admin/ContributionManagement"; // Assuming this type is still in this location
+import type { AddContributionFormValues } from "@/components/admin/ContributionManagement";
 import { MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
-
-const supabase = createClient();
+import type { Tables } from "@/types/supabase"; // Assuming Tables type is available
 
 // For UserManagementTab
-export async function fetchAdminUsers(): Promise<Profile[]> {
+export async function fetchAdminUsers(supabase: SupabaseClient): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active')
@@ -21,7 +20,7 @@ export async function fetchAdminUsers(): Promise<Profile[]> {
   return data || [];
 }
 
-export async function updateUserProfileAdmin(userId: string, updates: Partial<Profile>): Promise<Profile> {
+export async function updateUserProfileAdmin(supabase: SupabaseClient, userId: string, updates: Partial<Profile>): Promise<Profile> {
   const { data, error } = await supabase
     .from('profiles')
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -36,7 +35,7 @@ export async function updateUserProfileAdmin(userId: string, updates: Partial<Pr
   return data;
 }
 
-export async function deleteUserProfileAdmin(userId: string): Promise<void> {
+export async function deleteUserProfileAdmin(supabase: SupabaseClient, userId: string): Promise<void> {
   const { error } = await supabase.from('profiles').delete().eq('id', userId);
   if (error) {
     console.error("API: Error deleting user profile (admin):", JSON.stringify(error, null, 2));
@@ -46,7 +45,7 @@ export async function deleteUserProfileAdmin(userId: string): Promise<void> {
 
 // For ContributionManagementTab
 export type AdminProfileForContribution = Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>;
-export async function fetchAdminProfilesForContributions(): Promise<AdminProfileForContribution[]> {
+export async function fetchAdminProfilesForContributions(supabase: SupabaseClient): Promise<AdminProfileForContribution[]> {
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, email, is_approved')
@@ -58,17 +57,15 @@ export async function fetchAdminProfilesForContributions(): Promise<AdminProfile
   return data || [];
 }
 
-export type AdminContribution = MonthlyContribution & {
-  user_name?: string;
-  recorded_by_admin_name?: string;
+export type AdminContribution = Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'user_id' | 'recorded_by_admin_id'> & {
+  user_name?: string | null;
+  recorded_by_admin_name?: string | null;
 };
-type RawAdminContribution = Pick<Tables<'monthly_contributions'>, 'id' | 'payment_date' | 'month' | 'year' | 'amount'> & {
-    user_id: string;
-    recorded_by_admin_id: string | null;
+type RawAdminContribution = Pick<Tables<'monthly_contributions'>, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'user_id' | 'recorded_by_admin_id'> & {
     profile_user: { full_name: string | null } | null;
     profile_admin: { full_name: string | null } | null;
 };
-export async function fetchAdminContributions(): Promise<AdminContribution[]> {
+export async function fetchAdminContributions(supabase: SupabaseClient): Promise<AdminContribution[]> {
   const { data: rawContributions, error } = await supabase
     .from('monthly_contributions')
     .select(`
@@ -95,7 +92,7 @@ export type AddContributionPayload = {
   adminProfileId: string;
 };
 export type AddedContributionId = Pick<MonthlyContribution, 'id'>;
-export async function addContributionsAdmin({ formData, adminProfileId }: AddContributionPayload): Promise<AddedContributionId[]> {
+export async function addContributionsAdmin(supabase: SupabaseClient, { formData, adminProfileId }: AddContributionPayload): Promise<AddedContributionId[]> {
   const contributionsToInsert = [];
   let currentMonth = formData.month;
   let currentYear = formData.year;
@@ -130,7 +127,7 @@ export async function addContributionsAdmin({ formData, adminProfileId }: AddCon
 
 // For EmergencyRequestManagementTab
 export type AdminProfileForEmergency = Pick<Profile, 'id' | 'full_name'>;
-export async function fetchAdminProfilesForEmergency(): Promise<AdminProfileForEmergency[]> {
+export async function fetchAdminProfilesForEmergency(supabase: SupabaseClient): Promise<AdminProfileForEmergency[]> {
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name');
@@ -141,15 +138,15 @@ export async function fetchAdminProfilesForEmergency(): Promise<AdminProfileForE
   return data || [];
 }
 
-export type AdminEmergencyRequest = EmergencyRequest & {
-  user_name?: string;
-  reviewed_by_admin_name?: string;
+export type AdminEmergencyRequest = Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_requested' | 'reason' | 'status' | 'requested_at' | 'return_date' | 'amount_returned' | 'is_fully_repaid' | 'last_return_date' | 'admin_notes' | 'reviewed_at' | 'reviewed_by_admin_id'> & {
+  user_name?: string | null;
+  reviewed_by_admin_name?: string | null;
 };
-type RawAdminEmergencyRequest = EmergencyRequest & {
+type RawAdminEmergencyRequest = AdminEmergencyRequest & {
     profile_user: { full_name: string | null } | null;
     profile_admin: { full_name: string | null } | null;
 };
-export async function fetchAdminEmergencyRequests(): Promise<AdminEmergencyRequest[]> {
+export async function fetchAdminEmergencyRequests(supabase: SupabaseClient): Promise<AdminEmergencyRequest[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
     .select(`
@@ -177,7 +174,7 @@ export type UpdateRequestPayloadAdmin = {
   adminProfileId: string;
 };
 export type UpdatedRequestStatusAdmin = Pick<EmergencyRequest, 'id' | 'status' | 'user_id'>;
-export async function updateEmergencyRequestStatusAdmin({ requestId, status, adminProfileId }: UpdateRequestPayloadAdmin): Promise<UpdatedRequestStatusAdmin> {
+export async function updateEmergencyRequestStatusAdmin(supabase: SupabaseClient, { requestId, status, adminProfileId }: UpdateRequestPayloadAdmin): Promise<UpdatedRequestStatusAdmin> {
   const { data, error } = await supabase
     .from('emergency_requests')
     .update({ 
@@ -204,7 +201,7 @@ export type RecordRepaymentPayloadAdmin = {
   adminProfileId: string; 
 };
 export type RecordedRepaymentResultAdmin = Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_returned' | 'is_fully_repaid' | 'last_return_date'>;
-export async function recordRepaymentAdmin({ requestId, amountRepaid, repaymentDate }: RecordRepaymentPayloadAdmin): Promise<RecordedRepaymentResultAdmin> {
+export async function recordRepaymentAdmin(supabase: SupabaseClient, { requestId, amountRepaid, repaymentDate }: RecordRepaymentPayloadAdmin): Promise<RecordedRepaymentResultAdmin> {
   const { data: existingRequest, error: fetchError } = await supabase
     .from('emergency_requests')
     .select('amount_requested, amount_returned, user_id')
@@ -238,7 +235,7 @@ export async function recordRepaymentAdmin({ requestId, amountRepaid, repaymentD
 
 // For NotificationSenderTab
 export type UserForNotificationAdmin = Pick<Profile, 'id' | 'full_name' | 'email' | 'is_approved'>;
-export async function fetchUsersForNotificationsAdmin(): Promise<UserForNotificationAdmin[]> {
+export async function fetchUsersForNotificationsAdmin(supabase: SupabaseClient): Promise<UserForNotificationAdmin[]> {
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, email, is_approved')
@@ -250,10 +247,10 @@ export async function fetchUsersForNotificationsAdmin(): Promise<UserForNotifica
   return data || [];
 }
 
-export type EmergencyRequestForNotificationListAdmin = Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { user_name?: string };
+export type EmergencyRequestForNotificationListAdmin = Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { user_name?: string | null };
 type RawEmergencyRequestForNotificationListAdmin = Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user: { full_name: string | null } | null };
 
-export async function fetchAllEmergencyRequestsForNotificationsListAdmin(): Promise<EmergencyRequestForNotificationListAdmin[]> {
+export async function fetchAllEmergencyRequestsForNotificationsListAdmin(supabase: SupabaseClient): Promise<EmergencyRequestForNotificationListAdmin[]> {
   const { data: rawRequests, error } = await supabase
     .from('emergency_requests')
     .select('id, user_id, reason, amount_requested, status, requested_at, profile_user:profiles!emergency_requests_user_id_fkey(full_name)')
@@ -271,7 +268,7 @@ export async function fetchAllEmergencyRequestsForNotificationsListAdmin(): Prom
 }
 
 // For user detail page in admin
-export async function fetchUserProfileForAdmin(userId: string): Promise<Profile | null> {
+export async function fetchUserProfileForAdmin(supabase: SupabaseClient, userId: string): Promise<Profile | null> {
   if (!userId) return null;
   const { data, error } = await supabase
     .from("profiles")
@@ -285,11 +282,13 @@ export async function fetchUserProfileForAdmin(userId: string): Promise<Profile 
   return data;
 }
 
-export type UserContributionForAdminDetail = Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_name' | 'recorded_by_admin_id'>;
+export type UserContributionForAdminDetail = Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_id'> & {
+  recorded_by_admin_name?: string | null;
+};
 type RawUserContributionForAdminDetail = Pick<Tables<'monthly_contributions'>, 'id' | 'payment_date' | 'month' | 'year' | 'amount' | 'recorded_by_admin_id'> & {
   profile_admin: { full_name: string | null } | null;
 };
-export async function fetchUserContributionsForAdmin(userId: string): Promise<UserContributionForAdminDetail[]> {
+export async function fetchUserContributionsForAdmin(supabase: SupabaseClient, userId: string): Promise<UserContributionForAdminDetail[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("monthly_contributions")
@@ -323,7 +322,7 @@ export async function fetchUserContributionsForAdmin(userId: string): Promise<Us
 }
 
 export type UserEmergencyRequestForAdminDetail = Pick<EmergencyRequest, 'id' | 'amount_requested' | 'amount_returned' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'is_fully_repaid' | 'last_return_date' | 'admin_notes'>;
-export async function fetchUserEmergencyRequestsForAdminDetail(userId: string): Promise<UserEmergencyRequestForAdminDetail[]> {
+export async function fetchUserEmergencyRequestsForAdminDetail(supabase: SupabaseClient, userId: string): Promise<UserEmergencyRequestForAdminDetail[]> {
   if (!userId) return [];
   const { data, error } = await supabase
     .from("emergency_requests")
@@ -337,4 +336,3 @@ export async function fetchUserEmergencyRequestsForAdminDetail(userId: string): 
   }
   return data || [];
 }
-

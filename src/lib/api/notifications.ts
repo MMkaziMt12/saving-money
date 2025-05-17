@@ -1,19 +1,16 @@
 
-"use client";
-
-import { createClient } from "@/lib/supabase/client";
+// This file can be used by both server and client.
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Notification as AppNotification } from "@/types";
 
-const supabase = createClient();
-
 export type NotificationForDisplay = Pick<AppNotification, 'id' | 'message' | 'created_at' | 'read_at' | 'link' | 'type'>;
-export async function fetchUserNotifications(userId: string | undefined): Promise<NotificationForDisplay[]> {
+export async function fetchUserNotifications(supabaseClient: SupabaseClient, userId: string | undefined): Promise<NotificationForDisplay[]> {
   if (!userId) {
     console.log("API: fetchUserNotifications called with no userId. Returning empty array.");
     return [];
   }
   console.log(`API: Fetching notifications for user ${userId}`);
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("notifications")
     .select("id, message, created_at, read_at, link, type") 
     .eq("user_id", userId)
@@ -29,13 +26,13 @@ export async function fetchUserNotifications(userId: string | undefined): Promis
 }
 
 export type MarkedNotificationResult = Pick<AppNotification, 'id' | 'read_at'>;
-export async function markNotificationsAsRead(userId: string, notificationIds?: string[]): Promise<MarkedNotificationResult[]> {
+export async function markNotificationsAsRead(supabaseClient: SupabaseClient, userId: string, notificationIds?: string[]): Promise<MarkedNotificationResult[]> {
   if (!userId) {
     console.error("API: markAsReadMutation cannot run, user ID missing.");
     throw new Error("User ID missing");
   }
   console.log(`API: Marking notifications as read for user ${userId}. IDs:`, notificationIds || "all unread");
-  let query = supabase
+  let query = supabaseClient
     .from("notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("user_id", userId)
@@ -54,4 +51,3 @@ export async function markNotificationsAsRead(userId: string, notificationIds?: 
   console.log("API: Notifications marked as read, server response:", data);
   return data || [];
 }
-

@@ -1,102 +1,53 @@
-"use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UserManagementTab } from "@/components/admin/tabs/UserManagementTab";
-import { ContributionManagementTab } from "@/components/admin/tabs/ContributionManagementTab";
-import { EmergencyRequestManagementTab } from "@/components/admin/tabs/EmergencyRequestManagementTab";
-import { NotificationSenderTab } from "@/components/admin/tabs/NotificationSenderTab";
-import { useState, useEffect } from "react";
-import { Users, ListChecks, ShieldAlert, BellRing, Loader2 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation"; // Import useSearchParams
-import { useAuth } from "@/contexts/AuthContext"; 
-import { useToast } from "@/hooks/use-toast";
+import { HydrationBoundary, QueryClient, dehydrate } from "@tanstack/react-query";
+import { cookies } from "next/headers";
+import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
+import { fetchUserProfileFromServer } from "@/lib/api/profile"; // Server fetch
+import { AdminPageClientContent } from "@/components/admin/AdminPageClientContent";
+import type { Profile } from "@/types";
+import { redirect } from "next/navigation"; // For server-side redirect
 
-export default function AdminPage() {
-  const { user, profile, isAdmin, isLoading: authLoading, isApproved } = useAuth();
-  const { toast } = useToast();
-  const router = useRouter();
-  const searchParams = useSearchParams(); // Get search params
-  const initialTab = searchParams.get("tab") || "users"; // Get 'tab' query param or default to 'users'
-  const [activeTab, setActiveTab] = useState(initialTab);
+export default async function AdminPageSSR() {
+  const cookieStore = cookies();
+  const supabase = createServerSupabaseClient();
+  
+  const { data: { user: authUser } } = await supabase.auth.getUser();
 
-  useEffect(() => {
-    // Sync activeTab state if query param changes externally
-    const tabFromQuery = searchParams.get("tab");
-    if (tabFromQuery && tabFromQuery !== activeTab) {
-      setActiveTab(tabFromQuery);
-    }
-  }, [searchParams, activeTab]);
+  if (!authUser) {
+    redirect("/login"); // Redirect if not authenticated
+  }
 
+  let initialProfile: Profile | null = null;
+  try {
+    initialProfile = await fetchUserProfileFromServer(authUser.id, supabase); // Pass server client
+  } catch (error) {
+    console.error("AdminPageSSR: Error fetching initial profile for admin check:", error);
+    // Decide how to handle this, maybe redirect or show error
+    // For now, if profile fetch fails, access might be denied by client content
+  }
 
-  useEffect(() => {
-    if (!authLoading) {
-      if (!user || !isApproved) {
-        router.replace("/login"); 
-        return;
-      }
-      if (!isAdmin) {
-        toast({ title: "Access Denied", description: "You do not have permission to view this page.", variant: "destructive" });
-        router.replace("/");
-        return;
-      }
-    }
-  }, [user, profile, isAdmin, authLoading, isApproved, router, toast]);
+  if (!initialProfile?.is_approved) {
+    redirect("/awaiting-approval");
+  }
 
-
-  if (authLoading || (!isAdmin && !authLoading)) {
-    return (
-      <div className="flex items-center justify-center h-screen py-10">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-lg text-muted-foreground">Loading Admin Panel...</p>
-      </div>
-    );
+  if (initialProfile?.role !== 'admin') {
+    redirect("/"); // Redirect to dashboard if not an admin
   }
   
-  if (!isAdmin && user) { 
-     return (
-      <div className="flex items-center justify-center h-screen py-10">
-        <p className="text-lg text-destructive">Access Denied. You are not an administrator.</p>
-      </div>
-    );
-  }
+  // No specific data needs to be prefetched into QueryClient for the AdminPageSSR itself
+  // as individual tabs will fetch their own data client-side via AdminPageClientContent
+  const queryClient = new QueryClient();
+  const dehydratedState = dehydrate(queryClient); // Empty dehydrated state for this page
 
-  const handleTabChange = (value: string) => {
-    setActiveTab(value);
-    router.push(`/admin?tab=${value}`, { scroll: false }); // Update URL without full reload
-  };
+  // The searchParams would be available in the Server Component props if needed
+  // For example: export default async function AdminPageSSR({ searchParams }: { searchParams: { [key: string]: string | string[] | undefined }}) {
+  // const initialTabFromSearch = typeof searchParams?.tab === 'string' ? searchParams.tab : "users";
 
   return (
-    <div className="container mx-auto py-8 px-0">
-      <Card className="shadow-xl">
-        <CardHeader className="border-b">
-          <CardTitle className="text-3xl font-bold">Admin Panel</CardTitle>
-          <CardDescription>Manage users, contributions, emergency requests, and notifications.</CardDescription>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
-              <TabsTrigger value="users"><Users className="mr-1 md:mr-2 h-4 w-4 inline-block" />Users</TabsTrigger>
-              <TabsTrigger value="contributions"><ListChecks className="mr-1 md:mr-2 h-4 w-4 inline-block" />Contributions</TabsTrigger>
-              <TabsTrigger value="emergency_requests"><ShieldAlert className="mr-1 md:mr-2 h-4 w-4 inline-block" />Emergency Requests</TabsTrigger>
-              <TabsTrigger value="notifications"><BellRing className="mr-1 md:mr-2 h-4 w-4 inline-block" />Notifications</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="users">
-              <UserManagementTab />
-            </TabsContent>
-            <TabsContent value="contributions">
-              <ContributionManagementTab />
-            </TabsContent>
-            <TabsContent value="emergency_requests">
-              <EmergencyRequestManagementTab />
-            </TabsContent>
-            <TabsContent value="notifications">
-              <NotificationSenderTab />
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
-    </div>
+    <HydrationBoundary state={dehydratedState}>
+      <AdminPageClientContent 
+        initialProfile={initialProfile} // Pass the admin's profile
+      />
+    </HydrationBoundary>
   );
 }

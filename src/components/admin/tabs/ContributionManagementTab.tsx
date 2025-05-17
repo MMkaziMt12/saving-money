@@ -1,14 +1,14 @@
 
 "use client";
 
-import type { MonthlyContribution, Profile } from "@/types";
+import React, { useCallback } from "react";
+import type { Profile } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { ContributionManagement } from "@/components/admin/ContributionManagement";
 import { Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import type { AddContributionFormValues } from "@/components/admin/ContributionManagement";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { 
   fetchAdminProfilesForContributions, 
@@ -17,12 +17,14 @@ import {
   type AdminProfileForContribution,
   type AdminContribution,
   type AddedContributionId
-} from "@/lib/api/admin"; // Updated imports
+} from "@/lib/api/admin";
+import { createClient } from "@/lib/supabase/client"; // For mutations & client-side fetches
 
 export function ContributionManagementTab() {
   const { toast } = useToast();
   const { profile: adminProfile } = useAuth();
   const queryClient = useQueryClient();
+  const supabase = createClient(); // Client for client-side operations
 
   const { 
     data: users, 
@@ -32,7 +34,7 @@ export function ContributionManagementTab() {
     refetch: refetchUsers
   } = useQuery<AdminProfileForContribution[], Error>({
     queryKey: ['adminProfilesForContributions'],
-    queryFn: fetchAdminProfilesForContributions,
+    queryFn: () => fetchAdminProfilesForContributions(supabase),
   });
 
   const { 
@@ -43,7 +45,7 @@ export function ContributionManagementTab() {
     refetch: refetchContributions
   } = useQuery<AdminContribution[], Error>({
     queryKey: ['adminContributions'],
-    queryFn: fetchAdminContributions,
+    queryFn: () => fetchAdminContributions(supabase),
   });
 
   const addContributionMutation = useMutation<AddedContributionId[], Error, AddContributionFormValues>({
@@ -53,7 +55,8 @@ export function ContributionManagementTab() {
         console.error(err);
         throw err;
       }
-      return addContributionsAdmin({ formData, adminProfileId: adminProfile.id });
+      // Pass client-side supabase for mutation
+      return addContributionsAdmin(supabase, { formData, adminProfileId: adminProfile.id });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminContributions'] });
@@ -61,7 +64,7 @@ export function ContributionManagementTab() {
       queryClient.invalidateQueries({ queryKey: ['allUserContributionsForStatus', variables.userId]});
       queryClient.invalidateQueries({ queryKey: ['totalFamilySavings']}); 
       queryClient.invalidateQueries({ queryKey: ["userProfileForAdmin", variables.userId] }); 
-      queryClient.invalidateQueries({ queryKey: ["userContributionsForAdmin", variables.userId] }); // Invalidate admin detail view for contributions
+      queryClient.invalidateQueries({ queryKey: ["userContributionsForAdmin", variables.userId] });
       toast({ title: "Success", description: `${variables.numberOfMonths} contribution(s) recorded for ${users?.find(u => u.id === variables.userId)?.full_name}.` });
     },
     onError: (error: Error) => {
@@ -73,10 +76,10 @@ export function ContributionManagementTab() {
     await addContributionMutation.mutateAsync(formData);
   }, [addContributionMutation]);
 
-  const combinedIsLoading = (isLoadingUsers && !users && !isUsersError) || (isLoadingContributions && !contributions && !isContributionsError);
+  const combinedIsLoading = (isLoadingUsers && !users) || (isLoadingContributions && !contributions);
   const combinedError = usersErrorObj || contributionsErrorObj;
 
-  if (combinedIsLoading) {
+  if (combinedIsLoading && !combinedError) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

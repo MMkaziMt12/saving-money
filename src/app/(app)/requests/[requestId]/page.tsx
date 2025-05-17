@@ -1,257 +1,61 @@
 
-"use client";
+import { HydrationBoundary, QueryClient, dehydrate } from "@tanstack/react-query";
+import { cookies } from "next/headers";
+import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
+import { fetchEmergencyRequestDetails, fetchRelatedNotificationsForRequest } from "@/lib/api/emergencyRequests";
+import { RequestDetailClientContent } from "@/components/requests/RequestDetailClientContent";
+import type { EmergencyRequestDetail, RelatedNotificationForRequest } from "@/lib/api/emergencyRequests";
+import { redirect } from "next/navigation";
 
-import { useParams, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import type { Profile, Notification as AppNotification } from "@/types";
-import { useAuth } from "@/contexts/AuthContext";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge, badgeVariants } from "@/components/ui/badge"; 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, User, Mail, Phone, Shield, CalendarDays, MessageSquare, ArrowLeft, AlertTriangle, DollarSign, Info, ListChecks, Hash, ExternalLink, RefreshCw } from "lucide-react";
-import { format, parseISO, formatDistanceToNowStrict, isPast } from "date-fns";
-import { CURRENCY_SYMBOL } from "@/lib/constants";
-import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
-import Link from "next/link";
-import type { VariantProps } from "class-variance-authority";
-import React, { useEffect } from "react"; 
-import { fetchEmergencyRequestDetails, fetchRelatedNotificationsForRequest, type EmergencyRequestDetail, type RelatedNotificationForRequest } from "@/lib/api/emergencyRequests"; // Updated imports
-
-interface InfoItemProps {
-  icon: React.ElementType;
-  label: string;
-  value: string | React.ReactNode;
-  valueClass?: string;
+interface RequestDetailPageProps {
+  params: { requestId: string };
 }
 
-const InfoItem = React.memo(({ icon: Icon, label, value, valueClass }: InfoItemProps) => {
-  return (
-    <div className="flex items-start py-3 border-b border-muted last:border-b-0">
-      <Icon className="h-5 w-5 text-muted-foreground mr-3 sm:mr-4 mt-1 shrink-0" />
-      <div className="flex-1">
-        <span className="font-medium text-foreground/80 block mb-0.5 text-xs sm:text-sm">{label}:</span>
-        <span className={cn("text-foreground break-words text-sm sm:text-base", valueClass)}>{value}</span>
-      </div>
-    </div>
-  );
-});
-InfoItem.displayName = 'InfoItem';
+export default async function RequestDetailPageSSR({ params }: RequestDetailPageProps) {
+  const { requestId } = params;
+  if (!requestId) {
+    redirect("/404"); // Or your preferred not-found page
+  }
 
-const getStatusBadgeVariant = (request: EmergencyRequestDetail | null): VariantProps<typeof Badge>["variant"] => {
-    if (!request) return "outline";
-    if (request.is_fully_repaid) return "success";
-    if (request.status === 'approved' && request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "destructive"; 
-    if (request.status === "approved") return "default"; 
-    if (request.status === "rejected") return "destructive";
-    if (request.status === "pending") return "secondary"; 
-    return "outline";
-  };
+  const cookieStore = cookies();
+  const supabase = createServerSupabaseClient();
+  const queryClient = new QueryClient();
 
-  const getRepaymentStatusText = (request: EmergencyRequestDetail | null) => {
-    if (!request) return "Unknown";
-    if (request.is_fully_repaid) return "Fully Repaid";
-    if (request.status === 'approved') {
-       if (request.return_date && isPast(parseISO(request.return_date)) && !request.is_fully_repaid) return "Overdue";
-       return "Outstanding";
+  let initialRequestDetails: EmergencyRequestDetail | null = null;
+  let initialNotifications: RelatedNotificationForRequest[] = [];
+
+  try {
+    // Prefetch request details
+    initialRequestDetails = await queryClient.fetchQuery({
+      queryKey: ["emergencyRequestDetails", requestId],
+      queryFn: () => fetchEmergencyRequestDetails(supabase, requestId),
+    });
+
+    if (!initialRequestDetails) {
+      // Optionally redirect to a not-found page if the request doesn't exist or user doesn't have access (handled by RLS)
+      // For now, let client content handle null if RLS prevents fetch
     }
-    return request.status;
-  }
 
-export default function EmergencyRequestDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const { toast } = useToast();
-  const { user, isLoading: authLoading, isApproved } = useAuth();
-  const requestId = params.requestId as string;
+    // Prefetch related notifications
+    initialNotifications = await queryClient.fetchQuery({
+      queryKey: ["relatedNotificationsForRequest", requestId],
+      queryFn: () => fetchRelatedNotificationsForRequest(supabase, requestId),
+    });
 
-  useEffect(() => {
-    if (!authLoading && (!user || !isApproved)) {
-      router.replace("/login");
-    }
-  }, [user, authLoading, isApproved, router]);
-
-  const { 
-    data: requestDetails, 
-    isLoading: isLoadingRequest, 
-    isError: isRequestError,
-    error: requestErrorObj,
-    refetch: refetchRequestDetails
-  } = useQuery<EmergencyRequestDetail | null, Error>({
-    queryKey: ["emergencyRequestDetails", requestId],
-    queryFn: () => fetchEmergencyRequestDetails(requestId),
-    enabled: !!requestId && !!user,
-  });
-
-  const { 
-    data: notifications, 
-    isLoading: isLoadingNotifications, 
-    isError: isNotificationsError,
-    error: notificationsErrorObj,
-    refetch: refetchNotifications
-  } = useQuery<RelatedNotificationForRequest[], Error>({
-    queryKey: ["relatedNotificationsForRequest", requestId],
-    queryFn: () => fetchRelatedNotificationsForRequest(requestId),
-    enabled: !!requestId && !!user,
-  });
-
-  const getInitials = (name: string | null | undefined) => {
-    if (!name) return "U";
-    const names = name.split(" ");
-    if (names.length === 1) return names[0][0].toUpperCase();
-    return (names[0][0]?.toUpperCase() || "") + (names[names.length - 1][0]?.toUpperCase() || "");
-  };
-
-  const combinedIsLoading = (isLoadingRequest && !requestDetails && !isRequestError) || 
-                            (isLoadingNotifications && !notifications && !isNotificationsError);
-  const combinedError = requestErrorObj || notificationsErrorObj;
-
-  if (authLoading || combinedIsLoading) { 
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-lg text-muted-foreground">Loading request details...</p>
-      </div>
-    );
-  }
-
-  if (combinedError && (!requestDetails || (isNotificationsError && !notifications))) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
-        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-        <p className="text-destructive mb-2">Error loading request details.</p>
-        <p className="text-sm text-muted-foreground mb-4">
-          {combinedError.message || "An unknown error occurred."}
-        </p>
-        <Button onClick={() => {
-          if (isRequestError) refetchRequestDetails();
-          if (isNotificationsError) refetchNotifications();
-        }} variant="outline">
-          <RefreshCw className="mr-2 h-4 w-4" /> Try again
-        </Button>
-        <Button onClick={() => router.back()} variant="link" className="mt-2">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Go Back
-        </Button>
-      </div>
-    );
-  }
-
-  if (!requestDetails) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
-        <ListChecks className="h-12 w-12 text-muted-foreground mb-4" />
-        <p className="text-muted-foreground mb-4">Emergency request not found.</p>
-        <Button onClick={() => router.back()} variant="outline">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Go Back
-        </Button>
-      </div>
-    );
+  } catch (error) {
+    console.error(`RequestDetailPageSSR: Error prefetching data for request ${requestId}:`, error);
+    // initialRequestDetails and initialNotifications will remain in their default error states
   }
   
-  const requesterProfile = requestDetails.profile_user;
-  const adminProfile = requestDetails.profile_admin;
-  const requestedAtDate = requestDetails.requested_at ? parseISO(requestDetails.requested_at) : null;
-  const returnDate = requestDetails.return_date ? parseISO(requestDetails.return_date) : null;
-  const reviewedAtDate = requestDetails.reviewed_at ? parseISO(requestDetails.reviewed_at) : null;
-  const lastReturnDate = requestDetails.last_return_date ? parseISO(requestDetails.last_return_date) : null;
-
-  const statusText = getRepaymentStatusText(requestDetails);
-  const statusBadgeVariant = getStatusBadgeVariant(requestDetails);
+  const dehydratedState = dehydrate(queryClient);
 
   return (
-    <div className="container mx-auto py-8 px-4 md:px-0 max-w-4xl space-y-8">
-      <Button onClick={() => router.back()} variant="outline" className="mb-2">
-        <ArrowLeft className="mr-2 h-4 w-4" /> Back
-      </Button>
-
-      <Card className="shadow-xl">
-        <CardHeader className="border-b pb-4">
-          <div className="flex flex-col md:flex-row items-start gap-4 md:gap-6">
-            {requesterProfile && (
-                 <Avatar className="h-20 w-20 md:h-24 md:w-24 border-2 border-primary/30 shadow-sm">
-                    <AvatarImage src={requesterProfile.avatar_url || undefined} alt={requesterProfile.full_name || "User"} data-ai-hint="person profile" />
-                    <AvatarFallback className="text-2xl md:text-3xl">{getInitials(requesterProfile.full_name)}</AvatarFallback>
-                </Avatar>
-            )}
-            <div className="flex-1 text-center md:text-left">
-              <CardTitle className="text-xl md:text-2xl font-bold mb-1">Emergency Request Details</CardTitle>
-              <CardDescription className="text-sm md:text-md text-muted-foreground">
-                Submitted by: <span className="font-semibold text-primary">{requesterProfile?.full_name || "Unknown User"}</span>
-              </CardDescription>
-              <div className="mt-3">
-                 <Badge 
-                    variant={statusBadgeVariant}
-                    className={cn("capitalize text-xs sm:text-sm px-3 py-1",
-                        {'bg-yellow-500 hover:bg-yellow-600 text-white': statusText === 'pending' || statusText === 'Pending' }, 
-                        {'bg-green-500 hover:bg-green-600 text-white': (statusText === 'Approved' || statusText === 'Outstanding') && !(requestDetails.return_date && isPast(parseISO(requestDetails.return_date)) && !requestDetails.is_fully_repaid) },
-                        {'bg-green-600 hover:bg-green-700 text-white': statusText === 'Fully Repaid'},
-                        {'bg-red-500 hover:bg-red-600 text-white': statusText === 'Rejected' || statusText === 'Overdue' }
-                    )}
-                 >
-                    {statusText}
-                 </Badge>
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-6 grid md:grid-cols-2 gap-x-6 gap-y-0">
-            <InfoItem icon={Hash} label="Request ID" value={requestDetails.id.substring(0,8)} />
-            <InfoItem icon={User} label="Requested By" value={requesterProfile?.full_name || "N/A"} />
-            <InfoItem icon={DollarSign} label="Amount Requested" value={`${CURRENCY_SYMBOL}${requestDetails.amount_requested.toLocaleString()}`} valueClass="font-semibold text-primary" />
-            <InfoItem icon={DollarSign} label="Amount Returned" value={`${CURRENCY_SYMBOL}${(requestDetails.amount_returned || 0).toLocaleString()}`} valueClass={requestDetails.amount_returned && requestDetails.amount_returned > 0 ? "text-green-600 font-semibold" : ""} />
-            <InfoItem icon={CalendarDays} label="Requested At" value={requestedAtDate ? format(requestedAtDate, "MMMM dd, yyyy HH:mm") : 'N/A'} />
-            {returnDate && <InfoItem icon={CalendarDays} label="Expected Return Date" value={format(returnDate, "MMMM dd, yyyy")} />}
-            {lastReturnDate && <InfoItem icon={CalendarDays} label="Last Repayment Date" value={format(lastReturnDate, "MMMM dd, yyyy HH:mm")} />}
-            {reviewedAtDate && adminProfile && <InfoItem icon={Shield} label="Reviewed By" value={`${adminProfile.full_name} on ${format(reviewedAtDate, "MMMM dd, yyyy HH:mm")}`} />}
-            {reviewedAtDate && !adminProfile && requestDetails.reviewed_by_admin_id && <InfoItem icon={Shield} label="Reviewed By Admin ID" value={requestDetails.reviewed_by_admin_id.substring(0,8)} />}
-        </CardContent>
-        <CardFooter className="flex-col items-start pt-4 border-t">
-            <InfoItem icon={Info} label="Reason for Request" value={<p className="whitespace-pre-wrap break-words">{requestDetails.reason}</p>} />
-            {requestDetails.admin_notes && <InfoItem icon={MessageSquare} label="Admin Notes" value={<p className="whitespace-pre-wrap break-words bg-muted/50 p-3 rounded-md">{requestDetails.admin_notes}</p>} />}
-        </CardFooter>
-      </Card>
-
-      <Card className="shadow-xl">
-        <CardHeader>
-          <CardTitle>Notifications for this Request</CardTitle>
-          <CardDescription>History of communications regarding this emergency request.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {(isLoadingNotifications && !notifications && !isNotificationsError) ? (
-            <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-          ) : notifications && notifications.length > 0 ? (
-            <div className="space-y-3 max-h-96 overflow-y-auto pr-2 rounded-md border p-3">
-              {notifications.map(notification => (
-                <div key={notification.id} className={cn("p-3 rounded-md border", notification.read_at ? "bg-card hover:bg-muted/30" : "bg-primary/5 border-primary/30")}>
-                  <p className={cn("text-sm break-words", !notification.read_at && "font-semibold")}>{notification.message}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Sent: {notification.created_at ? format(parseISO(notification.created_at), "MMM dd, yyyy HH:mm") : 'N/A'}
-                    {notification.read_at && ` | Read: ${formatDistanceToNowStrict(parseISO(notification.read_at), { addSuffix: true })}`}
-                  </p>
-                  {notification.link && notification.link !== `/requests/${requestId}` && (
-                     <Link href={notification.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-1 inline-flex items-center gap-1">
-                        View Context <ExternalLink className="h-3 w-3"/>
-                    </Link>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : isNotificationsError ? (
-             <div className="text-center py-4">
-                <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
-                <p className="text-destructive mb-1">Error loading notifications.</p>
-                <p className="text-sm text-muted-foreground mb-3">{notificationsErrorObj?.message || "An unknown error occurred."}</p>
-                <Button onClick={() => refetchNotifications()} variant="outline" size="sm">
-                  <RefreshCw className="mr-2 h-4 w-4" /> Try again
-                </Button>
-              </div>
-          ) : (
-            <p className="text-center text-muted-foreground py-6">No notifications found for this request.</p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <HydrationBoundary state={dehydratedState}>
+      <RequestDetailClientContent 
+        requestId={requestId}
+        initialRequestDetails={initialRequestDetails}
+        initialNotifications={initialNotifications}
+      />
+    </HydrationBoundary>
   );
 }
