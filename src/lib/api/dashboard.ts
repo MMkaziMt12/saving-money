@@ -1,10 +1,14 @@
 
-"use client";
+// "use client"; // Remove this if present, as these functions might be called from server
 
-import { createClient } from "@/lib/supabase/client";
-import type { MonthlyContribution, EmergencyRequest, Profile } from "@/types";
+import { createClient as createClientComponentClient } from "@/lib/supabase/client";
+import type { MonthlyContribution, EmergencyRequest } from "@/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-const supabase = createClient();
+// Helper to get a Supabase client: uses provided or creates a new client-side one
+const getSupabaseClient = (providedClient?: SupabaseClient) => {
+  return providedClient || createClientComponentClient();
+};
 
 export interface PaginatedData<T> {
   data: T[];
@@ -14,6 +18,7 @@ export interface PaginatedData<T> {
 export type UserContributionForTable = Pick<MonthlyContribution, 'id' | 'payment_date' | 'month' | 'year' | 'amount'>;
 
 export async function fetchUserContributionsForDashboard(
+  supabaseClient: SupabaseClient, // Made mandatory for server-side, client passes its own
   userId: string | undefined,
   page: number,
   itemsPerPage: number,
@@ -24,7 +29,7 @@ export async function fetchUserContributionsForDashboard(
   const from = (page - 1) * itemsPerPage;
   const to = from + itemsPerPage - 1;
 
-  let query = supabase
+  let query = supabaseClient
     .from("monthly_contributions")
     .select("id, payment_date, month, year, amount", { count: "exact" })
     .eq("user_id", userId);
@@ -51,8 +56,8 @@ export async function fetchUserContributionsForDashboard(
 export type FamilyEmergencyRequestForTable = Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_requested' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'amount_returned' | 'is_fully_repaid'> & { user_name?: string };
 type RawFamilyEmergencyRequest = Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_requested' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'amount_returned' | 'is_fully_repaid'> & { profile_user: { full_name: string | null } | null };
 
-
 export async function fetchAllFamilyEmergencyRequestsForDashboard(
+  supabaseClient: SupabaseClient, // Made mandatory
   page: number,
   itemsPerPage: number,
   searchTerm: string
@@ -60,7 +65,7 @@ export async function fetchAllFamilyEmergencyRequestsForDashboard(
   const from = (page - 1) * itemsPerPage;
   const to = from + itemsPerPage - 1;
 
-  let query = supabase
+  let query = supabaseClient
     .from("emergency_requests")
     .select(`
       id, user_id, amount_requested, reason, requested_at, return_date, status, amount_returned, is_fully_repaid,
@@ -90,9 +95,9 @@ export async function fetchAllFamilyEmergencyRequestsForDashboard(
   return { data: formattedData, count };
 }
 
-export async function fetchTotalFamilySavingsRPC(): Promise<number> {
+export async function fetchTotalFamilySavingsRPC(supabaseClient: SupabaseClient): Promise<number> {
   console.log("API: Fetching total family savings via RPC...");
-  const { data, error } = await supabase.rpc('get_total_family_savings');
+  const { data, error } = await supabaseClient.rpc('get_total_family_savings');
   if (error) {
     console.error("API: Error fetching total family savings via RPC:", JSON.stringify(error, null, 2));
     if (data !== undefined) {
@@ -115,9 +120,9 @@ export async function fetchTotalFamilySavingsRPC(): Promise<number> {
 
 export type UserContributionForStatus = Pick<MonthlyContribution, 'amount'>;
 
-export async function fetchAllUserContributionsForStatus(userId: string | undefined): Promise<UserContributionForStatus[]> {
+export async function fetchAllUserContributionsForStatus(supabaseClient: SupabaseClient, userId: string | undefined): Promise<UserContributionForStatus[]> {
   if (!userId) return [];
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("monthly_contributions")
     .select("amount") 
     .eq("user_id", userId);
