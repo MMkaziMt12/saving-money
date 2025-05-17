@@ -6,7 +6,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from "@/components/ui/toaster";
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
-
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],
@@ -41,6 +41,7 @@ export default function RootLayout({
               {children}
               <Toaster />
             </AuthProvider>
+            {/* <ReactQueryDevtools initialIsOpen={false} /> */}
           </QueryProvider>
         </ThemeProvider>
       </body>

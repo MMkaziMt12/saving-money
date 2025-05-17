@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (code) {
-    const cookieStore = cookies(); // Get cookie store
+    const cookieStore = await cookies(); // Get cookie store
     const allCookies = cookieStore.getAll(); // Get all cookies
     console.log('OAuth Callback - All Cookies Received by Server:', JSON.stringify(allCookies, null, 2));
 

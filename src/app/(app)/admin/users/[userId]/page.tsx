@@ -21,8 +21,8 @@ export default async function AdminUserDetailPageSSR({ params }: AdminUserDetail
     redirect("/admin?tab=users"); // Or a 404 page
   }
 
-  const cookieStore = cookies();
-  const supabase = createServerSupabaseClient();
+  // const cookieStore = await cookies();
+  const supabase = await createServerSupabaseClient();
   
   // Admin check
   const { data: { user: authUser } } = await supabase.auth.getUser();

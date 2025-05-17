@@ -8,8 +8,8 @@ import type { Profile } from "@/types";
 import { redirect } from "next/navigation"; // For server-side redirect
 
 export default async function AdminPageSSR() {
-  const cookieStore = cookies();
-  const supabase = createServerSupabaseClient();
+  // const cookieStore = await cookies();
+  const supabase = await createServerSupabaseClient();
   
   const { data: { user: authUser } } = await supabase.auth.getUser();
 

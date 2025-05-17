@@ -19,8 +19,8 @@ import type { Profile, AuthenticatedUser as AppUser } from "@/types";
 const ITEMS_PER_PAGE = 5; // Define this if it's used by client content's initial state
 
 export default async function DashboardPage() {
-  const cookieStore = cookies();
-  const supabase = createServerSupabaseClient(); // Server client
+  // const cookieStore = await cookies();
+  const supabase = await createServerSupabaseClient(); // Server client
 
   const { data: { user: authUser } } = await supabase.auth.getUser();
   

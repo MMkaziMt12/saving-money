@@ -17,8 +17,8 @@ export default async function RequestDetailPageSSR({ params }: RequestDetailPage
     redirect("/404"); // Or your preferred not-found page
   }
 
-  const cookieStore = cookies();
-  const supabase = createServerSupabaseClient();
+  // const cookieStore = await cookies();
+  const supabase = await createServerSupabaseClient();
   const queryClient = new QueryClient();
 
   let initialRequestDetails: EmergencyRequestDetail | null = null;

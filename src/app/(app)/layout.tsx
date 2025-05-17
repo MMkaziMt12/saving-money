@@ -44,7 +44,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     }
     return () => clearTimeout(timer);
   }, [pathname, authIsLoading]);
-
   if (authIsLoading || !user || !profile || !isApproved) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background">

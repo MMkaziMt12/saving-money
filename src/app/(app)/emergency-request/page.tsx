@@ -10,8 +10,8 @@ import { fetchUserProfileFromServer } from "@/lib/api/profile";
 
 
 export default async function EmergencyRequestPageSSR() {
-  const cookieStore = cookies();
-  const supabase = createServerSupabaseClient();
+  // const cookieStore = await cookies();
+  const supabase = await createServerSupabaseClient();
 
   const { data: { user: authUser } } = await supabase.auth.getUser();
   

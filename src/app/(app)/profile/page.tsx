@@ -7,10 +7,10 @@ import { ProfileClientContent } from "@/components/profile/ProfileClientContent"
 import type { Profile } from "@/types";
 
 export default async function ProfilePageSSR() {
-  const cookieStore = cookies();
-  const supabase = createServerSupabaseClient();
+  // const cookieStore = await cookies();
+  const supabase = await createServerSupabaseClient();
 
-  const { data: { user: authUser } } = await supabase.auth.getUser();
+  const { data: { user: authUser } } = await  supabase.auth.getUser();
   
   if (!authUser) {
     // This shouldn't happen if AppLayout is working correctly, but as a safeguard.
