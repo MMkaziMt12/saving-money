@@ -78,16 +78,18 @@ interface EmergencyRequestClientContentProps {
   initialProfile?: Profile | null;
 }
 
-export function EmergencyRequestClientContent({ initialUserId, initialProfile }: EmergencyRequestClientContentProps) {
+export function EmergencyRequestClientContent({ initialUserId, initialProfile: ssrProfile }: EmergencyRequestClientContentProps) {
   const { toast } = useToast();
-  const { user: authUser, profile: authProfile, isLoading: authLoading } = useAuth();
+  const { user: authUser, profile: authProfileFromContext, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
   const supabase = createClientComponentClient(); 
 
-  const user = authUser || (initialUserId && initialProfile ? { id: initialUserId, profile: initialProfile } : null);
-  const profile = authProfile || initialProfile;
-  const currentUserId = user?.id; // Use this for query key and enabling query
+  // Prioritize context user/profile once loaded, fallback to initial props
+  const user = authUser; // AuthContext user is the source of truth once loaded
+  const profile = authProfileFromContext || ssrProfile;
+  const currentUserId = user?.id || initialUserId;
+
 
   const form = useForm<EmergencyRequestFormValues>({
     resolver: zodResolver(emergencyRequestSchema),
@@ -102,26 +104,23 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
     data: existingRequests, 
     isLoading: isLoadingExistingRequests,
     isError: isExistingRequestsError,
-    error: existingRequestsErrorObj,
+    error: existingRequestsErrorObj, // Ensure this is captured
     refetch: refetchExistingRequests
   } = useQuery<UserActiveEmergencyRequest[], Error>({
     queryKey: ["currentUserActiveEmergencyRequests", currentUserId],
     queryFn: () => {
-      if (!currentUserId) { // Guard against calling with undefined userId
-        console.log("EmergencyRequestClientContent: fetchCurrentUserActiveEmergencyRequests skipped, no currentUserId.");
-        return Promise.resolve([]);
-      }
       console.log(`EmergencyRequestClientContent: Fetching active requests for user: ${currentUserId}`);
+      // Pass client-side supabase instance to API function
       return fetchCurrentUserActiveEmergencyRequests(supabase, currentUserId);
     },
-    enabled: !!currentUserId, // Ensure query only runs when currentUserId is available
+    enabled: !!currentUserId, 
   });
 
   const { 
     data: totalFamilySavings, 
     isLoading: isLoadingTotalSavings,
     isError: isTotalSavingsError,
-    error: totalSavingsErrorObj,
+    error: totalSavingsErrorObj, // Ensure this is captured
     refetch: refetchTotalSavings
   } = useQuery<number, Error>({
     queryKey: ["totalFamilySavingsForRequestForm"], 
@@ -130,19 +129,24 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
 
   const addEmergencyRequestMutation = useMutation({
     mutationFn: async (newData: EmergencyRequestFormValues) => {
-        if (!user || !profile) {
+        if (!user || !profile) { // Use the context's user and profile
             throw new Error("User not authenticated.");
         }
-        const { data, error } = await supabase.from('emergency_requests').insert({
+        const insertData = {
             user_id: user.id,
             amount_requested: newData.amount,
             reason: newData.reason,
             return_date: newData.return_date.toISOString(),
-            status: 'pending',
+            status: 'pending', // Hardcoded to 'pending'
             requested_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(), 
-            created_at: new Date().toISOString(), 
-          }).select('id').single();
+            // created_at and updated_at will be set by DB defaults/triggers
+        };
+        console.log("EmergencyRequestClientContent: Submitting emergency request with data:", insertData); // LOGGING ADDED HERE
+        const { data, error } = await supabase
+          .from('emergency_requests')
+          .insert(insertData)
+          .select('id')
+          .single();
         
         if (error) throw error;
         return data;
@@ -217,7 +221,7 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
     );
   }
 
-  if (!user || !profile) {
+  if (!user || !profile) { // Use context profile as primary check
      router.replace("/login"); 
      return null;
   }
@@ -241,11 +245,11 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {isExistingRequestsError && (
+            {isExistingRequestsError && existingRequestsErrorObj && (
               <div className="text-center py-4">
                 <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
                 <p className="text-destructive mb-1">Error loading your requests.</p>
-                <p className="text-sm text-muted-foreground mb-3">{existingRequestsErrorObj?.message || "An unknown error occurred."}</p>
+                <p className="text-sm text-muted-foreground mb-3">{existingRequestsErrorObj.message || "An unknown error occurred."}</p>
                 <Button onClick={() => refetchExistingRequests()} variant="outline" size="sm">
                   <RefreshCw className="mr-2 h-4 w-4" /> Try again
                 </Button>
@@ -278,7 +282,7 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
         </Card>
       ) : null}
 
-      {isTotalSavingsError && (
+      {isTotalSavingsError && totalSavingsErrorObj &&(
          <Card className="shadow-xl">
             <CardHeader>
                 <CardTitle className="text-2xl font-bold">Request New Emergency Fund</CardTitle>
@@ -286,7 +290,7 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
             <CardContent className="text-center py-6">
                 <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-2" />
                 <p className="text-destructive mb-1">Error loading fund balance.</p>
-                <p className="text-sm text-muted-foreground mb-3">{totalSavingsErrorObj?.message || "An unknown error occurred."}</p>
+                <p className="text-sm text-muted-foreground mb-3">{totalSavingsErrorObj.message || "An unknown error occurred."}</p>
                 <Button onClick={() => refetchTotalSavings()} variant="outline" size="sm">
                   <RefreshCw className="mr-2 h-4 w-4" /> Try again
                 </Button>
@@ -408,3 +412,5 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile }:
     </div>
   );
 }
+
+    
