@@ -17,13 +17,14 @@ import { createClient as createServerSupabaseClient } from "@/lib/supabase/serve
 import { fetchUserProfileFromServer } from "@/lib/api/profile";
 import type { AuthenticatedUser as AppUser, Profile } from "@/types";
 import { cn } from "@/lib/utils";
-import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { useAuth } from "@/hooks/useAuth"; 
+import { useRouter, usePathname } from "next/navigation"; // Client hook
+import { useEffect, useState } from "react"; // Client hook
+import { useAuth } from "@/hooks/useAuth"; // Client hook for consuming context
 import { Skeleton } from "@/components/ui/skeleton";
 
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
+  // This part runs on the server
   const supabase = await createServerSupabaseClient();
   const {
     data: { user: serverAuthUser },
@@ -37,12 +38,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       console.log("AppLayout (Server): Initial profile fetched:", serverProfile ? serverProfile.id : null, "Approved:", serverProfile?.is_approved);
     } catch (error) {
       console.error("AppLayout (Server): Error fetching initial profile:", error);
+      // serverProfile remains null
     }
   }
   
-  // Construct AppUser with potentially embedded profile from server fetch
   const initialUserWithProfile = serverAuthUser
-    ? ({ ...serverAuthUser, profile: serverProfile } as AppUser)
+    ? ({ ...serverAuthUser, profile: serverProfile } as AppUser) // Embed profile directly
     : null;
 
   console.log("AppLayout (Server): Passing to AuthProvider:", { initialUser: initialUserWithProfile?.id, initialProfile: serverProfile?.id });
@@ -91,11 +92,11 @@ function ClientAuthGuardWrapper({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    if (pathname && !isLoadingAuth && isAuthenticated) { // Check isAuthenticated
+    if (pathname && !isLoadingAuth && isAuthenticated) {
       setIsTransitioning(true);
       timer = setTimeout(() => setIsTransitioning(false), 300);
     } else if (isLoadingAuth) {
-      setIsTransitioning(false);
+      setIsTransitioning(false); // Cancel transition if main auth is loading
     }
     return () => clearTimeout(timer);
   }, [pathname, isLoadingAuth, isAuthenticated]);
@@ -103,18 +104,15 @@ function ClientAuthGuardWrapper({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     console.log("ClientAuthGuard: State Check:", { path: pathname, isLoadingAuth, userId: user?.id, profileId: profile?.id, isApproved, isAuthenticated });
-    if (!isLoadingAuth) {
+    if (!isLoadingAuth) { // Only run checks if initial auth loading is complete
       if (!user) { // No user session at all
         if (!pathname.startsWith("/login") && !pathname.startsWith("/signup") && !pathname.startsWith("/auth/callback")) {
-          console.log("ClientAuthGuard: No user, redirecting to /login from:", pathname);
+          console.log("ClientAuthGuard: No user (auth check done), redirecting to /login from:", pathname);
           router.replace("/login");
         }
-      } else if (!profile) { // User exists, but profile hasn't loaded yet in context.isLoadingAuth should cover this.
-        console.log("ClientAuthGuard: User exists, but profile is null. isLoadingAuth should be true. Current state:", isLoadingAuth);
-        // Rely on isLoadingAuth to show loader. If isLoadingAuth is false and profile is still null, it's an issue.
-      } else if (!isApproved) { // User and profile loaded, but not approved
+      } else if (!isApproved) { // User exists (implies profile was checked), but not approved
         if (pathname !== "/awaiting-approval") {
-          console.log("ClientAuthGuard: User not approved, redirecting to /awaiting-approval from:", pathname);
+          console.log("ClientAuthGuard: User not approved (auth check done), redirecting to /awaiting-approval from:", pathname);
           router.replace("/awaiting-approval");
         }
       } else { // User is authenticated, profile loaded, and approved (isAuthenticated should be true)
@@ -129,15 +127,16 @@ function ClientAuthGuardWrapper({ children }: { children: ReactNode }) {
         }
       }
     }
-  }, [user, profile, isLoadingAuth, isAuthenticated, isApproved, router, pathname]);
+  }, [user, profile, isLoadingAuth, isAuthenticated, isApproved, router, pathname]); // Added profile to deps
 
 
   // Conditions for showing the main full-page loader
-  const showMainLoader =
-    isLoadingAuth || // Primary: if auth context is still determining initial state
-    (!isLoadingAuth && !user && typeof window !== 'undefined' && !pathname.startsWith('/login') && !pathname.startsWith('/signup') && !pathname.startsWith('/auth/callback')) || // No user, not loading, not on public auth pages
-    (!isLoadingAuth && user && !profile && typeof window !== 'undefined' && !pathname.startsWith('/awaiting-approval')) || // User, but no profile yet, not on awaiting approval (should be covered by isLoadingAuth, but as a fallback)
-    (!isLoadingAuth && user && profile && !isApproved && typeof window !== 'undefined' && pathname !== '/awaiting-approval'); // User and profile, but not approved, and not on awaiting-approval page
+  // Show loader if auth context is explicitly loading, OR if client-side checks haven't completed
+  // and we are not on a public auth page.
+  const showMainLoader = isLoadingAuth || 
+                         (!isLoadingAuth && !user && typeof window !== 'undefined' && !pathname.startsWith('/login') && !pathname.startsWith('/signup') && !pathname.startsWith('/auth/callback')) ||
+                         (!isLoadingAuth && user && !profile && typeof window !== 'undefined' && !pathname.startsWith('/awaiting-approval')) || // User, but no profile loaded yet, and not on awaiting approval
+                         (!isLoadingAuth && user && profile && !isApproved && typeof window !== 'undefined' && pathname !== '/awaiting-approval');
 
 
   if (showMainLoader) {
@@ -159,16 +158,16 @@ function ClientAuthGuardWrapper({ children }: { children: ReactNode }) {
      return <>{children}</>; 
   }
 
-  // Fallback redirect if, after loading, state is invalid for app routes
-  // This condition is tricky because if isLoadingAuth is false, user and profile should be definitively set or null
-  if (!isLoadingAuth && (!user || !profile || !isApproved) && 
+  // Fallback check: if after loading, state is invalid for protected app routes, redirect.
+  // This should ideally be caught by the primary loader, but serves as a safety net.
+  if (!isLoadingAuth && (!isAuthenticated || !user || !profile) && // isAuthenticated implies user, profile, and approved
       !pathname.startsWith("/login") && 
       !pathname.startsWith("/signup") &&
       !pathname.startsWith("/auth/callback") &&
       pathname !== "/awaiting-approval" 
     ) {
-    console.warn("ClientAuthGuard: Fallback - Invalid state for app routes after loading. Redirecting to login.", { isLoadingAuth, user, profile, isApproved, pathname });
-    if (typeof window !== 'undefined') router.replace("/login"); // Should rarely be hit if above logic is correct
+    console.warn("ClientAuthGuard: Fallback - Invalid state for app routes after loading. isLoadingAuth:", isLoadingAuth, "isAuthenticated:", isAuthenticated, "user:", !!user, "profile:", !!profile, "path:", pathname, ". Redirecting to login.");
+    if (typeof window !== 'undefined') router.replace("/login"); 
     return (
         <div className="flex h-screen w-screen items-center justify-center bg-background">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -177,7 +176,8 @@ function ClientAuthGuardWrapper({ children }: { children: ReactNode }) {
     );
   }
   
-  if (isTransitioning && isAuthenticated) { // Only show transition loader if user is authenticated
+  // Transition loader for page navigation within the app if user is authenticated
+  if (isTransitioning && isAuthenticated) { 
     return (
       <div className="flex-1 p-4 sm:px-6 sm:py-6 md:gap-8 overflow-auto print:overflow-visible">
         <div className="flex items-center justify-center h-full print:hidden">
@@ -187,8 +187,7 @@ function ClientAuthGuardWrapper({ children }: { children: ReactNode }) {
     );
   }
 
-  console.log("ClientAuthGuard: Rendering children for path:", pathname);
+  console.log("ClientAuthGuard: Rendering children for path:", pathname, {isLoadingAuth, isAuthenticated, user: !!user, profile: !!profile});
   return <>{children}</>;
 }
-
     
