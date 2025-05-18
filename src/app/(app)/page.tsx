@@ -22,12 +22,12 @@ export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient(); 
 
   const { data: { user: authUser } } = await supabase.auth.getUser();
-  
+  console.log(authUser,"in app/page.")
   // If not authenticated, (app)/layout should ideally redirect.
   // But this is a server component, so a direct check is good before fetching user-specific data.
-  if (!authUser) {
-    redirect("/login");
-  }
+  // if (!authUser) {
+  //   redirect("/login");
+  // }
   
   let initialProfile: Profile | null = null;
   try {

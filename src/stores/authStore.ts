@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import type { Profile } from '@/types';
-import { fetchUserProfileFromServer } from '@/lib/api/profile';
+import { fetchUserProfileFromServer } from '@/lib/api/profile'; // Ensure this is correctly imported
 
 const supabase = createClient();
 
@@ -14,22 +14,22 @@ interface AuthState {
   isAuthenticated: boolean;
   isApproved: boolean;
   isAdmin: boolean;
-  initialAuthCheckDone: boolean; // To track if initial session/profile load is complete
-  previousUserId: string | null;   // To track if user identity changed
+  initialAuthCheckDone: boolean;
+  previousUserId: string | null;
 
-  // Actions
   initializeAuth: () => void;
   _handleAuthStateChange: (event: AuthChangeEvent, session: Session | null) => Promise<void>;
   fetchProfileAndUpdateStore: (userId: string | null, forceRefresh?: boolean) => Promise<Profile | null>;
   signOut: () => Promise<void>;
-  setUser: (user: SupabaseUser | null) => void; // Exposed for direct user update if needed elsewhere
-  setProfile: (profile: Profile | null) => void; // Exposed for direct profile update
+  setUser: (user: SupabaseUser | null) => void;
+  setProfile: (profile: Profile | null) => void;
+  _updateDerivedStates: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   profile: null,
-  isLoadingAuth: true,
+  isLoadingAuth: true, // Start true until first check is complete
   isAuthenticated: false,
   isApproved: false,
   isAdmin: false,
@@ -47,8 +47,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setUser: (newUser) => {
     const oldUser = get().user;
-    if (JSON.stringify(oldUser) !== JSON.stringify(newUser)) {
+    // Basic check to avoid re-render if user object reference is new but data is same
+    if (JSON.stringify(oldUser?.id) !== JSON.stringify(newUser?.id) || 
+        JSON.stringify(oldUser?.email) !== JSON.stringify(newUser?.email)) {
       console.log("AuthStore: Setting user state", newUser ? { id: newUser.id, email: newUser.email } : null);
+      set({ user: newUser });
+      get()._updateDerivedStates();
+    } else if (!oldUser && newUser) { // Case where oldUser was null
+      console.log("AuthStore: Setting user state from null", newUser ? { id: newUser.id, email: newUser.email } : null);
       set({ user: newUser });
       get()._updateDerivedStates();
     }
@@ -59,8 +65,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (JSON.stringify(oldProfile) !== JSON.stringify(newProfile)) {
       console.log("AuthStore: Setting profile state", newProfile ? { id: newProfile.id, name: newProfile.full_name } : null);
       set({ profile: newProfile });
-      if (get().user && (!get().user?.profile || JSON.stringify(get().user?.profile) !== JSON.stringify(newProfile))) {
-        set(state => ({ user: { ...state.user!, profile: newProfile } }));
+      // Ensure user object also has this profile
+      const currentUserInStore = get().user;
+      if (currentUserInStore && (!currentUserInStore.profile || JSON.stringify(currentUserInStore.profile) !== JSON.stringify(newProfile))) {
+        set(state => ({ user: { ...state.user!, profile: newProfile } as any }));
       }
       get()._updateDerivedStates();
     }
@@ -73,39 +81,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!userId) {
       console.log("AuthStore: No userId provided to fetchProfileAndUpdateStore. Clearing profile.");
       if (currentProfile !== null) setProfileState(null);
-      if (currentUserInStore && currentUserInStore.profile) {
-        setUserState({ ...currentUserInStore, profile: null });
-      }
       return null;
     }
 
+    // No localStorage caching in this version for simplicity with SSR/hydration conflicts
+    // Always fetch if forced or if no current profile for this user exists
     if (!forceRefresh && currentProfile && currentProfile.id === userId) {
       console.log(`AuthStore: Profile for ${userId} already in store and not forcing refresh. Using existing.`);
-      // Ensure user object also has this profile if it somehow differs
-      if (currentUserInStore && (!currentUserInStore.profile || currentUserInStore.profile.id !== currentProfile.id)) {
-         setUserState({ ...currentUserInStore, profile: currentProfile });
-      }
       return currentProfile;
     }
 
     try {
-      console.log(`AuthStore: Fetching fresh profile for ${userId} from server (via fetchUserProfileFromServer).`);
-      // Pass client-side supabase instance from this store's scope
-      const fetchedProfile = await fetchUserProfileFromServer(userId, supabase);
+      console.log(`AuthStore: Fetching profile for ${userId} from server (via fetchUserProfileFromServer).`);
+      const fetchedProfile = await fetchUserProfileFromServer(userId, supabase); // Pass client-side supabase
 
-      if (get().user?.id === userId) { // Critical: ensure profile belongs to current user in store
+      if (get().user?.id === userId) { // Ensure profile belongs to current user in store
         console.log("AuthStore: Successfully fetched profile:", fetchedProfile ? { id: fetchedProfile.id, name: fetchedProfile.full_name } : null);
-        if (JSON.stringify(currentProfile) !== JSON.stringify(fetchedProfile)) {
-          setProfileState(fetchedProfile);
-          if (currentUserInStore) {
-            setUserState({ ...currentUserInStore, profile: fetchedProfile });
-          }
-        } else {
-          console.log("AuthStore: Fetched profile is same as current, no profile state update needed for content. Ensuring user object has it.");
-           if (currentUserInStore && (!currentUserInStore.profile || currentUserInStore.profile.id !== (fetchedProfile?.id || null))) {
-             setUserState({ ...currentUserInStore, profile: fetchedProfile });
-           }
-        }
+        setProfileState(fetchedProfile); // This will also update user.profile via setProfile's internal logic
         return fetchedProfile;
       }
       console.warn("AuthStore: User changed during profile fetch. Discarding fetched profile for previous user.");
@@ -113,10 +105,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error) {
       console.error(`AuthStore: Error fetching profile for ${userId}:`, error);
       if (get().user?.id === userId) { // Clear profile if fetch failed for current user
-        if (currentProfile !== null) setProfileState(null);
-        if (currentUserInStore && currentUserInStore.profile) {
-          setUserState({ ...currentUserInStore, profile: null });
-        }
+        setProfileState(null);
       }
       return null;
     }
@@ -124,119 +113,131 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   _handleAuthStateChange: async (event, session) => {
     const { 
-      fetchProfileAndUpdateStore: fetchProfile, 
-      setUser: setSupaUser, // Renamed for clarity within this function
-      setProfile: setAppProfile, // Renamed for clarity
+      fetchProfileAndUpdateStore, 
+      setUser: setSupaUser, 
+      setProfile: setAppProfile, 
       previousUserId, 
       initialAuthCheckDone,
-      user: currentUserObjectInStore, // Get current user object from store
+      isLoadingAuth: currentIsLoadingAuth
     } = get();
 
     const currentSupaUser = session?.user ?? null;
     const currentSupaUserId = currentSupaUser?.id ?? null;
 
-    console.log(`AuthStore: onAuthStateChange event: ${event}, User ID: ${currentSupaUserId}, Prev User ID: ${previousUserId}, Initial Check Done: ${initialAuthCheckDone}`);
+    console.log(`AuthStore: _handleAuthStateChange event: ${event}, User ID: ${currentSupaUserId}, Prev User ID: ${previousUserId}, Initial Check Done: ${initialAuthCheckDone}, Current isLoadingAuth: ${currentIsLoadingAuth}`);
 
-    if (event === 'INITIAL_SESSION' || (event === 'SIGNED_IN' && !initialAuthCheckDone)) {
-      console.log("AuthStore: Initial session or first SIGNED_IN. Setting isLoadingAuth true and fetching profile.");
-      set({ isLoadingAuth: true });
-      await fetchProfile(currentSupaUserId, true); // Force fetch for initial
-      set({ user: currentSupaUser, previousUserId: currentSupaUserId, initialAuthCheckDone: true, isLoadingAuth: false });
-    } else if (event === 'SIGNED_IN') {
-      if (currentSupaUserId !== previousUserId) {
-        console.log("AuthStore: SIGNED_IN for a new user. Setting isLoadingAuth true and fetching profile.");
-        set({ isLoadingAuth: true }); // Briefly indicate loading for user switch
-        await fetchProfile(currentSupaUserId, true); // Force fetch for new user
-        set({ user: currentSupaUser, previousUserId: currentSupaUserId, isLoadingAuth: false });
+    let nextIsLoadingAuth = currentIsLoadingAuth;
+    let nextInitialAuthCheckDone = initialAuthCheckDone;
+
+    if (event === 'INITIAL_SESSION') {
+      if (!initialAuthCheckDone) {
+        console.log("AuthStore: INITIAL_SESSION event, initial check not done. Fetching profile.");
+        nextIsLoadingAuth = true;
+        set({ isLoadingAuth: true });
+        await fetchProfileAndUpdateStore(currentSupaUserId, true);
+        nextIsLoadingAuth = false;
+        nextInitialAuthCheckDone = true;
       } else {
-        // SIGNED_IN for the same user (likely token refresh) & initial check is done
-        console.log(`AuthStore: SIGNED_IN for same user ${currentSupaUserId}. Updating Supabase user object only.`);
-        // Only update user if the session object itself has changed to avoid unnecessary re-renders
-        if (JSON.stringify(currentUserObjectInStore) !== JSON.stringify(currentSupaUser)){
-            // Critical: Ensure profile from previous state is re-embedded into the new user object
-            // if the currentSupaUser from session doesn't have it (it usually won't)
-            setSupaUser({ ...currentSupaUser!, profile: get().profile });
+        console.log("AuthStore: INITIAL_SESSION event, but initial check was already done. Updating user if changed.");
+         if (JSON.stringify(get().user?.id) !== JSON.stringify(currentSupaUserId)) {
+           setSupaUser(currentSupaUser); // Update user object if different
+         }
+      }
+    } else if (event === 'SIGNED_IN') {
+      if (!initialAuthCheckDone || currentSupaUserId !== previousUserId) {
+        console.log("AuthStore: SIGNED_IN for new user or before initial check completion. Fetching profile.");
+        nextIsLoadingAuth = true; // Set loading for this significant change
+        set({ isLoadingAuth: true });
+        await fetchProfileAndUpdateStore(currentSupaUserId, true);
+        nextIsLoadingAuth = false;
+        nextInitialAuthCheckDone = true;
+      } else {
+        // Same user, likely token refresh, initial check done. Only update user object for new token.
+        console.log(`AuthStore: SIGNED_IN for same user ${currentSupaUserId} (initial check done). Updating Supabase user object only.`);
+        // Only update user if the session object itself has changed (e.g. new token)
+        if (JSON.stringify(get().user) !== JSON.stringify(currentSupaUser)){
+            setSupaUser(currentSupaUser); // This will embed existing profile
         }
-        // Ensure isLoadingAuth is false if it was somehow set true
-        if(get().isLoadingAuth && initialAuthCheckDone) set({ isLoadingAuth: false });
       }
     } else if (event === 'USER_UPDATED' && currentSupaUser) {
-      console.log(`AuthStore: USER_UPDATED for user ${currentSupaUserId}. Fetching profile.`);
-      // For USER_UPDATED, always fetch the profile to get latest metadata.
-      // Don't set global isLoadingAuth if initial load was done.
-      await fetchProfile(currentSupaUserId, true);
-      setSupaUser({ ...currentSupaUser!, profile: get().profile }); // Ensure user object is updated with latest session & potentially new profile
+      console.log(`AuthStore: USER_UPDATED for user ${currentSupaUserId}. Re-fetching profile.`);
+      // Don't set global isLoadingAuth if initial load was done and it's just a profile update.
+      await fetchProfileAndUpdateStore(currentSupaUserId, true);
+      setSupaUser(currentSupaUser); // Ensure user object is updated
     } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
       console.log(`AuthStore: Event ${event}. Clearing user and profile.`);
+      nextIsLoadingAuth = true;
       set({ isLoadingAuth: true }); // Briefly show loading
       setSupaUser(null);
       setAppProfile(null);
-      set({ previousUserId: null, isLoadingAuth: false });
+      nextIsLoadingAuth = false;
+      // initialAuthCheckDone remains true, as we have completed an auth cycle.
+      // previousUserId will be cleared when next user signs in or on next INITIAL_SESSION.
     } else if (event === 'TOKEN_REFRESHED' && currentSupaUser) {
         console.log(`AuthStore: TOKEN_REFRESHED for user ${currentSupaUserId}. Updating Supabase user object only.`);
-        if (JSON.stringify(currentUserObjectInStore) !== JSON.stringify(currentSupaUser)){
-            setSupaUser({ ...currentSupaUser!, profile: get().profile });
+        if (JSON.stringify(get().user) !== JSON.stringify(currentSupaUser)){
+            setSupaUser(currentSupaUser);
         }
-    } else if (event === 'PASSWORD_RECOVERY') {
-        console.log("AuthStore: PASSWORD_RECOVERY event. User may need to re-authenticate or session might change.");
-        // Typically, this event means the user needs to sign in again after password reset.
-        // The Supabase client handles session invalidation. A SIGNED_OUT or new SIGNED_IN event will follow.
     }
-    
-    // This final set ensures derived states are always updated after any auth event logic.
-    // It also ensures isLoadingAuth is correctly false if initial check is done and no major change happened.
-    if (initialAuthCheckDone && get().isLoadingAuth && !(event === 'SIGNED_OUT' || event === 'USER_DELETED' || (event === 'SIGNED_IN' && currentSupaUserId !== previousUserId))) {
-      set({ isLoadingAuth: false });
-    }
-    get()._updateDerivedStates(); // Always update derived booleans
+
+    set({ 
+      user: get().user, // ensure re-evaluation if internal setProfile updated user.profile
+      profile: get().profile,
+      previousUserId: currentSupaUserId, 
+      isLoadingAuth: nextIsLoadingAuth, 
+      initialAuthCheckDone: nextInitialAuthCheckDone 
+    });
+    get()._updateDerivedStates();
   },
 
   initializeAuth: () => {
-    const { _handleAuthStateChange, initialAuthCheckDone } = get();
-    if (initialAuthCheckDone) {
+    const { _handleAuthStateChange, initialAuthCheckDone: isAlreadyInitialized } = get();
+    if (isAlreadyInitialized) {
       console.log("AuthStore: Auth already initialized.");
       return;
     }
-    console.log("AuthStore: Initializing Auth...");
+    console.log("AuthStore: Initializing Auth (isLoadingAuth will be true)...");
     set({ isLoadingAuth: true });
 
-    // Initial session check
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       console.log("AuthStore: Initial getSession() result:", session ? { userId: session.user.id } : "No session");
-      await _handleAuthStateChange('INITIAL_SESSION', session);
-      // _handleAuthStateChange should set initialAuthCheckDone and isLoadingAuth
+      // _handleAuthStateChange will be called with 'INITIAL_SESSION'
+      // No direct call to _handleAuthStateChange needed here as listener will pick it up.
+      // However, explicitly handling INITIAL_SESSION in _handleAuthStateChange ensures profile fetch
+      // if this completes before listener fires for INITIAL_SESSION.
+      if (!get().initialAuthCheckDone) { // If listener hasn't processed INITIAL_SESSION yet
+          await get()._handleAuthStateChange('INITIAL_SESSION', session);
+      }
     }).catch(error => {
       console.error("AuthStore: Error during initial getSession():", error);
-      set({ isLoadingAuth: false, initialAuthCheckDone: true }); // Ensure loading stops
+      set({ isLoadingAuth: false, initialAuthCheckDone: true });
+      get()._updateDerivedStates();
     });
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(_handleAuthStateChange);
+    const { data: authListener } = supabase.auth.onAuthStateChange(get()._handleAuthStateChange);
     console.log("AuthStore: onAuthStateChange listener attached.");
     
-    // Store the unsubscribe function if needed, e.g., for cleanup in a root component, but Zustand store itself persists.
-    // For now, we assume the listener persists for the app's lifetime.
+    // Add a return function for potential cleanup if the store were to be destroyed,
+    // though for a global store, this is less common.
+    // return () => {
+    //   authListener?.unsubscribe();
+    // };
   },
 
   signOut: async () => {
-    const { user } = get();
-    if (user) { // Only set loading if there was a user
+    const { user: currentUser } = get();
+    if (currentUser) {
       set({ isLoadingAuth: true });
     }
     console.log("AuthStore: Signing out...");
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error("AuthStore: Error signing out:", error);
-      // Even if Supabase signOut fails, clear local state.
-      // The onAuthStateChange handler will also fire with SIGNED_OUT.
+      // Even if Supabase signOut fails, onAuthStateChange should fire with SIGNED_OUT
+      // and handle clearing local state. We can force it here too.
       set({ user: null, profile: null, previousUserId: null, isLoadingAuth: false });
       get()._updateDerivedStates();
     }
-    // Let onAuthStateChange handle final state update (isLoadingAuth to false)
+    // Let onAuthStateChange handle final state update.
   },
 }));
-
-// Optional: Trigger initializeAuth if running in a client environment.
-// This is better handled by ClientAuthInitializer.tsx to ensure it runs after client mount.
-// if (typeof window !== 'undefined') {
-//   useAuthStore.getState().initializeAuth();
-// }

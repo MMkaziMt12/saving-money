@@ -53,7 +53,7 @@ export default function LoginPage() {
       // AuthStore's onAuthStateChange listener will pick up the SIGNED_IN event,
       // fetch the profile, and AppLayout will redirect to '/' or '/awaiting-approval'.
       // No need to manually fetch profile or push here if AppLayout handles it.
-      // router.push("/"); // This might be redundant if AppLayout redirects.
+      router.push("/"); // This might be redundant if AppLayout redirects.
     }
     setIsLoading(false);
   };
