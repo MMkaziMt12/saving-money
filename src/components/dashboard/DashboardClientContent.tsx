@@ -2,7 +2,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/hooks/useAuth"; // Updated import
 import Link from "next/link";
 import { DollarSign, ShieldAlert, Users, BarChart3, AlertTriangle, CheckCircle2, Gift, TrendingDown, TrendingUp, Coins, RefreshCw, Loader2, Clock } from "lucide-react";
 import { CURRENCY_SYMBOL, MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
@@ -24,25 +24,25 @@ import {
   type UserContributionForStatus,
   type PaginatedData
 } from "@/lib/api/dashboard";
-import { createClient as createClientComponentClient } from "@/lib/supabase/client"; // Client-side client for refetches
+import { createClient as createClientComponentClient } from "@/lib/supabase/client";
 
 const ITEMS_PER_PAGE = 5;
 
 interface DashboardClientContentProps {
-  initialUser: AppUser | null;
-  initialProfile: Profile | null;
+  initialUser: AppUser | null; // Comes from server component
+  initialProfile: Profile | null; // Comes from server component
   appName: string;
 }
 
 export function DashboardClientContent({ initialUser, initialProfile, appName }: DashboardClientContentProps) {
-  // Use AuthContext for live user/profile updates and isAdmin status after initial load
-  const { user: authContextUser, profile: authContextProfile, isAdmin, isLoading: authLoading, fetchProfile } = useAuth();
+  const { user: authUserFromStore, profile: authProfileFromStore, isLoadingAuth, fetchProfile: fetchProfileFromStore } = useAuth(); // Using new hook
   const queryClient = useQueryClient();
-  const supabase = createClientComponentClient(); // Client for client-side fetches by TanStack Query
+  const supabase = createClientComponentClient();
 
-  // Prioritize context user/profile once loaded, fallback to initial props
-  const currentUser = authContextUser || initialUser;
-  const currentProfile = authContextProfile || initialProfile;
+  // Prioritize Zustand store's user/profile once auth is no longer loading,
+  // otherwise use server-passed initial data.
+  const currentUser = !isLoadingAuth && authUserFromStore ? authUserFromStore : initialUser;
+  const currentProfile = !isLoadingAuth && authProfileFromStore ? authProfileFromStore : initialProfile;
 
   const [currentPageContributions, setCurrentPageContributions] = useState(1);
   const [searchTermContributions, setSearchTermContributions] = useState("");
@@ -74,7 +74,7 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
   } = useQuery<PaginatedData<FamilyEmergencyRequestForTable>, Error>({
     queryKey: ["allFamilyEmergencyRequestsForDashboard", currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests],
     queryFn: () => fetchAllFamilyEmergencyRequestsForDashboard(supabase, currentPageEmergencyRequests, ITEMS_PER_PAGE, debouncedSearchTermEmergencyRequests),
-    enabled: !!currentUser, // Assuming all users can see this
+    enabled: !!currentUser, 
     keepPreviousData: true,
   });
 
@@ -110,7 +110,7 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
         userPendingAmountValue: 0,
         userDetailedContributionDescription: "Calculating status...",
         userContributionStatusIcon: Clock,
-        userContributionValueColorClass: "text-orange-500",
+        userContributionValueColorClass: "text-orange-500", // Default to orange for pending-like state
         paymentDifferenceMonths: 0,
       };
     }
@@ -124,7 +124,7 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
     const endMonthDate = new Date(getYear(currentDate), getMonth(currentDate), 1);
     
     let monthsSinceJoined = differenceInCalendarMonths(endMonthDate, startMonthDate) + 1;
-    monthsSinceJoined = Math.max(1, monthsSinceJoined);
+    monthsSinceJoined = Math.max(1, monthsSinceJoined); // Ensure at least 1 month
     
     const paymentDifferenceMonthsCalc = numContributionsMade - monthsSinceJoined;
     let pendingAmountVal = 0;
@@ -134,7 +134,7 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
     let valueColorClassVal = "text-orange-500";
 
     if (paymentDifferenceMonthsCalc > 0) {
-      pendingAmountVal = 0;
+      pendingAmountVal = 0; 
       detailedDescriptionVal = `Paid in advance for ${paymentDifferenceMonthsCalc} month${paymentDifferenceMonthsCalc > 1 ? 's' : ''}!`;
       statusIconVal = Gift;
       valueColorClassVal = "text-green-500";
@@ -146,15 +146,17 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
       statusIconVal = AlertTriangle;
       valueColorClassVal = "text-orange-500";
       statusTextVal = "Payment Due";
-    } else { 
+    } else { // paymentDifferenceMonthsCalc === 0
       pendingAmountVal = 0; 
       if (monthsSinceJoined === 1 && numContributionsMade === 0 && currentProfile.is_approved) {
+        // First month, no payment yet
         pendingAmountVal = MONTHLY_CONTRIBUTION_AMOUNT;
         detailedDescriptionVal = `Current month's contribution due.`;
         statusIconVal = AlertTriangle;
         valueColorClassVal = "text-orange-500";
         statusTextVal = "Payment Due";
       } else { 
+        // All caught up or first month paid
         detailedDescriptionVal = "All contributions paid up to date!";
         statusIconVal = CheckCircle2;
         valueColorClassVal = "text-green-500";
@@ -212,29 +214,28 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
     }
   }, [allEmergencyRequestsData, currentPageEmergencyRequests, debouncedSearchTermEmergencyRequests, queryClient, supabase]);
 
-  // This loader handles client-side loading if AuthContext is still resolving user/profile
-  // or if critical initial data for rendering user-specific cards isn't available yet.
-  const clientSideInitialLoading = authLoading || (!currentProfile && !authLoading) || (isLoadingAllContributionsForStatus && !allUserContributionsForStatusData && !isAllContributionsForStatusError);
-
-  if (clientSideInitialLoading) {
+  // isLoadingAuth from useAuth() handles the top-level loading for auth state.
+  // Individual query isLoading states handle their respective data sections.
+  if (isLoadingAuth && !currentUser) { // Still waiting for auth state to resolve
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-lg text-muted-foreground">Loading Dashboard...</p>
+        <p className="ml-4 text-lg text-muted-foreground">Initializing Dashboard...</p>
       </div>
     );
   }
   
-  if (!currentUser || !currentProfile || (isAllContributionsForStatusError && !allUserContributionsForStatusData)) {
-     const errorToDisplay = allContributionsForStatusErrorObj?.message || "User profile or contribution status could not be loaded.";
+  // Check if critical profile data for rendering user-specific cards is missing after auth has loaded
+  if (!isLoadingAuth && (!currentUser || !currentProfile || (isAllContributionsForStatusError && !allUserContributionsForStatusData))) {
+     const errorToDisplay = allContributionsForStatusErrorObj?.message || "User profile or essential contribution status could not be loaded.";
      return (
         <div className="flex flex-col items-center justify-center h-full py-10 text-center px-4">
             <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-            <p className="text-destructive mb-2">Error loading essential dashboard data.</p>
+            <p className="text-destructive mb-2">Error loading dashboard data.</p>
             <p className="text-sm text-muted-foreground mb-4">{errorToDisplay}</p>
             <Button 
-                onClick={() => {
-                    if (!currentProfile && currentUser && fetchProfile) fetchProfile(currentUser.id, true);
+                onClick={async () => {
+                    if (!currentProfile && currentUser?.id) await fetchProfileFromStore(currentUser.id, true);
                     if (isAllContributionsForStatusError) refetchAllUserContributionsForStatus();
                 }} 
                 variant="outline"
@@ -243,6 +244,11 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
             </Button>
         </div>
      );
+  }
+  
+  if (!currentUser || !currentProfile) {
+    // This case should ideally be handled by AppLayout redirecting, but as a fallback.
+    return <div className="flex items-center justify-center h-full py-10"><p>Loading user data...</p></div>;
   }
 
   return (
@@ -306,14 +312,14 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
       </div>
 
       <div className="flex flex-wrap gap-4 mb-8">
-        {!isAdmin && (
+        {!useAuthStore.getState().isAdmin && ( // Directly check isAdmin from store if needed without causing re-render for this button only
           <Button asChild size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-md">
             <Link href="/emergency-request">
               <ShieldAlert className="mr-2 h-5 w-5" /> Request Emergency Fund
             </Link>
           </Button>
         )}
-        {isAdmin && (
+        {useAuthStore.getState().isAdmin && (
            <Button asChild size="lg" className="shadow-md">
             <Link href="/admin">
               <Users className="mr-2 h-5 w-5" /> Go to Admin Panel
@@ -325,7 +331,7 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
       <div className="space-y-8">
         <EmergencyRequestHistoryTable
           requests={allEmergencyRequestsData?.data} 
-          isLoading={isLoadingEmergencyRequests && !allEmergencyRequestsData?.data && !isEmergencyRequestsError} 
+          isLoading={isLoadingEmergencyRequests && !allEmergencyRequestsData?.data && !isEmergencyRequestsError} // Pass true if loading and no stale data
           isError={isEmergencyRequestsError}
           errorObj={emergencyRequestsErrorObj}
           onRetry={refetchAllEmergencyRequests}
@@ -343,7 +349,7 @@ export function DashboardClientContent({ initialUser, initialProfile, appName }:
 
         <PaymentHistoryTable 
           contributions={userContributionsData?.data} 
-          isLoading={isLoadingUserContributions && !userContributionsData?.data && !isUserContributionsError} 
+          isLoading={isLoadingUserContributions && !userContributionsData?.data && !isUserContributionsError} // Pass true if loading and no stale data
           isError={isUserContributionsError}
           errorObj={userContributionsErrorObj}
           onRetry={refetchUserContributions}

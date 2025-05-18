@@ -1,40 +1,34 @@
 
 import { HydrationBoundary, QueryClient, dehydrate } from "@tanstack/react-query";
-import { cookies } from "next/headers";
 import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
 import { fetchUserProfileFromServer } from "@/lib/api/profile";
 import { ProfileClientContent } from "@/components/profile/ProfileClientContent";
 import type { Profile } from "@/types";
+import { redirect } from "next/navigation";
 
 export default async function ProfilePageSSR() {
-  // const cookieStore = await cookies();
   const supabase = await createServerSupabaseClient();
 
-  const { data: { user: authUser } } = await  supabase.auth.getUser();
+  const { data: { user: authUser } } = await supabase.auth.getUser();
   
   if (!authUser) {
-    // This shouldn't happen if AppLayout is working correctly, but as a safeguard.
-    // Redirect or show an error/login prompt.
-    // For now, we can let ProfileClientContent handle the no-user case if needed.
-    console.warn("ProfilePageSSR: No authenticated user found.");
+    redirect("/login");
   }
 
   const queryClient = new QueryClient();
   let initialProfile: Profile | null = null;
 
-  if (authUser?.id) {
-    try {
-      // Prefetch user profile for initial data
-      initialProfile = await queryClient.fetchQuery({
-        queryKey: ["userProfile", authUser.id],
-        queryFn: () => fetchUserProfileFromServer(authUser.id, supabase), // Pass server client
-      });
-    } catch (error) {
-        console.error("ProfilePageSSR: Error prefetching profile data:", error);
-        // initialProfile will remain null
-    }
+  try {
+    // Prefetch user profile for initial data
+    initialProfile = await queryClient.fetchQuery({
+      queryKey: ["userProfile", authUser.id], // This queryKey might be used by ProfileClientContent too
+      queryFn: () => fetchUserProfileFromServer(authUser.id, supabase), 
+    });
+  } catch (error) {
+      console.error("ProfilePageSSR: Error prefetching profile data:", error);
+      // initialProfile will remain null, ProfileClientContent will rely on useAuth
   }
-
+  
   const dehydratedState = dehydrate(queryClient);
 
   return (

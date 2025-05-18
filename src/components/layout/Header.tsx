@@ -13,18 +13,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { APP_NAME } from "@/lib/constants";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/hooks/useAuth"; // Updated import
 import { useRouter } from "next/navigation";
-import { Building2, LayoutDashboard, LogOut, UserCircle, Users, Sun, Moon } from "lucide-react";
-import { SidebarTrigger } from "@/components/ui/sidebar"; // Import SidebarTrigger
+import { LayoutDashboard, LogOut, UserCircle, Users, Sun, Moon } from "lucide-react";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationsDisplay } from "./NotificationsDisplay";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
-// Removed isMobile and onMenuClick props as SidebarTrigger handles this now
-
 export function Header() {
-  const { user, profile, signOut, isAdmin } = useAuth();
+  const { user, profile, signOutUser, isAdmin } = useAuth(); // Using new hook
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -32,7 +30,7 @@ export function Header() {
   useEffect(() => setMounted(true), []);
 
   const handleLogout = async () => {
-    await signOut();
+    await signOutUser();
     router.push("/login");
   };
 
@@ -49,14 +47,11 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6 print:hidden">
-      <SidebarTrigger className="text-muted-foreground hover:text-foreground" /> {/* Universal sidebar trigger */}
+      <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
       
-      {/* App Name can be removed if it's always visible in the new sidebar's header */}
-      {/* Or conditionally show it for mobile if needed */}
       <div className="flex-1">
         {/* Placeholder for potential breadcrumbs or page title */}
       </div>
-
 
       <div className="ml-auto flex items-center gap-1 md:gap-2">
         {mounted && (
@@ -70,7 +65,7 @@ export function Header() {
             {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
           </Button>
         )}
-        {/* {user && <NotificationsDisplay />} */}
+        {user && <NotificationsDisplay />}
         {user && profile ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

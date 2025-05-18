@@ -9,11 +9,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { createClient } from '@/lib/supabase/client';
-import { useAuth } from "@/contexts/AuthContext"; 
+// Removed useAuth import as profile fetching after login is handled by authStore
 import { Loader2 } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
 
-// Simple SVG for Google Icon
 const GoogleIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
     <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
@@ -24,11 +22,9 @@ const GoogleIcon = () => (
   </svg>
 );
 
-
 export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { fetchProfile } = useAuth(); 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -54,7 +50,10 @@ export default function LoginPage() {
         title: "Login Successful",
         description: "Welcome back!",
       });
-      router.push("/"); 
+      // AuthStore's onAuthStateChange listener will pick up the SIGNED_IN event,
+      // fetch the profile, and AppLayout will redirect to '/' or '/awaiting-approval'.
+      // No need to manually fetch profile or push here if AppLayout handles it.
+      // router.push("/"); // This might be redundant if AppLayout redirects.
     }
     setIsLoading(false);
   };
@@ -65,7 +64,7 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback` // Ensure you have this route handled or Supabase handles it
+        redirectTo: `${window.location.origin}/auth/callback`
       }
     });
     if (error) {
@@ -77,7 +76,7 @@ export default function LoginPage() {
       setIsGoogleLoading(false);
     }
     // On success, Supabase redirects to Google, then back to your app.
-    // The AuthProvider's onAuthStateChange will handle the session.
+    // The authStore's onAuthStateChange will handle the session.
   };
 
   return (

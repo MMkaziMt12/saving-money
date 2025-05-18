@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -9,9 +10,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from "lucide-react";
-// import { Separator } from "@/components/ui/separator"; // Separator not used
 
-// Simple SVG for Google Icon (can be moved to a shared component if used elsewhere)
 const GoogleIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
     <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
@@ -37,9 +36,6 @@ export default function SignupPage() {
     setIsLoading(true);
     const supabase = createClient();
     
-    // For email/password sign-up, full_name and phone are passed in options.data.
-    // The `handle_new_user` Supabase trigger should use these to populate the profile.
-    // Avatar upload is handled on the profile page after signup and approval.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -62,9 +58,9 @@ export default function SignupPage() {
         title: "Account Created!",
         description: "Please check your email for verification if required. Your account is pending admin approval.",
       });
-      // User will be redirected by AuthProvider or root page guard after profile creation/check.
-      // Typically to /awaiting-approval or / if already approved (unlikely for new signups).
-      router.push("/awaiting-approval"); 
+      // The authStore's onAuthStateChange and AppLayout will handle redirection
+      // to /awaiting-approval or / if already approved.
+      // router.push("/awaiting-approval"); // May be redundant
     } else {
        toast({
         title: "Signup Incomplete",
@@ -82,9 +78,6 @@ export default function SignupPage() {
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback` 
-        // Supabase handles new user creation for OAuth. 
-        // The handle_new_user trigger in Supabase should create the profile.
-        // It should extract full_name and avatar_url from raw_user_meta_data if available from Google.
       }
     });
     if (error) {
@@ -96,11 +89,8 @@ export default function SignupPage() {
       setIsGoogleLoading(false);
     }
     // On success, Supabase redirects to Google, then back to your app.
-    // The AuthProvider's onAuthStateChange will handle the session.
-    // The handle_new_user trigger in Supabase is responsible for creating the profile
-    // and populating it with data from Google, including avatar_url.
+    // The authStore's onAuthStateChange will handle the session and profile creation.
   };
-
 
   return (
     <div className="space-y-6">

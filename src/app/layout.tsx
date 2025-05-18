@@ -2,11 +2,12 @@
 import type {Metadata} from 'next';
 import {Geist, Geist_Mono} from 'next/font/google';
 import './globals.css';
-import { AuthProvider } from '@/contexts/AuthContext';
+// Removed AuthProvider
 import { Toaster } from "@/components/ui/toaster";
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],
@@ -37,10 +38,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
-            <AuthProvider>
-              {children}
-              <Toaster />
-            </AuthProvider>
+            {/* AuthProvider is removed, ClientAuthInitializer will be in (app)/layout.tsx */}
+            {children}
+            <Toaster />
             {/* <ReactQueryDevtools initialIsOpen={false} /> */}
           </QueryProvider>
         </ThemeProvider>

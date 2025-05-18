@@ -10,7 +10,7 @@ import {
   Users,
   UserCircle,
 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/hooks/useAuth"; // Updated import
 import { 
   SidebarMenu, 
   SidebarMenuItem, 
@@ -35,9 +35,9 @@ const navItems: NavItem[] = [
 
 export function SidebarNav() {
   const pathname = usePathname();
-  const { user, isAdmin, isApproved, isLoading } = useAuth();
+  const { user, isAdmin, isApproved, isLoadingAuth } = useAuth(); // Using new hook
 
-  if (isLoading && !user) {
+  if (isLoadingAuth && !user) {
     return (
       <div className="p-2 space-y-1">
         {[...Array(3)].map((_, i) => (
@@ -64,11 +64,11 @@ export function SidebarNav() {
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
               asChild
+              isActive={isActive} // Pass isActive to SidebarMenuButton
               tooltip={{ children: item.label, side: "right", align: "center" }}
               className={cn(
-                "justify-start gap-3 group/menu-item h-10 font-medium",
-                isActive &&
-                  "bg-[var(--sidebar-active-background)] text-[var(--sidebar-active-foreground)] hover:bg-[var(--sidebar-active-background)] hover:text-[var(--sidebar-active-foreground)]"
+                "justify-start gap-3 group/menu-item h-10 font-medium"
+                // Active styling is now primarily handled by data-[active=true] in SidebarMenuButton's CVA
               )}
             >
               <Link href={item.href}>
@@ -76,8 +76,8 @@ export function SidebarNav() {
                   className={cn(
                     "h-5 w-5 shrink-0",
                     isActive
-                      ? "text-[var(--sidebar-active-foreground)]"
-                      : "text-[var(--sidebar-muted-foreground)] group-hover/menu-item:text-[var(--sidebar-hover-foreground)]" // Use hover-foreground for icon on hover
+                      ? "text-[var(--sidebar-active-foreground)]" // Explicit color for active icon
+                      : "text-[var(--sidebar-muted-foreground)] group-hover/menu-item:text-[var(--sidebar-hover-foreground)]"
                   )}
                 />
                 {item.label}

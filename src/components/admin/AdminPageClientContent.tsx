@@ -7,24 +7,23 @@ import { UserManagementTab } from "@/components/admin/tabs/UserManagementTab";
 import { ContributionManagementTab } from "@/components/admin/tabs/ContributionManagementTab";
 import { EmergencyRequestManagementTab } from "@/components/admin/tabs/EmergencyRequestManagementTab";
 import { NotificationSenderTab } from "@/components/admin/tabs/NotificationSenderTab";
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Users, ListChecks, ShieldAlert, BellRing, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/contexts/AuthContext"; 
+import { useAuth } from "@/hooks/useAuth"; // Updated import
 import { useToast } from "@/hooks/use-toast";
 import type { Profile } from "@/types";
-import { useAdminPanelStore } from "@/stores/adminPanelStore"; // Import Zustand store
+import { useAdminPanelStore } from "@/stores/adminPanelStore"; 
 
 interface AdminPageClientContentProps {
   initialProfile: Profile | null; // Admin's profile passed from server
 }
 
 export function AdminPageClientContent({ initialProfile: serverProfile }: AdminPageClientContentProps) {
-  const { user: authUser, profile: authContextProfile, isAdmin: authIsAdmin, isLoading: authLoading, isApproved: authIsApproved } = useAuth();
+  const { user: authUser, profile: authProfileFromStore, isAdmin, isLoadingAuth, isApproved } = useAuth(); // Using new hook
   const { toast } = useToast();
   const router = useRouter();
   
-  // Use Zustand store for activeTab
   const storeActiveTab = useAdminPanelStore(state => state.activeTab);
   const storeSetInitialTab = useAdminPanelStore(state => state.setInitialTab);
   const storeSetActiveTab = useAdminPanelStore(state => state.setActiveTab);
@@ -32,31 +31,28 @@ export function AdminPageClientContent({ initialProfile: serverProfile }: AdminP
   const searchParams = useSearchParams();
   const tabFromQuery = searchParams.get("tab");
 
-  // Initialize Zustand store with tab from query params once
   useEffect(() => {
     storeSetInitialTab(tabFromQuery || "users");
   }, [storeSetInitialTab, tabFromQuery]);
   
-  // Use profile from context once available, fallback to serverProfile
-  const currentProfile = authContextProfile || serverProfile;
-  const isAdmin = authIsAdmin || (currentProfile?.role === 'admin');
-  const isApproved = authIsApproved || (currentProfile?.is_approved);
+  const currentProfile = !isLoadingAuth && authProfileFromStore ? authProfileFromStore : serverProfile;
+  // isAdmin and isApproved from useAuth are derived from the store and should be preferred once auth is loaded.
 
   useEffect(() => {
-    if (!authLoading) { // Only check after auth context is resolved
-      if (!authUser || !isApproved) {
+    if (!isLoadingAuth) { 
+      if (!authUser || !isApproved) { // Use derived isApproved from store
         router.replace("/login"); 
         return;
       }
-      if (!isAdmin) {
+      if (!isAdmin) { // Use derived isAdmin from store
         toast({ title: "Access Denied", description: "You do not have permission to view this page.", variant: "destructive" });
         router.replace("/");
         return;
       }
     }
-  }, [authUser, isAdmin, authLoading, isApproved, router, toast]);
+  }, [authUser, isAdmin, isLoadingAuth, isApproved, router, toast]);
 
-  if (authLoading || (!isAdmin && !authLoading && !authUser)) { // Ensure authUser check is also gated by authLoading
+  if (isLoadingAuth || (!isAdmin && !isLoadingAuth && !authUser)) { 
     return (
       <div className="flex items-center justify-center h-screen py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -74,8 +70,8 @@ export function AdminPageClientContent({ initialProfile: serverProfile }: AdminP
   }
 
   const handleTabChange = (value: string) => {
-    storeSetActiveTab(value); // Update Zustand store
-    router.push(`/admin?tab=${value}`, { scroll: false }); // Update URL
+    storeSetActiveTab(value); 
+    router.push(`/admin?tab=${value}`, { scroll: false }); 
   };
 
   return (

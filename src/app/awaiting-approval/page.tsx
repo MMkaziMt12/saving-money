@@ -1,33 +1,34 @@
+
 "use client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_NAME } from "@/lib/constants";
 import { Hourglass, LogOut } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/hooks/useAuth"; // Updated import
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export default function AwaitingApprovalPage() {
-  const { user, profile, signOut, isLoading, isApproved } = useAuth();
+  const { user, profile, signOutUser, isLoadingAuth, isApproved } = useAuth(); // Using new hook
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && user && isApproved) {
-      router.replace("/"); // Already approved, redirect to dashboard
+    if (!isLoadingAuth) { // Check after auth state is resolved
+      if (user && isApproved) {
+        router.replace("/"); // Already approved, redirect to dashboard
+      } else if (!user) {
+        router.replace("/login"); // Not logged in, redirect to login
+      }
     }
-    if (!isLoading && !user) {
-      router.replace("/login"); // Not logged in, redirect to login
-    }
-  }, [isLoading, user, isApproved, router]);
+  }, [isLoadingAuth, user, isApproved, router]);
 
 
   const handleLogout = async () => {
-    await signOut();
-    router.push("/login");
+    await signOutUser();
+    // router.push("/login"); // The onAuthStateChange will redirect via AppLayout
   };
 
-  // Display loading or a minimal message if still loading or redirecting
-  if (isLoading || (!user && typeof window !== 'undefined')) {
+  if (isLoadingAuth || (!user && typeof window !== 'undefined')) {
      return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
         <Hourglass className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -35,7 +36,6 @@ export default function AwaitingApprovalPage() {
       </div>
     );
   }
-
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
