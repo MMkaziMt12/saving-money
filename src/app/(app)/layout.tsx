@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Header } from "@/components/layout/Header";
-import { SidebarNav } from "@/components/layout/SidebarNav";
+// Removed old AppSidebar import
 import { useAuth } from "@/hooks/useAuth"; 
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -15,8 +15,10 @@ import {
   Sidebar,
   SidebarHeader,
   SidebarContent,
-  SidebarInset
+  SidebarInset,
+  // Removed SidebarFooter, SidebarGroup, SidebarGroupLabel etc. if not directly used here
 } from "@/components/ui/sidebar";
+import { SidebarNav } from "@/components/layout/SidebarNav"; // Keep SidebarNav
 import { APP_NAME } from "@/lib/constants";
 import Link from "next/link";
 import { ClientAuthInitializer } from "@/components/providers/ClientAuthInitializer"; 
@@ -28,52 +30,50 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   useEffect(() => {
-    console.log("AppLayout: Auth State Check:", { path: pathname, isLoadingAuth, user: user?.id, profile: profile?.id, isApproved });
-    if (!isLoadingAuth) { // Only redirect if auth state is resolved
+    console.log("AppLayout: Auth State Check for redirection:", { path: pathname, isLoadingAuth, userId: user?.id, profileId: profile?.id, isApproved });
+    if (!isLoadingAuth) { 
       if (!user) {
-        // If on any (app) route and no user, redirect to login
-        if (!pathname.startsWith("/login") && !pathname.startsWith("/signup")) { // Avoid redirect loop if already on auth pages
+        if (!pathname.startsWith("/login") && !pathname.startsWith("/signup") && !pathname.startsWith("/auth/callback")) { 
           console.log("AppLayout: No user, redirecting to /login from:", pathname);
           router.replace("/login");
         }
       } else if (!isApproved) {
-        // User exists but is not approved
         if (pathname !== "/awaiting-approval") {
           console.log("AppLayout: User not approved, redirecting to /awaiting-approval from:", pathname);
           router.replace("/awaiting-approval");
         }
       } else {
-        // User is authenticated and approved
-        // If admin tries to access non-admin page (excluding awaiting-approval), consider if a redirect is needed.
-        // For now, allow admin access to all approved user pages.
-        // If a non-admin tries to access an admin-only page (e.g. /admin), that page itself should handle redirection.
         console.log("AppLayout: User authenticated and approved. Path:", pathname);
+        // If user is approved and on awaiting-approval, redirect to dashboard
+        if (pathname === "/awaiting-approval") {
+            console.log("AppLayout: User approved but on /awaiting-approval, redirecting to /");
+            router.replace("/");
+        }
       }
+    } else {
+      console.log("AppLayout: Auth state is loading, no redirection decision yet.");
     }
   }, [user, profile, isLoadingAuth, isApproved, router, pathname]);
 
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    // Only show page transition loader if auth is NOT loading and we have a user
     if (pathname && !isLoadingAuth && user && isApproved) { 
       setIsTransitioning(true);
-      timer = setTimeout(() => setIsTransitioning(false), 300); // Adjust delay as needed
-    } else if (isLoadingAuth) { // If auth is loading, ensure page transition is off
+      timer = setTimeout(() => setIsTransitioning(false), 300); 
+    } else if (isLoadingAuth) { 
       setIsTransitioning(false);
     }
     return () => clearTimeout(timer);
-  }, [pathname, isLoadingAuth, user, isApproved]); // Added user & isApproved dependency
+  }, [pathname, isLoadingAuth, user, isApproved]); 
 
-  // Show main loader if auth is still loading OR if there's no user (and we're not on a public auth page)
-  // OR if user exists but is not approved (and we're not on awaiting-approval page)
   const showMainLoader = 
     isLoadingAuth || 
     (!user && typeof window !== 'undefined' && !pathname.startsWith('/login') && !pathname.startsWith('/signup') && !pathname.startsWith('/auth/callback')) ||
     (user && !isApproved && typeof window !== 'undefined' && pathname !== '/awaiting-approval');
 
-
   if (showMainLoader) {
+    console.log("AppLayout: Showing main loader. isLoadingAuth:", isLoadingAuth, "User ID:", user?.id, "Path:", pathname);
     return (
       <>
         <ClientAuthInitializer /> 
@@ -88,9 +88,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  // If we reach here, isLoadingAuth is false, user exists and is approved (or we are on awaiting-approval)
-  // Edge case: if on awaiting-approval page, let it render.
   if (pathname === "/awaiting-approval" && user && !isApproved) {
+     console.log("AppLayout: Rendering awaiting-approval page.");
      return (
         <>
           <ClientAuthInitializer />
@@ -99,26 +98,26 @@ export default function AppLayout({ children }: { children: ReactNode }) {
      );
   }
   
-  // Final check before rendering full layout: if after loading, user is still null or not approved
-  // and not on awaiting-approval, this implies a logic error or race condition.
-  // The useEffect for redirection should have handled this.
-  // This is a fallback, but should ideally not be hit frequently if useEffect works.
-  if (!isLoadingAuth && (!user || !isApproved)) {
-    // This indicates a state where redirection should have happened but didn't, or a protected route was accessed directly.
-    // The useEffect hook should handle redirects. Returning null here might lead to a blank page briefly if redirects are slow.
-    // Forcing a loader here can prevent flashing content if there's a slight delay in redirection.
-    console.warn("AppLayout: Fallback - isLoadingAuth is false but user/approval state is not valid for app routes. Path:", pathname);
+  // This check is crucial: if after all loading, user is still not valid for app routes
+  if (!isLoadingAuth && (!user || !isApproved) && pathname !== "/awaiting-approval" && !pathname.startsWith("/login") && !pathname.startsWith("/signup")) {
+    console.warn("AppLayout: Fallback - Invalid state for app routes. isLoadingAuth:", isLoadingAuth, "User ID:", user?.id, "isApproved:", isApproved, "Path:", pathname, ". Redirecting to login.");
+    // This state should ideally be caught by the redirection useEffect.
+    // If it's reached, force redirect to login to prevent showing a blank page or erroring.
+    // Note: Direct router.replace() here might cause hydration issues if not careful.
+    // Forcing a loader is safer if the useEffect for redirection is slightly delayed.
+    if (typeof window !== 'undefined') router.replace("/login"); // Attempt client-side redirect
     return (
        <>
         <ClientAuthInitializer /> 
         <div className="flex h-screen w-screen items-center justify-center bg-background">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          <p className="ml-2">Redirecting...</p>
         </div>
       </>
     );
   }
 
-
+  console.log("AppLayout: Rendering full app layout. User ID:", user?.id, "isApproved:", isApproved, "Path:", pathname);
   return (
     <>
       <ClientAuthInitializer /> 
