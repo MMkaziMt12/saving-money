@@ -8,7 +8,7 @@ import React, {
   useEffect,
   useState,
   useCallback,
-  useRef,
+  useRef, // Added useRef
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type {
@@ -18,7 +18,7 @@ import type {
 } from "@supabase/supabase-js";
 import type { Profile, AuthenticatedUser as AppUser } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { fetchUserProfileFromServer } from "@/lib/api/profile"; // Using the API function
+import { fetchUserProfileFromServer } from "@/lib/api/profile"; // Ensure this only selects necessary columns
 
 // Create a single Supabase client instance for the context
 const supabase = createClient();
@@ -31,7 +31,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isApproved: boolean;
   signOut: () => Promise<void>;
-  // We remove explicit setProfile and fetchProfile from context to simplify and centralize logic
+  fetchProfile: (userId: string, forceRefresh?: boolean) => Promise<Profile | null>; // For explicit refresh
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -39,69 +39,91 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [profileState, setProfileState] = useState<Profile | null>(null);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true); // True until initial auth check is done
-  const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState(false);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const initialAuthCheckComplete = useRef(false); // To track if initial getSession() and profile fetch is done
   const previousUserIdRef = useRef<string | null>(null); // To track if user identity changes
 
   const { toast } = useToast();
 
   // Internal function to fetch profile and update states
-  const fetchAndSetProfile = useCallback(async (userId: string | null): Promise<Profile | null> => {
+  const internalFetchAndSetProfile = useCallback(async (userId: string | null): Promise<Profile | null> => {
     if (!userId) {
-      console.log("AuthContext: fetchAndSetProfile - No userId, clearing profile.");
+      console.log("AuthContext: internalFetchAndSetProfile - No userId, clearing profile.");
       setProfileState(null);
       return null;
     }
-    console.log(`AuthContext: fetchAndSetProfile - Fetching profile for userId: ${userId}`);
+    console.log(`AuthContext: internalFetchAndSetProfile - Fetching profile for userId: ${userId}`);
     try {
-      // Uses the API function, which can create its own client-side client
-      const fetchedProfile = await fetchUserProfileFromServer(userId);
-      console.log(`AuthContext: fetchAndSetProfile - Profile fetched for ${userId}:`, fetchedProfile ? 'Profile Data' : 'null');
+      const fetchedProfile = await fetchUserProfileFromServer(userId, supabase); // Pass client
+      console.log(`AuthContext: internalFetchAndSetProfile - Profile fetched for ${userId}:`, fetchedProfile ? 'Profile Data' : 'null');
       setProfileState(fetchedProfile);
       return fetchedProfile;
     } catch (error: any) {
-      console.error(`AuthContext: fetchAndSetProfile - Error fetching profile for ${userId}:`, error);
-      toast({
-        title: "Profile Fetch Error",
-        description: error.message || "Could not load profile.",
-        variant: "destructive",
-      });
+      console.error(`AuthContext: internalFetchAndSetProfile - Error fetching profile for ${userId}:`, error);
+      // Avoid toast here if it's a background refresh, handle errors in UI where fetch is initiated
       setProfileState(null);
       return null;
     }
-  }, [toast]);
+  }, [toast]); // supabase client is stable
+
+  // Exposed fetchProfile for components to explicitly refresh if needed
+  const publicFetchProfile = useCallback(async (userId: string, forceRefresh: boolean = false): Promise<Profile | null> => {
+    console.log(`AuthContext: publicFetchProfile called for ${userId}, forceRefresh: ${forceRefresh}`);
+    // This function now primarily relies on internalFetchAndSetProfile
+    // Caching or more complex logic could be added here if needed by specific components,
+    // but for the context's internal use, internalFetchAndSetProfile is sufficient.
+    // If !forceRefresh and profileState matches userId and is not null, we could return profileState.
+    // However, to ensure this explicit call gets fresh data when asked, we'll fetch.
+    const fetchedProfile = await internalFetchAndSetProfile(userId);
+    if (user && user.id === userId) {
+      setUser(prevUser => prevUser ? { ...prevUser, profile: fetchedProfile } as AppUser : null);
+    }
+    return fetchedProfile;
+  }, [internalFetchAndSetProfile, user]);
 
 
   useEffect(() => {
     let didUnsubscribe = false;
     console.log("AuthContext: Mounting. Setting up initial session check and auth listener.");
-    setIsLoadingAuth(true); // Start loading on mount
 
     const handleInitialSession = async () => {
-      if (didUnsubscribe) return;
-      console.log("AuthContext: handleInitialSession - Performing initial getSession()");
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (didUnsubscribe || initialAuthCheckComplete.current) return;
 
-      if (didUnsubscribe) return;
-      if (sessionError) {
-        console.error("AuthContext: handleInitialSession - Error getting initial session:", sessionError);
-        setUser(null);
-        setProfileState(null);
-      } else {
-        const supaUser = session?.user ?? null;
-        console.log("AuthContext: handleInitialSession - Initial SupaUser:", supaUser?.id);
-        if (supaUser) {
-          const fetchedProfile = await fetchAndSetProfile(supaUser.id);
-          setUser({ ...supaUser, profile: fetchedProfile } as AppUser);
-        } else {
+      console.log("AuthContext: handleInitialSession - Performing initial getSession()");
+      setIsLoadingAuth(true); // Start global loading for initial check
+
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        if (didUnsubscribe) return;
+        if (sessionError) {
+          console.error("AuthContext: handleInitialSession - Error getting initial session:", sessionError);
           setUser(null);
           setProfileState(null);
+        } else {
+          const supaUser = session?.user ?? null;
+          console.log("AuthContext: handleInitialSession - Initial SupaUser:", supaUser?.id);
+          previousUserIdRef.current = supaUser?.id || null;
+
+          if (supaUser) {
+            const fetchedProfile = await internalFetchAndSetProfile(supaUser.id);
+            setUser({ ...supaUser, profile: fetchedProfile } as AppUser);
+          } else {
+            setUser(null);
+            setProfileState(null);
+          }
+        }
+      } catch (error) {
+        console.error("AuthContext: handleInitialSession - Catch block error:", error);
+        setUser(null);
+        setProfileState(null);
+      } finally {
+        if (!didUnsubscribe) {
+          setIsLoadingAuth(false);
+          initialAuthCheckComplete.current = true;
+          console.log("AuthContext: handleInitialSession - Initial auth check complete. isLoadingAuth:", false);
         }
       }
-      previousUserIdRef.current = session?.user?.id || null;
-      setIsLoadingAuth(false);
-      setInitialAuthCheckComplete(true);
-      console.log("AuthContext: handleInitialSession - Initial auth check complete. isLoadingAuth:", false);
     };
 
     handleInitialSession();
@@ -109,61 +131,78 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, session: Session | null) => {
         if (didUnsubscribe) return;
+
         const currentSupaUser = session?.user ?? null;
         const currentSupaUserId = currentSupaUser?.id || null;
 
-        console.log(`AuthContext: onAuthStateChange event: ${event}, User: ${currentSupaUserId}, Prev User: ${previousUserIdRef.current}, InitialComplete: ${initialAuthCheckComplete}`);
+        console.log(`AuthContext: onAuthStateChange event: ${event}, User: ${currentSupaUserId}, Prev User: ${previousUserIdRef.current}, InitialComplete: ${initialAuthCheckComplete.current}`);
 
-        if (event === 'SIGNED_IN') {
-          if (previousUserIdRef.current !== currentSupaUserId || !initialAuthCheckComplete) {
-            // User identity changed OR it's the initial sign-in being caught by listener
-            console.log("AuthContext: SIGNED_IN - User identity changed or initial sign-in. Fetching profile.");
-            if (!initialAuthCheckComplete) setIsLoadingAuth(true); // Only set global loading if it's part of initial setup
-            const newProfile = await fetchAndSetProfile(currentSupaUserId!);
-            setUser({ ...currentSupaUser!, profile: newProfile } as AppUser);
-            if (!initialAuthCheckComplete) {
+        switch (event) {
+          case 'SIGNED_IN':
+          case 'INITIAL_SESSION': // Treat INITIAL_SESSION similar to a SIGNED_IN for logic flow
+            if (previousUserIdRef.current !== currentSupaUserId || !initialAuthCheckComplete.current) {
+              // User identity changed or it's the first sign-in after app load
+              console.log("AuthContext: SIGNED_IN/INITIAL_SESSION - User identity changed or initial. Fetching profile.");
+              if (!initialAuthCheckComplete.current) setIsLoadingAuth(true);
+
+              const newProfile = await internalFetchAndSetProfile(currentSupaUserId!);
+              setUser({ ...currentSupaUser!, profile: newProfile } as AppUser);
+
+              if (!initialAuthCheckComplete.current) {
                 setIsLoadingAuth(false);
-                setInitialAuthCheckComplete(true);
-            }
-          } else {
-            // Same user, likely token refresh. Only update SupabaseUser object.
-            console.log("AuthContext: SIGNED_IN - Same user (token refresh). Updating SupaUser, profile preserved.");
-            setUser(prevUser => prevUser ? { ...currentSupaUser!, profile: prevUser.profile } as AppUser : { ...currentSupaUser!, profile: null } as AppUser);
-          }
-        } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
-          console.log(`AuthContext: ${event} - Clearing user session.`);
-          setIsLoadingAuth(true); // Briefly set loading for UI to react
-          setUser(null);
-          setProfileState(null);
-          setIsLoadingAuth(false);
-        } else if (event === 'USER_UPDATED') {
-          console.log("AuthContext: USER_UPDATED - User metadata changed. Updating SupaUser and re-fetching profile.");
-          if (currentSupaUser) {
-            // Don't set global loading if app already loaded
-            const updatedProfile = await fetchAndSetProfile(currentSupaUser.id);
-            setUser({ ...currentSupaUser, profile: updatedProfile } as AppUser);
-          }
-        } else if (event === 'TOKEN_REFRESHED') {
-            console.log("AuthContext: TOKEN_REFRESHED - Updating SupaUser, profile preserved.");
-            // Only update user object, keep existing profile state if user is the same
-            if (user && currentSupaUser && user.id === currentSupaUser.id) {
-              setUser({ ...currentSupaUser, profile: profileState } as AppUser);
-            } else if (currentSupaUser) { // If user object somehow became null
-              const refreshedProfile = await fetchAndSetProfile(currentSupaUser.id);
-              setUser({ ...currentSupaUser, profile: refreshedProfile } as AppUser);
-            }
-        } else if (event === 'INITIAL_SESSION' && !initialAuthCheckComplete) {
-            console.log("AuthContext: INITIAL_SESSION event and initial check not complete. Processing.");
-            setIsLoadingAuth(true);
-            if (currentSupaUser) {
-                const initialProfile = await fetchAndSetProfile(currentSupaUser.id);
-                setUser({ ...currentSupaUser, profile: initialProfile } as AppUser);
+                initialAuthCheckComplete.current = true;
+              }
             } else {
-                setUser(null);
-                setProfileState(null);
+              // Same user, likely token refresh or session re-validation after initial load
+              console.log("AuthContext: SIGNED_IN/INITIAL_SESSION - Same user (token refresh/re-eval). Updating SupaUser, profile preserved from state.");
+              // Only update the SupabaseUser object, keep the existing profile from profileState
+              setUser(prevUser => currentSupaUser ? { ...currentSupaUser, profile: prevUser?.profile || profileState } as AppUser : null);
             }
-            setIsLoadingAuth(false);
-            setInitialAuthCheckComplete(true);
+            break;
+
+          case 'SIGNED_OUT':
+          case 'USER_DELETED':
+            console.log(`AuthContext: ${event} - Clearing user session.`);
+            if (!initialAuthCheckComplete.current) setIsLoadingAuth(true); // If sign out happens before initial load finishes
+            else if (user) setIsLoadingAuth(true); // Only set loading if there was a user
+
+            setUser(null);
+            setProfileState(null);
+            // localStorage.removeItem(PROFILE_KEY); // If we were using localStorage
+            // localStorage.removeItem(PROFILE_CACHE_TIMESTAMP_KEY);
+            
+            if (!initialAuthCheckComplete.current || user) setIsLoadingAuth(false);
+            if (!initialAuthCheckComplete.current) initialAuthCheckComplete.current = true; // Mark initial check done
+            break;
+
+          case 'USER_UPDATED':
+            console.log("AuthContext: USER_UPDATED - User metadata may have changed. Updating SupaUser and re-fetching profile.");
+            if (currentSupaUser) {
+              // Do not set global isLoadingAuth if initial load is complete
+              const updatedProfile = await internalFetchAndSetProfile(currentSupaUser.id);
+              setUser({ ...currentSupaUser, profile: updatedProfile } as AppUser);
+            }
+            break;
+
+          case 'TOKEN_REFRESHED':
+             console.log("AuthContext: TOKEN_REFRESHED - Updating SupaUser object, profile preserved from state.");
+             // Only update user object to ensure Supabase client has latest session, keep existing profile state
+             if (currentSupaUser && user?.id === currentSupaUser.id) {
+                setUser(prevUser => ({ ...currentSupaUser, profile: prevUser?.profile || profileState } as AppUser));
+             } else if (currentSupaUser) { // User context was lost but token refreshed for someone
+                const refreshedProfile = await internalFetchAndSetProfile(currentSupaUser.id);
+                setUser({ ...currentSupaUser, profile: refreshedProfile } as AppUser);
+             }
+            break;
+          
+          case 'PASSWORD_RECOVERY':
+            console.log("AuthContext: PASSWORD_RECOVERY event. Session might be null or new.");
+            // Typically leads to a new session or requires user to sign in again.
+            // Let SIGNED_IN or SIGNED_OUT handle the state.
+            break;
+          
+          default:
+            console.log(`AuthContext: Unhandled auth event: ${event}`);
         }
         previousUserIdRef.current = currentSupaUserId;
       }
@@ -176,30 +215,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         authListener.subscription.unsubscribe();
       }
     };
-  }, [fetchAndSetProfile, toast, initialAuthCheckComplete, user, profileState]); // Added user, profileState to dependencies due to their use in TOKEN_REFRESHED
+  }, [internalFetchAndSetProfile, toast, user, profileState]); // Added user & profileState as they are read in some event handlers
 
 
   const signOut = async () => {
     console.log("AuthContext: signOut initiated.");
-    setIsLoadingAuth(true); // Show loader during sign out
+    if (user) setIsLoadingAuth(true); // Only show loader if there was a user
+    
     const { error } = await supabase.auth.signOut();
     // onAuthStateChange with 'SIGNED_OUT' will handle clearing user/profile state
-    // and setting isLoadingAuth to false eventually.
+    // and eventually setting isLoadingAuth to false.
     if (error) {
       console.error("AuthContext: Error during signOut:", error);
       toast({ title: "Logout Error", description: error.message, variant: "destructive" });
-      setIsLoadingAuth(false); // Ensure loading is false if event doesn't fire quickly
+      if (user) setIsLoadingAuth(false); // Ensure loading is false if event doesn't fire quickly
     }
   };
+
+  const isAuthenticated = !!user && !!profileState?.is_approved;
+  const isAdmin = profileState?.role === "admin";
+  const isApproved = !!profileState?.is_approved;
+
+  // Log final context values for debugging
+  // useEffect(() => {
+  //   console.log("AuthContext values updated:", { user, profileState, isLoadingAuth, isAuthenticated, isAdmin, isApproved });
+  // }, [user, profileState, isLoadingAuth, isAuthenticated, isAdmin, isApproved]);
 
   const value: AuthContextType = {
     user,
     profile: profileState,
     isLoadingAuth,
-    isAuthenticated: !!user && !!profileState?.is_approved, // User is authenticated if user object exists and approved
-    isAdmin: profileState?.role === "admin",
-    isApproved: !!profileState?.is_approved,
+    isAuthenticated,
+    isAdmin,
+    isApproved,
     signOut,
+    fetchProfile: publicFetchProfile,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -212,3 +262,6 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
+
+    
