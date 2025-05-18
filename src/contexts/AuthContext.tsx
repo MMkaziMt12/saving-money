@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { ReactNode, Dispatch, SetStateAction } from "react";
+import type { ReactNode } from "react";
 import {
   createContext,
   useContext,
@@ -18,7 +18,7 @@ import type {
 } from "@supabase/supabase-js";
 import type { Profile, AuthenticatedUser as AppUser } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { fetchUserProfileFromServer } from "@/lib/api/profile";
+import { fetchUserProfileFromServer } from "@/lib/api/profile"; // Ensure this is correctly imported
 
 const supabase = createClient();
 
@@ -31,182 +31,209 @@ interface AuthContextType {
   isAdmin: boolean;       // Derived: profile exists and role is 'admin'
   
   signOutUser: () => Promise<void>;
-  // Exposed for components that might need to explicitly refresh the profile in context
   fetchProfileInContext: (userId: string, forceRefresh?: boolean) => Promise<Profile | null>; 
-  // Internal state setter, exposed if absolutely needed but generally managed by context
-  setProfileContext: (profile: Profile | null) => void; 
+  setProfileContext: (profile: Profile | null) => void; // Kept for profile page updates
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
   children: ReactNode;
-  initialUser: AppUser | null;
-  initialProfile: Profile | null;
+  initialUser: AppUser | null; // User object from server, may or may not have profile embedded
+  initialProfile: Profile | null; // Profile object from server
 }
 
 export const AuthProvider = ({ children, initialUser, initialProfile }: AuthProviderProps) => {
-  const [user, setUser] = useState<AppUser | null>(initialUser);
+  // Initialize state from server-passed props
+  const [user, setUser] = useState<AppUser | null>(() => {
+    if (initialUser && initialProfile) {
+      return { ...initialUser, profile: initialProfile } as AppUser;
+    }
+    return initialUser;
+  });
   const [profileState, setProfileState] = useState<Profile | null>(initialProfile);
   // isLoadingAuth is true if server couldn't provide initialUser, so client needs to check.
-  // If initialUser is provided, initial auth check is considered done by server.
-  const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(!initialUser); 
+  // If initialUser is provided, initial auth check is considered done by server for that user.
+  const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(!initialUser);
+  
   const { toast } = useToast();
-
-  // Ref to track if the very first client-side auth check sequence has completed
-  const initialClientAuthCheckComplete = useRef<boolean>(!!initialUser); 
+  const initialClientAuthCheckComplete = useRef<boolean>(!!initialUser); // If server provides user, client check is initially "done"
   const previousUserIdRef = useRef<string | null>(initialUser?.id || null);
 
   const internalFetchAndSetProfile = useCallback(async (userId: string | null, isNewLogin: boolean = false): Promise<Profile | null> => {
     if (!userId) {
-      console.log("AuthContext: internalFetchAndSetProfile - No user ID, clearing profile.");
-      if (profileState !== null) { // Only update if it's actually changing
+      console.log("AuthContext: internalFetchAndSetProfile - No user ID, clearing profile if it exists.");
+      if (profileState !== null) {
         setProfileState(null);
         setUser(prevUser => prevUser ? { ...prevUser, profile: null } as AppUser : null);
       }
       return null;
     }
 
-    // If it's not a new login and profile already matches current user, avoid refetch
+    // If not a new login and profile already matches current user, avoid refetch
     if (!isNewLogin && profileState && profileState.id === userId) {
-      console.log(`AuthContext: internalFetchAndSetProfile - Profile for user ${userId} already in context. Skipping fetch.`);
+      console.log(`AuthContext: internalFetchAndSetProfile - Profile for user ${userId} already in context and not a new login. Skipping fetch.`);
+      // Ensure user object has profile embedded if profileState exists
+      if (user && user.id === userId && (!user.profile || user.profile.id !== profileState.id)) {
+         setUser(prevUser => prevUser ? { ...prevUser, profile: profileState } as AppUser : null);
+      }
       return profileState;
     }
     
     console.log(`AuthContext: internalFetchAndSetProfile - Fetching profile for user ${userId}. New login: ${isNewLogin}`);
     try {
-      const fetchedProfile = await fetchUserProfileFromServer(userId, supabase); // Use client-side supabase
+      // fetchUserProfileFromServer can be called client-side if supabase client is not passed
+      const fetchedProfile = await fetchUserProfileFromServer(userId); 
+      
       if (fetchedProfile) {
-        console.log(`AuthContext: internalFetchAndSetProfile - Profile fetched for ${userId}:`, { id: fetchedProfile.id, name: fetchedProfile.full_name });
+        console.log(`AuthContext: internalFetchAndSetProfile - Profile fetched for ${userId}:`, { id: fetchedProfile.id, name: fetchedProfile.full_name, approved: fetchedProfile.is_approved });
         setProfileState(fetchedProfile);
-        setUser(prevUser => prevUser && prevUser.id === userId ? { ...prevUser, profile: fetchedProfile } as AppUser : prevUser);
+        setUser(prevUser => prevUser && prevUser.id === userId ? { ...prevUser, profile: fetchedProfile } as AppUser : (prevUser || null) );
       } else {
         console.warn(`AuthContext: internalFetchAndSetProfile - No profile found for ${userId}.`);
-        if (profileState !== null) setProfileState(null); // Clear if previously existed
-        setUser(prevUser => prevUser && prevUser.id === userId ? { ...prevUser, profile: null } as AppUser : prevUser);
+        if (profileState !== null) setProfileState(null);
+        setUser(prevUser => prevUser && prevUser.id === userId ? { ...prevUser, profile: null } as AppUser : (prevUser || null));
       }
       return fetchedProfile;
     } catch (error) {
       console.error(`AuthContext: internalFetchAndSetProfile - Error fetching profile for ${userId}:`, error);
       toast({ title: "Profile Fetch Error", description: (error as Error).message, variant: "destructive" });
       if (profileState !== null) setProfileState(null);
-      setUser(prevUser => prevUser && prevUser.id === userId ? { ...prevUser, profile: null } as AppUser : prevUser);
+      setUser(prevUser => prevUser && prevUser.id === userId ? { ...prevUser, profile: null } as AppUser : (prevUser || null));
       return null;
     }
-  }, [toast, profileState]); // profileState added to check if fetch is needed
-
+  }, [toast, profileState, user]); // profileState and user are dependencies for comparison
 
   useEffect(() => {
-    console.log("AuthContext: Mounting. Initial user from server:", initialUser ? initialUser.id : null);
+    console.log("AuthContext: Mounting. Initial user from server:", initialUser?.id, "Initial profile ID:", initialProfile?.id, "Initial isLoadingAuth:", !initialUser);
+    
     if (!initialClientAuthCheckComplete.current) {
-      // This means the server didn't provide an initialUser, so client must determine auth state.
-      setIsLoadingAuth(true);
+      // This runs if the server didn't provide an initialUser, so client must determine auth state.
+      setIsLoadingAuth(true); // Explicitly set loading
+      console.log("AuthContext: No initialUser from server, client performing initial auth check.");
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
+        const currentSupaUser = session?.user ?? null;
+        const currentSupaUserId = currentSupaUser?.id ?? null;
+        console.log("AuthContext: Initial getSession() result. User ID:", currentSupaUserId);
+        
+        previousUserIdRef.current = currentSupaUserId; // Set this early
+        setUser(currentSupaUser ? { ...currentSupaUser, profile: null } as AppUser : null); // Set SupaUser first
+
+        if (currentSupaUser) {
+          await internalFetchAndSetProfile(currentSupaUser.id, true); // Force fetch for initial determination
+        } else {
+          setProfileState(null); // No user, so no profile
+        }
+        setIsLoadingAuth(false);
+        initialClientAuthCheckComplete.current = true;
+        console.log("AuthContext: Initial client auth check complete. isLoadingAuth: false");
+      }).catch(error => {
+        console.error("AuthContext: Error in initial getSession():", error);
+        setIsLoadingAuth(false);
+        initialClientAuthCheckComplete.current = true;
+      });
     }
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, session: Session | null) => {
         const currentSupaUser = session?.user ?? null;
         const currentSupaUserId = currentSupaUser?.id ?? null;
-        console.log(`AuthContext: onAuthStateChange event: ${event}, User: ${currentSupaUserId}, PrevUser: ${previousUserIdRef.current}`);
+        console.log(`AuthContext: onAuthStateChange event: ${event}, User: ${currentSupaUserId}, PrevUser: ${previousUserIdRef.current}, InitialCheckDone: ${initialClientAuthCheckComplete.current}`);
 
         let needsProfileFetch = false;
-        let isSignificantAuthChange = false;
+        let isSignificantAuthChange = false; // For potentially setting global loader
 
         if (event === 'SIGNED_IN') {
-          if (previousUserIdRef.current !== currentSupaUserId || !profileState || profileState.id !== currentSupaUserId) {
-            console.log("AuthContext: SIGNED_IN for new/different user or profile missing. Will fetch profile.");
-            needsProfileFetch = true;
+          if (previousUserIdRef.current !== currentSupaUserId) { // User identity actually changed
+            console.log("AuthContext: SIGNED_IN for new/different user. Will fetch profile.");
             isSignificantAuthChange = true;
-            if (!initialClientAuthCheckComplete.current) setIsLoadingAuth(true);
+            needsProfileFetch = true;
+          } else if (!profileState && currentSupaUserId) { // Same user, but profile somehow missing
+            console.log("AuthContext: SIGNED_IN for same user, but profile is missing. Will attempt to fetch profile.");
+            needsProfileFetch = true; 
           } else {
-            console.log("AuthContext: SIGNED_IN for same user (token refresh). Updating SupaUser object.");
-             if (user?.id !== currentSupaUser?.id || user?.aud !== currentSupaUser?.aud) { // Check if user object really changed
-                setUser(currentSupaUser ? { ...currentSupaUser, profile: profileState } as AppUser : null);
-             }
+            console.log("AuthContext: SIGNED_IN for same user (token refresh or re-auth). SupabaseUser object will be updated. Profile not re-fetched by default here.");
           }
+           // Always update the Supabase user object in state for session freshness
+          setUser(currentSupaUser ? { ...currentSupaUser, profile: profileState } as AppUser : null);
         } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
           console.log(`AuthContext: ${event}. Clearing user and profile.`);
           isSignificantAuthChange = true;
-          if (!initialClientAuthCheckComplete.current || user) setIsLoadingAuth(true); // Only show loader if there was a user or initial check pending
           setUser(null);
           setProfileState(null);
         } else if (event === 'USER_UPDATED') {
           console.log("AuthContext: USER_UPDATED. Will fetch profile.");
-          setUser(currentSupaUser ? { ...currentSupaUser, profile: profileState } as AppUser : null); // Update user object first
+          setUser(currentSupaUser ? { ...currentSupaUser, profile: profileState } as AppUser : null);
           needsProfileFetch = true;
         } else if (event === 'TOKEN_REFRESHED') {
-          console.log("AuthContext: TOKEN_REFRESHED. Updating SupaUser object.");
-          if (user?.id !== currentSupaUser?.id || user?.aud !== currentSupaUser?.aud) {
-            setUser(currentSupaUser ? { ...currentSupaUser, profile: profileState } as AppUser : null);
-          }
-        } else if (event === 'INITIAL_SESSION' && !initialClientAuthCheckComplete.current) {
-           console.log("AuthContext: INITIAL_SESSION event from listener (client must have missed server initial user).");
-           isSignificantAuthChange = true;
-           setIsLoadingAuth(true);
-           if (currentSupaUser) {
-             setUser(currentSupaUser ? { ...currentSupaUser, profile: null } as AppUser : null); // Set user first
-             needsProfileFetch = true;
+           console.log("AuthContext: TOKEN_REFRESHED. Updating SupabaseUser object.");
+           // Update user object if it's different (e.g. new token)
+           if (user?.id !== currentSupaUser?.id || user?.aud !== currentSupaUser?.aud) {
+              setUser(currentSupaUser ? { ...currentSupaUser, profile: profileState } as AppUser : null);
            }
+        } else if (event === 'INITIAL_SESSION' && !initialClientAuthCheckComplete.current) {
+           console.log("AuthContext: INITIAL_SESSION (listener fired before getSession completed). Processing.");
+           isSignificantAuthChange = true; // This IS significant for initial setup
+           needsProfileFetch = !!currentSupaUser;
+           setUser(currentSupaUser ? { ...currentSupaUser, profile: null } as AppUser : null);
         }
 
+        if (isSignificantAuthChange && !initialClientAuthCheckComplete.current) {
+          setIsLoadingAuth(true);
+          console.log("AuthContext: Significant event during initial phase, isLoadingAuth: true");
+        }
+        
         if (needsProfileFetch && currentSupaUserId) {
-          await internalFetchAndSetProfile(currentSupaUserId, true);
+          await internalFetchAndSetProfile(currentSupaUserId, true); // Force fresh profile for significant changes
         }
         
         previousUserIdRef.current = currentSupaUserId;
 
-        if (isSignificantAuthChange || !initialClientAuthCheckComplete.current) {
-            console.log("AuthContext: Setting isLoadingAuth to false and initialClientAuthCheckComplete to true after event:", event);
-            setIsLoadingAuth(false);
-            initialClientAuthCheckComplete.current = true;
+        if (isSignificantAuthChange && !initialClientAuthCheckComplete.current) {
+          setIsLoadingAuth(false);
+          initialClientAuthCheckComplete.current = true;
+          console.log("AuthContext: Post-event initial phase processing, isLoadingAuth: false, initialClientAuthCheckComplete: true");
+        } else if (isSignificantAuthChange && initialClientAuthCheckComplete.current && (event === 'SIGNED_OUT' || event === 'USER_DELETED' || (event === 'SIGNED_IN' && previousUserIdRef.current !== currentSupaUserId))) {
+          // If it's a user switch after initial load, ensure loader is managed.
+          // This might require a brief isLoading toggle if not already handled.
+          // For now, profile fetch handles its own errors; major state changes are done.
         }
       }
     );
-    
-    // If initialUser wasn't provided by server, and onAuthStateChange hasn't fired yet for INITIAL_SESSION
-    // ensure loading is set to false after a small delay, assuming no session.
-    if (!initialUser && !initialClientAuthCheckComplete.current) {
-        const timer = setTimeout(() => {
-            if (!initialClientAuthCheckComplete.current) { // Check again in case listener fired
-                 console.log("AuthContext: Timeout, no initial session from listener, setting loading false.");
-                 setIsLoadingAuth(false);
-                 initialClientAuthCheckComplete.current = true;
-            }
-        }, 1500); // Adjust timeout as needed
-         return () => {
-            clearTimeout(timer);
-            authListener?.subscription.unsubscribe();
-            console.log("AuthContext: Unsubscribed from onAuthStateChange.");
-        };
-    }
-
 
     return () => {
       authListener?.subscription.unsubscribe();
       console.log("AuthContext: Unsubscribed from onAuthStateChange.");
     };
-  }, [internalFetchAndSetProfile, initialUser, profileState, user]); // Added profileState and user to ensure consistency of embedded profile
+  // initialUser, initialProfile are used for initial state, not direct dependencies for effect re-runs.
+  // internalFetchAndSetProfile is memoized.
+  }, [internalFetchAndSetProfile, toast]); 
+
 
   const signOutUser = async () => {
     console.log("AuthContext: signOutUser called.");
-    if (user) setIsLoadingAuth(true); // Show loader during sign out
-    setUser(null); // Optimistically clear client state
+    // Set loading true only if there was a user, to show feedback for logout action
+    if(user) setIsLoadingAuth(true); 
+    previousUserIdRef.current = null; // Clear previous user before Supabase event
+    setUser(null); 
     setProfileState(null);
-    previousUserIdRef.current = null;
     await supabase.auth.signOut();
-    // onAuthStateChange will fire with SIGNED_OUT and handle final isLoadingAuth = false
-    console.log("AuthContext: Supabase signOut complete.");
+    // The onAuthStateChange listener will fire with SIGNED_OUT.
+    // It will then ensure isLoadingAuth is false and initialClientAuthCheckComplete is true (if it wasn't already).
+    console.log("AuthContext: Supabase signOut complete. isLoadingAuth might still be true until SIGNED_OUT event fully processed by listener.");
   };
 
-  const fetchProfileInContext = useCallback(async (userId: string, forceRefresh: boolean = true): Promise<Profile | null> => {
+  const fetchProfileInContext = useCallback(async (userId: string, forceRefresh: boolean = false): Promise<Profile | null> => {
       if (!userId) return null;
       console.log(`AuthContext: fetchProfileInContext called for ${userId}, forceRefresh: ${forceRefresh}`);
+      // If not forcing refresh, and profile for this user exists and is considered fresh enough, return it
       if (!forceRefresh && profileState && profileState.id === userId) {
           console.log("AuthContext: fetchProfileInContext - Returning existing profile from context state.");
           return profileState;
       }
-      return internalFetchAndSetProfile(userId, forceRefresh);
-  }, [internalFetchAndSetProfile, profileState]);
+      // Otherwise, call the internal fetcher which will update context state
+      return internalFetchAndSetProfile(userId, true); // Force new fetch if explicitly asked
+  }, [profileState, internalFetchAndSetProfile]);
   
   const handleSetProfileContext = useCallback((newProfile: Profile | null) => {
       console.log("AuthContext: setProfileContext called with:", newProfile ? {id: newProfile.id, name: newProfile.full_name} : null);
@@ -219,15 +246,15 @@ export const AuthProvider = ({ children, initialUser, initialProfile }: AuthProv
 
   const derivedIsAdmin = profileState?.role === "admin";
   const derivedIsApproved = !!profileState?.is_approved;
-  const derivedIsAuthenticated = !!user && derivedIsApproved; // User must exist AND be approved
+  // isAuthenticated means user exists AND profile is loaded AND profile is approved.
+  const derivedIsAuthenticated = !!user && !!profileState && derivedIsApproved; 
 
-  // Log derived state changes for debugging
   useEffect(() => {
-    console.log("AuthContext: Derived states updated:", { derivedIsAuthenticated, derivedIsApproved, derivedIsAdmin, isLoadingAuth, userId: user?.id });
-  }, [derivedIsAuthenticated, derivedIsApproved, derivedIsAdmin, isLoadingAuth, user?.id]);
+    console.log("AuthContext: Derived states updated:", { derivedIsAuthenticated, derivedIsApproved, derivedIsAdmin, isLoadingAuth, userId: user?.id, profileId: profileState?.id });
+  }, [derivedIsAuthenticated, derivedIsApproved, derivedIsAdmin, isLoadingAuth, user?.id, profileState?.id]);
 
   const value: AuthContextType = {
-    user,
+    user, // This user object will have profile embedded after successful fetch
     profile: profileState,
     isLoadingAuth,
     isAdmin: derivedIsAdmin,
