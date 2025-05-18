@@ -1,17 +1,8 @@
 
-"use client";
+// This file is now obsolete and should be deleted.
+// Auth initialization is handled within AuthProvider in src/contexts/AuthContext.tsx
+// and initial state is passed from the server-rendered src/app/(app)/layout.tsx.
+// Please remove this file from your project: src/components/providers/ClientAuthInitializer.tsx
+export {};
 
-import { useEffect } from 'react';
-import { useAuthStore } from '@/stores/authStore';
-
-export function ClientAuthInitializer() {
-  useEffect(() => {
-    // Initialize authentication state when the component mounts on the client
-    // This will set up the onAuthStateChange listener and check the initial session
-    console.log("ClientAuthInitializer: Mounting and calling initializeAuth...");
-    const initialize = useAuthStore.getState().initializeAuth;
-    initialize();
-  }, []);
-
-  return null; // This component doesn't render anything visible
-}
+    

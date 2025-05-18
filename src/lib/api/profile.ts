@@ -3,19 +3,22 @@ import { createClient as createClientComponentClient } from "@/lib/supabase/clie
 import type { Profile } from "@/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+// This function can be called from server or client.
+// If supabaseClient is provided (server context), it uses that.
+// Otherwise (client context, e.g., from AuthContext), it creates a new client-side client.
 export async function fetchUserProfileFromServer(
   userId: string,
-  supabaseClient: SupabaseClient // Make client mandatory for server-side use
+  supabaseClient?: SupabaseClient // Optional: if not provided, creates a client-side instance
 ): Promise<Profile | null> {
   if (!userId) {
     console.warn("API: fetchUserProfileFromServer called with no userId.");
     return null;
   }
 
-  // Use the provided client (expected to be server client or a specific client instance)
-  const supabase = supabaseClient;
+  const supabase = supabaseClient || createClientComponentClient();
+  const contextType = supabaseClient ? "server-provided" : "new client-side";
 
-  console.log(`API: Attempting to fetch profile for user: ${userId} (Using provided Supabase client)`);
+  console.log(`API: Attempting to fetch profile from ${contextType} client for user: ${userId}`);
   try {
     const { data, error, status } = await supabase
       .from("profiles")
@@ -26,19 +29,26 @@ export async function fetchUserProfileFromServer(
       .single<Profile>();
 
     if (error) {
+      // Don't throw if it's a "0 rows" error, just return null
+      if (error.code === 'PGRST116') {
+          console.warn(`API: No profile found for user ${userId} (PGRST116). Context: ${contextType}`);
+          return null;
+      }
       const errorMessage = error.message || `Supabase error (Code: ${error.code || status})`;
-      console.error(`API: Error fetching profile for ${userId}. Status: ${status}`, JSON.stringify(error, null, 2));
-      throw new Error(errorMessage); 
+      console.error(`API: Error fetching profile for ${userId}. Status: ${status}. Context: ${contextType}`, JSON.stringify(error, null, 2));
+      throw new Error(errorMessage);
     }
     
     if (data) {
-      console.log(`API: Profile successfully fetched for ${userId}.`);
+      console.log(`API: Profile successfully fetched for ${userId}. Context: ${contextType}`);
     } else {
-       console.warn(`API: No profile data returned for ${userId}, though no explicit error. Status: ${status}`);
+       console.warn(`API: No profile data returned for ${userId}, though no explicit error. Status: ${status}. Context: ${contextType}`);
     }
     return data;
   } catch (err: any) {
-    console.error(`API: Unexpected error in fetchUserProfileFromServer for ${userId}:`, err);
-    throw err; 
+    console.error(`API: Unexpected error in fetchUserProfileFromServer for ${userId}. Context: ${contextType}`, err);
+    throw err;
   }
 }
+
+    
