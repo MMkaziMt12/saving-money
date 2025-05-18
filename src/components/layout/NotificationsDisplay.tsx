@@ -314,91 +314,91 @@ export function NotificationsDisplay() {
 
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative rounded-full text-muted-foreground hover:text-foreground">
-          <Bell className="h-5 w-5" />
-          {unreadNotifications.length > 0 && (
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs rounded-full"
-            >
-              {unreadNotifications.length > 9 ? '9+' : unreadNotifications.length}
-            </Badge>
-          )}
-          <span className="sr-only">Notifications</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 sm:w-96">
-        <DropdownMenuLabel className="flex justify-between items-center">
-          <span>Notifications</span>
-          {showInitialLoader && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
+    // <DropdownMenu>
+    //   <DropdownMenuTrigger asChild>
+    //     <Button variant="ghost" size="icon" className="relative rounded-full text-muted-foreground hover:text-foreground">
+    //       <Bell className="h-5 w-5" />
+    //       {unreadNotifications.length > 0 && (
+    //         <Badge
+    //           variant="destructive"
+    //           className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs rounded-full"
+    //         >
+    //           {unreadNotifications.length > 9 ? '9+' : unreadNotifications.length}
+    //         </Badge>
+    //       )}
+    //       <span className="sr-only">Notifications</span>
+    //     </Button>
+    //   </DropdownMenuTrigger>
+    //   <DropdownMenuContent align="end" className="w-80 sm:w-96">
+    //     <DropdownMenuLabel className="flex justify-between items-center">
+    //       <span>Notifications</span>
+    //       {showInitialLoader && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+    //     </DropdownMenuLabel>
+    //     <DropdownMenuSeparator />
 
-        {isInitialNotificationsError && !showInitialLoader && (
-          <div className="p-4 text-center text-sm text-destructive">
-            <AlertTriangle className="inline-block mr-2 h-4 w-4" />
-            Error loading.
-            <Button variant="link" size="sm" onClick={() => refetchInitialNotifications()} className="block mx-auto mt-1">
-                <RefreshCw className="mr-1 h-3 w-3" /> Retry
-            </Button>
-          </div>
-        )}
+    //     {isInitialNotificationsError && !showInitialLoader && (
+    //       <div className="p-4 text-center text-sm text-destructive">
+    //         <AlertTriangle className="inline-block mr-2 h-4 w-4" />
+    //         Error loading.
+    //         <Button variant="link" size="sm" onClick={() => refetchInitialNotifications()} className="block mx-auto mt-1">
+    //             <RefreshCw className="mr-1 h-3 w-3" /> Retry
+    //         </Button>
+    //       </div>
+    //     )}
 
-        {(localNotifications.length === 0 && !showInitialLoader && !isInitialNotificationsError) && (
-          <DropdownMenuItem disabled className="text-center text-muted-foreground py-4">
-            No new notifications
-          </DropdownMenuItem>
-        )}
+    //     {(localNotifications.length === 0 && !showInitialLoader && !isInitialNotificationsError) && (
+    //       <DropdownMenuItem disabled className="text-center text-muted-foreground py-4">
+    //         No new notifications
+    //       </DropdownMenuItem>
+    //     )}
 
-        {(localNotifications.length > 0 || showInitialLoader ) && !isInitialNotificationsError && (
-          <ScrollArea className="h-[300px] sm:h-[400px]">
-             {showInitialLoader && (
-                <div className="flex justify-center items-center h-full">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                </div>
-             )}
-            {localNotifications.length > 0 && (
-                <>
-                    {unreadNotifications.length > 0 && (
-                        <DropdownMenuGroup>
-                        <DropdownMenuLabel className="text-xs text-muted-foreground px-2 pt-1 pb-0.5">Unread</DropdownMenuLabel>
-                        {unreadNotifications.map((notification) => (
-                            <NotificationItem key={notification.id} notification={notification} onMarkAsRead={handleMarkOneAsRead} />
-                        ))}
-                        </DropdownMenuGroup>
-                    )}
-                    {unreadNotifications.length > 0 && readNotifications.length > 0 && <DropdownMenuSeparator />}
-                    {readNotifications.length > 0 && (
-                        <DropdownMenuGroup>
-                        <DropdownMenuLabel className="text-xs text-muted-foreground px-2 pt-1 pb-0.5">Read</DropdownMenuLabel>
-                        {readNotifications.map((notification) => (
-                            <NotificationItem key={notification.id} notification={notification} />
-                        ))}
-                        </DropdownMenuGroup>
-                    )}
-                </>
-            )}
-          </ScrollArea>
-        )}
-        {unreadNotifications.length > 0 && !isInitialNotificationsError && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(e) => { // Use onSelect for actions in DropdownMenuItem
-                e.preventDefault(); // Prevent default behavior like closing the menu
-                handleMarkAllAsRead();
-              }}
-              disabled={markAsReadMutation.isPending}
-              className="cursor-pointer flex items-center justify-center data-[highlighted]:bg-muted/80"
-            >
-              {markAsReadMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCheck className="mr-2 h-4 w-4" />}
-              Mark all as read
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    //     {(localNotifications.length > 0 || showInitialLoader ) && !isInitialNotificationsError && (
+    //       <ScrollArea className="h-[300px] sm:h-[400px]">
+    //          {showInitialLoader && (
+    //             <div className="flex justify-center items-center h-full">
+    //                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    //             </div>
+    //          )}
+    //         {localNotifications.length > 0 && (
+    //             <>
+    //                 {unreadNotifications.length > 0 && (
+    //                     <DropdownMenuGroup>
+    //                     <DropdownMenuLabel className="text-xs text-muted-foreground px-2 pt-1 pb-0.5">Unread</DropdownMenuLabel>
+    //                     {unreadNotifications.map((notification) => (
+    //                         <NotificationItem key={notification.id} notification={notification} onMarkAsRead={handleMarkOneAsRead} />
+    //                     ))}
+    //                     </DropdownMenuGroup>
+    //                 )}
+    //                 {unreadNotifications.length > 0 && readNotifications.length > 0 && <DropdownMenuSeparator />}
+    //                 {readNotifications.length > 0 && (
+    //                     <DropdownMenuGroup>
+    //                     <DropdownMenuLabel className="text-xs text-muted-foreground px-2 pt-1 pb-0.5">Read</DropdownMenuLabel>
+    //                     {readNotifications.map((notification) => (
+    //                         <NotificationItem key={notification.id} notification={notification} />
+    //                     ))}
+    //                     </DropdownMenuGroup>
+    //                 )}
+    //             </>
+    //         )}
+    //       </ScrollArea>
+    //     )}
+    //     {unreadNotifications.length > 0 && !isInitialNotificationsError && (
+    //       <>
+    //         <DropdownMenuSeparator />
+    //         <DropdownMenuItem
+    //           onSelect={(e) => { // Use onSelect for actions in DropdownMenuItem
+    //             e.preventDefault(); // Prevent default behavior like closing the menu
+    //             handleMarkAllAsRead();
+    //           }}
+    //           disabled={markAsReadMutation.isPending}
+    //           className="cursor-pointer flex items-center justify-center data-[highlighted]:bg-muted/80"
+    //         >
+    //           {markAsReadMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCheck className="mr-2 h-4 w-4" />}
+    //           Mark all as read
+    //         </DropdownMenuItem>
+    //       </>
+    //     )}
+    //   </DropdownMenuContent>
+    // </DropdownMenu>
   );
 }
