@@ -1,5 +1,5 @@
 
--- Enable vector extension (optional, if you plan to use vector embeddings)
+-- Enable vector extension (optional, if you plan to use pgvector for embeddings)
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Function to automatically update 'updated_at' timestamps
@@ -10,11 +10,7 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-COMMENT ON FUNCTION public.trigger_set_timestamp() IS 'Automatically sets the updated_at timestamp on row update.';
-
--- =======================================================================
--- TABLE DEFINITIONS
--- =======================================================================
+COMMENT ON FUNCTION public.trigger_set_timestamp() IS 'Automatically sets updated_at to the current UTC timestamp on update.';
 
 -- 1. PROFILES TABLE
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -22,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   full_name TEXT,
-  email TEXT UNIQUE, -- Ensure email is unique if it's a primary identifier
+  email TEXT UNIQUE, -- Ensures email is unique across profiles
   phone TEXT,
   avatar_url TEXT,
   role TEXT DEFAULT 'user' NOT NULL CHECK (role IN ('user', 'admin')),
@@ -30,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   is_active BOOLEAN DEFAULT TRUE NOT NULL,
   last_login TIMESTAMP WITH TIME ZONE
 );
-COMMENT ON TABLE public.profiles IS 'User profile information, extending auth.users data with application-specific fields.';
+COMMENT ON TABLE public.profiles IS 'User profile information, extending auth.users. Contains application-specific user details like roles and approval status.';
 
 -- Trigger for profiles updated_at
 DROP TRIGGER IF EXISTS set_profiles_updated_at ON public.profiles;
@@ -39,19 +35,14 @@ BEFORE UPDATE ON public.profiles
 FOR EACH ROW
 EXECUTE FUNCTION public.trigger_set_timestamp();
 
--- Indexes for profiles table
-CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
-CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
-CREATE INDEX IF NOT EXISTS idx_profiles_is_approved ON public.profiles(is_approved);
-
 -- 2. MONTHLY CONTRIBUTIONS TABLE
 CREATE TABLE IF NOT EXISTS public.monthly_contributions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  amount NUMERIC NOT NULL CHECK (amount > 0),
+  amount NUMERIC NOT NULL CHECK (amount > 0), -- Assuming contribution amount must be positive
   payment_date TIMESTAMP WITH TIME ZONE NOT NULL,
   month INTEGER NOT NULL CHECK (month >= 1 AND month <= 12),
-  year INTEGER NOT NULL CHECK (year >= 2000 AND year <= 2100), -- Reasonable year range
+  year INTEGER NOT NULL CHECK (year >= 2000 AND year <= 2100), -- Reasonable range for year
   recorded_by_admin_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -64,13 +55,6 @@ CREATE TRIGGER set_monthly_contributions_updated_at
 BEFORE UPDATE ON public.monthly_contributions
 FOR EACH ROW
 EXECUTE FUNCTION public.trigger_set_timestamp();
-
--- Indexes for monthly_contributions table
-CREATE INDEX IF NOT EXISTS idx_mc_user_id ON public.monthly_contributions(user_id);
-CREATE INDEX IF NOT EXISTS idx_mc_payment_date ON public.monthly_contributions(payment_date);
-CREATE INDEX IF NOT EXISTS idx_mc_year_month ON public.monthly_contributions(year, month);
-CREATE INDEX IF NOT EXISTS idx_mc_recorded_by_admin_id ON public.monthly_contributions(recorded_by_admin_id);
-
 
 -- 3. EMERGENCY REQUESTS TABLE
 CREATE TABLE IF NOT EXISTS public.emergency_requests (
@@ -90,7 +74,7 @@ CREATE TABLE IF NOT EXISTS public.emergency_requests (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
-COMMENT ON TABLE public.emergency_requests IS 'Manages emergency fund requests, their statuses, and repayment tracking.';
+COMMENT ON TABLE public.emergency_requests IS 'Manages emergency fund requests, their lifecycle, and repayment tracking.';
 
 -- Trigger for emergency_requests updated_at
 DROP TRIGGER IF EXISTS set_emergency_requests_updated_at ON public.emergency_requests;
@@ -99,39 +83,22 @@ BEFORE UPDATE ON public.emergency_requests
 FOR EACH ROW
 EXECUTE FUNCTION public.trigger_set_timestamp();
 
--- Indexes for emergency_requests table
-CREATE INDEX IF NOT EXISTS idx_er_user_id ON public.emergency_requests(user_id);
-CREATE INDEX IF NOT EXISTS idx_er_status ON public.emergency_requests(status);
-CREATE INDEX IF NOT EXISTS idx_er_requested_at ON public.emergency_requests(requested_at);
-CREATE INDEX IF NOT EXISTS idx_er_return_date ON public.emergency_requests(return_date);
-CREATE INDEX IF NOT EXISTS idx_er_reviewed_by_admin_id ON public.emergency_requests(reviewed_by_admin_id);
-CREATE INDEX IF NOT EXISTS idx_er_is_fully_repaid ON public.emergency_requests(is_fully_repaid);
-
-
 -- 4. NOTIFICATIONS TABLE
 CREATE TABLE IF NOT EXISTS public.notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   message TEXT NOT NULL,
-  type TEXT DEFAULT 'general', -- e.g., 'general', 'contribution_reminder', 'emergency_update'
-  link TEXT, -- Optional URL to navigate to
+  type TEXT DEFAULT 'general',
+  link TEXT, -- Optional URL to navigate to when notification is clicked
   related_request_id UUID REFERENCES public.emergency_requests(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  read_at TIMESTAMP WITH TIME ZONE DEFAULT NULL -- Null if unread, timestamp when read
+  read_at TIMESTAMP WITH TIME ZONE DEFAULT NULL -- Timestamp when the user read the notification
 );
-COMMENT ON TABLE public.notifications IS 'Stores in-app notifications for users, potentially linked to specific requests.';
+COMMENT ON TABLE public.notifications IS 'Stores in-app notifications for users, potentially linked to specific events or requests.';
 
--- Indexes for notifications table
-CREATE INDEX IF NOT EXISTS idx_notifications_user_id_read_at ON public.notifications(user_id, read_at); -- Good for fetching unread notifications for a user
-CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON public.notifications(created_at DESC); -- For sorting by newest
-CREATE INDEX IF NOT EXISTS idx_notifications_related_request_id ON public.notifications(related_request_id);
+-- HELPER FUNCTIONS --
 
-
--- =======================================================================
--- HELPER FUNCTIONS & TRIGGERS
--- =======================================================================
-
--- Function to check if a user is an admin (SECURITY DEFINER)
+-- Function to check if a user is an admin (SECURITY DEFINER for safe RLS usage)
 CREATE OR REPLACE FUNCTION public.is_admin(user_id_to_check UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -140,10 +107,11 @@ BEGIN
     WHERE id = user_id_to_check AND role = 'admin'
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
-COMMENT ON FUNCTION public.is_admin(UUID) IS 'Checks if a given user_id has the admin role. SECURITY DEFINER for safe RLS usage.';
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+COMMENT ON FUNCTION public.is_admin(UUID) IS 'Checks if a given user_id has the admin role. SECURITY DEFINER to bypass RLS for the internal check.';
 
--- Function to automatically create a profile for new auth.users (SECURITY DEFINER)
+-- Function to automatically create a profile when a new user signs up in auth.users
+-- SECURITY DEFINER allows this function to insert into public.profiles even if user doesn't have direct insert RLS yet.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -152,44 +120,45 @@ DECLARE
   user_avatar_url text;
   user_email text;
 BEGIN
+  -- Attempt to get metadata from raw_user_meta_data (common for OAuth providers)
   raw_meta := new.raw_user_meta_data;
-  user_email := new.email; -- Directly from auth.users
+  user_email := new.email; -- Email from auth.users is more reliable
 
-  -- Attempt to get full_name from common OAuth keys
+  -- Try common keys for full name
   user_full_name := raw_meta->>'full_name';
   IF user_full_name IS NULL THEN
     user_full_name := raw_meta->>'name';
   END IF;
 
-  -- Attempt to get avatar_url from common OAuth keys
+  -- Try common keys for avatar URL
   user_avatar_url := raw_meta->>'avatar_url';
   IF user_avatar_url IS NULL THEN
-    user_avatar_url := raw_meta->>'picture';
+    user_avatar_url := raw_meta->>'picture'; -- Google often uses 'picture'
   END IF;
 
   INSERT INTO public.profiles (id, full_name, email, avatar_url, role, is_approved, is_active)
   VALUES (
     new.id,
-    user_full_name,
-    user_email,
-    user_avatar_url,
-    'user',  -- Default role
-    FALSE,   -- Default approval status
-    TRUE     -- Default active status
+    user_full_name, -- Might be null if not provided by auth provider
+    user_email,     -- Should usually be present
+    user_avatar_url, -- Might be null
+    'user',         -- Default role
+    FALSE,          -- Default approval status
+    TRUE            -- Default active status
   );
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-COMMENT ON FUNCTION public.handle_new_user() IS 'Automatically creates a profile in public.profiles for new entries in auth.users. SECURITY DEFINER.';
+COMMENT ON FUNCTION public.handle_new_user() IS 'Automatically creates a profile in public.profiles for new auth.users. SECURITY DEFINER allows insertion bypassing RLS.';
 
--- Trigger to call handle_new_user on new auth.users entry
+-- Trigger for new user creation
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
 AFTER INSERT ON auth.users
 FOR EACH ROW
 EXECUTE FUNCTION public.handle_new_user();
 
--- Dashboard Function: Total Family Savings (SECURITY DEFINER)
+-- Dashboard Function: Total Family Savings (Net Balance)
 CREATE OR REPLACE FUNCTION public.get_total_family_savings()
 RETURNS NUMERIC AS $$
 DECLARE
@@ -197,38 +166,24 @@ DECLARE
   total_disbursed NUMERIC;
   total_returned NUMERIC;
 BEGIN
-  SELECT COALESCE(SUM(amount), 0)
-  INTO total_contributions
-  FROM public.monthly_contributions;
-
-  SELECT COALESCE(SUM(amount_requested), 0)
-  INTO total_disbursed
-  FROM public.emergency_requests
-  WHERE status = 'approved';
-
-  SELECT COALESCE(SUM(amount_returned), 0)
-  INTO total_returned
-  FROM public.emergency_requests
-  WHERE status = 'approved' AND amount_returned IS NOT NULL;
-
+  SELECT COALESCE(SUM(amount), 0) INTO total_contributions FROM public.monthly_contributions;
+  SELECT COALESCE(SUM(amount_requested), 0) INTO total_disbursed FROM public.emergency_requests WHERE status = 'approved';
+  SELECT COALESCE(SUM(amount_returned), 0) INTO total_returned FROM public.emergency_requests WHERE status = 'approved' AND amount_returned IS NOT NULL;
   RETURN total_contributions - total_disbursed + total_returned;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION public.get_total_family_savings() IS 'Calculates the net current balance of the family fund. SECURITY DEFINER.';
 
--- Grant execute permission for the RPC function to authenticated users
 GRANT EXECUTE ON FUNCTION public.get_total_family_savings() TO authenticated;
 
 
--- =======================================================================
--- ROW LEVEL SECURITY (RLS) POLICIES
--- =======================================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES --
 
--- PROFILES Table RLS
+-- PROFILES RLS
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Users can view their own full profile." ON public.profiles;
-CREATE POLICY "Users can view their own full profile."
+DROP POLICY IF EXISTS "Users can view their own profile." ON public.profiles;
+CREATE POLICY "Users can view their own profile."
 ON public.profiles FOR SELECT TO authenticated
 USING (auth.uid() = id);
 
@@ -240,17 +195,16 @@ WITH CHECK (auth.uid() = id);
 
 DROP POLICY IF EXISTS "Admins can manage all profiles." ON public.profiles;
 CREATE POLICY "Admins can manage all profiles."
-ON public.profiles FOR ALL TO authenticated -- ALL covers SELECT, INSERT, UPDATE, DELETE
+ON public.profiles FOR ALL TO authenticated
 USING (public.is_admin(auth.uid()))
 WITH CHECK (public.is_admin(auth.uid()));
 
-DROP POLICY IF EXISTS "Authenticated users can view basic info of all profiles." ON public.profiles;
-CREATE POLICY "Authenticated users can view basic info of all profiles."
+DROP POLICY IF EXISTS "Authenticated users can view basic info of all profiles for display purposes." ON public.profiles;
+CREATE POLICY "Authenticated users can view basic info of all profiles for display purposes."
 ON public.profiles FOR SELECT TO authenticated
-USING (true); -- Note: This means any logged-in user can SELECT. The actual columns returned are controlled by your SELECT query.
-              -- For showing names in lists, ensure your SELECT queries only pick `id`, `full_name`, `avatar_url`.
+USING (true); -- Allows fetching id, full_name, avatar_url for lists, etc. Be mindful of data exposure.
 
--- MONTHLY CONTRIBUTIONS Table RLS
+-- MONTHLY CONTRIBUTIONS RLS
 ALTER TABLE public.monthly_contributions ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view their own monthly contributions." ON public.monthly_contributions;
@@ -258,34 +212,32 @@ CREATE POLICY "Users can view their own monthly contributions."
 ON public.monthly_contributions FOR SELECT TO authenticated
 USING (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "Admins can manage monthly contributions." ON public.monthly_contributions;
-CREATE POLICY "Admins can manage monthly contributions."
+DROP POLICY IF EXISTS "Admins can manage all monthly contributions." ON public.monthly_contributions;
+CREATE POLICY "Admins can manage all monthly contributions."
 ON public.monthly_contributions FOR ALL TO authenticated
 USING (public.is_admin(auth.uid()))
 WITH CHECK (public.is_admin(auth.uid()));
 
-
--- EMERGENCY REQUESTS Table RLS
+-- EMERGENCY REQUESTS RLS
 ALTER TABLE public.emergency_requests ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Authenticated users can view all emergency_requests." ON public.emergency_requests;
-CREATE POLICY "Authenticated users can view all emergency_requests."
+DROP POLICY IF EXISTS "Authenticated users can view all emergency requests." ON public.emergency_requests;
+CREATE POLICY "Authenticated users can view all emergency requests."
 ON public.emergency_requests FOR SELECT TO authenticated
-USING (true); -- Allows any authenticated user to read all rows for dashboard display
+USING (true); -- Allows all users to see all requests on the dashboard
 
-DROP POLICY IF EXISTS "Authenticated users can insert their own emergency_requests." ON public.emergency_requests;
-CREATE POLICY "Authenticated users can insert their own emergency_requests."
+DROP POLICY IF EXISTS "Users can insert their own emergency requests." ON public.emergency_requests;
+CREATE POLICY "Users can insert their own emergency requests."
 ON public.emergency_requests FOR INSERT TO authenticated
 WITH CHECK (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "Admins can manage all emergency_requests." ON public.emergency_requests;
-CREATE POLICY "Admins can manage all emergency_requests."
-ON public.emergency_requests FOR ALL TO authenticated
+DROP POLICY IF EXISTS "Admins can manage all emergency requests." ON public.emergency_requests;
+CREATE POLICY "Admins can manage all emergency requests."
+ON public.emergency_requests FOR ALL TO authenticated -- Covers SELECT, INSERT, UPDATE, DELETE for admins
 USING (public.is_admin(auth.uid()))
 WITH CHECK (public.is_admin(auth.uid()));
 
-
--- NOTIFICATIONS Table RLS
+-- NOTIFICATIONS RLS
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view their direct notifications." ON public.notifications;
@@ -299,7 +251,8 @@ ON public.notifications FOR SELECT TO authenticated
 USING (
   EXISTS (
     SELECT 1 FROM public.emergency_requests er
-    WHERE er.id = public.notifications.related_request_id -- RLS on 'er' applies here
+    WHERE er.id = public.notifications.related_request_id
+    -- RLS on emergency_requests is implicitly applied here by Supabase for the current user
   )
 );
 
@@ -316,12 +269,10 @@ USING (public.is_admin(auth.uid()))
 WITH CHECK (public.is_admin(auth.uid()));
 
 
--- =======================================================================
 -- STORAGE ROW LEVEL SECURITY for 'profile-pic' bucket
--- =======================================================================
--- Ensure the 'profile-pic' bucket exists in your Supabase Storage.
+-- Ensure this bucket exists in your Supabase Storage.
 
--- Policy: Users can view their own profile pictures
+-- Policy: Users can view their own profile pictures (and public images if bucket is public)
 DROP POLICY IF EXISTS "User can view their own profile pictures" ON storage.objects;
 CREATE POLICY "User can view their own profile pictures" ON storage.objects
     FOR SELECT
@@ -338,7 +289,7 @@ DROP POLICY IF EXISTS "User can update their own profile pictures" ON storage.ob
 CREATE POLICY "User can update their own profile pictures" ON storage.objects
     FOR UPDATE
     USING (bucket_id = 'profile-pic' AND auth.uid() = (storage.foldername(name))[1]::uuid)
-    WITH CHECK (auth.uid() = (storage.foldername(name))[1]::uuid);
+    WITH CHECK (bucket_id = 'profile-pic' AND auth.uid() = (storage.foldername(name))[1]::uuid);
 
 -- Policy: Users can delete their own profile pictures
 DROP POLICY IF EXISTS "User can delete their own profile pictures" ON storage.objects;
@@ -353,3 +304,28 @@ CREATE POLICY "Admins can manage all profile pictures" ON storage.objects
     USING (bucket_id = 'profile-pic' AND public.is_admin(auth.uid()))
     WITH CHECK (bucket_id = 'profile-pic' AND public.is_admin(auth.uid()));
 
+-- Suggested INDEXES for performance (uncomment and run based on query patterns)
+
+-- On profiles table
+CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
+CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
+CREATE INDEX IF NOT EXISTS idx_profiles_is_approved ON public.profiles(is_approved);
+
+-- On monthly_contributions table
+CREATE INDEX IF NOT EXISTS idx_mc_user_id ON public.monthly_contributions(user_id);
+CREATE INDEX IF NOT EXISTS idx_mc_payment_date ON public.monthly_contributions(payment_date);
+CREATE INDEX IF NOT EXISTS idx_mc_year_month ON public.monthly_contributions(year, month);
+CREATE INDEX IF NOT EXISTS idx_mc_recorded_by_admin_id ON public.monthly_contributions(recorded_by_admin_id);
+
+-- On emergency_requests table
+CREATE INDEX IF NOT EXISTS idx_er_user_id ON public.emergency_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_er_status ON public.emergency_requests(status);
+CREATE INDEX IF NOT EXISTS idx_er_requested_at ON public.emergency_requests(requested_at);
+CREATE INDEX IF NOT EXISTS idx_er_return_date ON public.emergency_requests(return_date);
+CREATE INDEX IF NOT EXISTS idx_er_reviewed_by_admin_id ON public.emergency_requests(reviewed_by_admin_id);
+
+-- On notifications table
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_read_at ON public.notifications(read_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON public.notifications(created_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_related_request_id ON public.notifications(related_request_id);

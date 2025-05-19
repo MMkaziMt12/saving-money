@@ -2,11 +2,13 @@
 import type {Metadata} from 'next';
 import {Geist, Geist_Mono} from 'next/font/google';
 import './globals.css';
-// AuthProvider is removed from root layout, now lives in (app)/layout.tsx
 import { Toaster } from "@/components/ui/toaster";
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
-// import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+import { AuthProvider } from "@/contexts/AuthContext"; // Import new AuthProvider
+import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
+import { fetchUserProfileFromServer } from "@/lib/api/profile";
+import type { AuthenticatedUser as AppUser, Profile } from "@/types";
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -23,11 +25,34 @@ export const metadata: Metadata = {
   description: 'Manage your family savings and emergency funds.',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user: serverAuthUser },
+  } = await supabase.auth.getUser();
+
+  let serverProfile: Profile | null = null;
+  if (serverAuthUser) {
+    try {
+      console.log("RootLayout (Server): Fetching initial profile for user:", serverAuthUser.id);
+      serverProfile = await fetchUserProfileFromServer(serverAuthUser.id, supabase);
+      console.log("RootLayout (Server): Initial profile fetched:", serverProfile ? serverProfile.id : null, "Approved:", serverProfile?.is_approved);
+    } catch (error) {
+      console.error("RootLayout (Server): Error fetching initial profile:", error);
+      // serverProfile remains null
+    }
+  }
+
+  const initialUserWithProfile = serverAuthUser
+    ? ({ ...serverAuthUser, profile: serverProfile } as AppUser)
+    : null;
+
+  console.log("RootLayout (Server): Passing to AuthProvider:", { initialUserId: initialUserWithProfile?.id, initialProfileId: serverProfile?.id });
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
@@ -38,10 +63,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
-            {/* AuthProvider is now specific to the (app) layout where auth state is relevant */}
-            {children}
-            <Toaster />
-            {/* <ReactQueryDevtools initialIsOpen={false} /> */}
+            <AuthProvider initialUser={initialUserWithProfile} initialProfile={serverProfile}>
+              {children}
+              <Toaster />
+            </AuthProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>

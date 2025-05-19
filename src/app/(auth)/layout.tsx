@@ -1,10 +1,13 @@
 
 import type { ReactNode } from 'react';
 import { APP_NAME } from '@/lib/constants';
-import { Building2 } from 'lucide-react'; // Using Building2 as a generic org/family icon
+import { Building2 } from 'lucide-react';
 
+// This layout NO LONGER provides AuthProvider.
+// It relies on the AuthProvider from the root layout (src/app/layout.tsx).
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
+    // AuthProvider is now in RootLayout. Components inside will consume that context.
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center">
