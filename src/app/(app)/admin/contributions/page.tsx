@@ -7,5 +7,8 @@ export const metadata = {
 };
 
 export default async function AdminContributionsPage() {
+  // This page is a Server Component.
+  // It's wrapped by AdminLayout which handles auth and admin checks.
+  // The client component will handle its own data fetching.
   return <ContributionManagementClientContent />;
 }

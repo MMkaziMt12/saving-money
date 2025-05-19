@@ -51,9 +51,10 @@ export function ContributionManagementClientContent() {
     mutationFn: (payload) => addContributionsAdmin(supabase, payload),
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminContributions'] });
+      // Invalidate queries that might be affected on other pages
       queryClient.invalidateQueries({ queryKey: ['userContributionsForDashboard', variables.formData.userId] }); 
       queryClient.invalidateQueries({ queryKey: ['allUserContributionsForStatus', variables.formData.userId]});
-      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings']}); 
+      queryClient.invalidateQueries({ queryKey: ['totalFamilySavings']}); // Global fund balance
       queryClient.invalidateQueries({ queryKey: ["userProfileForAdmin", variables.formData.userId] }); 
       queryClient.invalidateQueries({ queryKey: ["userContributionsForAdmin", variables.formData.userId] });
       toast({ title: "Success", description: `${variables.formData.numberOfMonths} contribution(s) recorded for ${users?.find(u => u.id === variables.formData.userId)?.full_name}.` });
@@ -66,8 +67,9 @@ export function ContributionManagementClientContent() {
   const handleAddContribution = useCallback(async (formData: AddContributionFormValues) => {
     if (!adminProfile?.id) {
       toast({ title: "Error", description: "Admin profile ID not found.", variant: "destructive" });
-      throw new Error("Admin profile ID not found.");
+      throw new Error("Admin profile ID not found."); // Ensure mutation's onError is triggered
     }
+    // The mutation's isPending can be used for form disabling in ContributionManagement
     await addContributionMutation.mutateAsync({ formData, adminProfileId: adminProfile.id });
   }, [addContributionMutation, adminProfile, toast, users]);
 
@@ -90,19 +92,30 @@ export function ContributionManagementClientContent() {
         <p className="text-destructive mb-2">Error loading data for contributions.</p>
         <p className="text-sm text-muted-foreground mb-4">{combinedError.message || "An unknown error occurred."}</p>
         <Button onClick={() => {
-          if (usersErrorObj) refetchUsers();
-          if (contributionsErrorObj) refetchContributions();
+          if (isUsersError) refetchUsers();
+          if (isContributionsError) refetchContributions();
         }} variant="outline">
           <RefreshCw className="mr-2 h-4 w-4" /> Try again
         </Button>
       </div>
     );
   }
+  
+  // Ensure users and contributions are not undefined before passing to ContributionManagement
+  // This should be guaranteed by the loading/error states above, but defensive check doesn't hurt.
+  if (!users || !contributions) {
+     return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="ml-3 text-muted-foreground">Finalizing data...</p>
+      </div>
+    );
+  }
 
   return (
     <ContributionManagement
-      users={users || []}
-      contributions={contributions || []}
+      users={users}
+      contributions={contributions}
       onAddContribution={handleAddContribution}
     />
   );
