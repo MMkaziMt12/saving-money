@@ -12,9 +12,8 @@ import { Send, Loader2, CalendarIcon, Info, AlertTriangle, RefreshCw } from "luc
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { CURRENCY_SYMBOL } from "@/lib/constants";
-import { useAuth } from "@/contexts/AuthContext";
-import { createClient as createClientComponentClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
+import { createClient } from "@/lib/supabase/client";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -22,7 +21,7 @@ import { format, isPast, parseISO } from "date-fns";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
 import { fetchCurrentUserActiveEmergencyRequests, type UserActiveEmergencyRequest } from "@/lib/api/emergencyRequests";
 import { fetchTotalFamilySavingsRPC } from "@/lib/api/dashboard";
 import type { Profile } from "@/types";
@@ -80,16 +79,13 @@ interface EmergencyRequestClientContentProps {
 
 export function EmergencyRequestClientContent({ initialUserId, initialProfile: ssrProfile }: EmergencyRequestClientContentProps) {
   const { toast } = useToast();
-  const { user: authUser, profile: authProfileFromContext, isLoading: authLoading } = useAuth();
-  const router = useRouter();
+  const { user: authUser, profile: authProfileFromContext, isLoadingAuth } = useAuth();
   const queryClient = useQueryClient();
-  const supabase = createClientComponentClient(); 
+  const supabase = createClient(); 
 
-  // Prioritize context user/profile once loaded, fallback to initial props
-  const user = authUser; // AuthContext user is the source of truth once loaded
+  const user = authUser;
   const profile = authProfileFromContext || ssrProfile;
   const currentUserId = user?.id || initialUserId;
-
 
   const form = useForm<EmergencyRequestFormValues>({
     resolver: zodResolver(emergencyRequestSchema),
@@ -104,13 +100,11 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile: s
     data: existingRequests, 
     isLoading: isLoadingExistingRequests,
     isError: isExistingRequestsError,
-    error: existingRequestsErrorObj, // Ensure this is captured
+    error: existingRequestsErrorObj,
     refetch: refetchExistingRequests
   } = useQuery<UserActiveEmergencyRequest[], Error>({
     queryKey: ["currentUserActiveEmergencyRequests", currentUserId],
     queryFn: () => {
-      console.log(`EmergencyRequestClientContent: Fetching active requests for user: ${currentUserId}`);
-      // Pass client-side supabase instance to API function
       return fetchCurrentUserActiveEmergencyRequests(supabase, currentUserId);
     },
     enabled: !!currentUserId, 
@@ -120,16 +114,16 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile: s
     data: totalFamilySavings, 
     isLoading: isLoadingTotalSavings,
     isError: isTotalSavingsError,
-    error: totalSavingsErrorObj, // Ensure this is captured
+    error: totalSavingsErrorObj,
     refetch: refetchTotalSavings
   } = useQuery<number, Error>({
     queryKey: ["totalFamilySavingsForRequestForm"], 
-    queryFn: () => fetchTotalFamilySavingsRPC(supabase), // Pass client-side supabase instance
+    queryFn: () => fetchTotalFamilySavingsRPC(supabase),
   });
 
   const addEmergencyRequestMutation = useMutation({
     mutationFn: async (newData: EmergencyRequestFormValues) => {
-        if (!user || !profile) { // Use the context's user and profile
+        if (!user || !profile) {
             throw new Error("User not authenticated.");
         }
         const insertData = {
@@ -139,9 +133,9 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile: s
             return_date: newData.return_date.toISOString(),
             status: 'pending', // Hardcoded to 'pending'
             requested_at: new Date().toISOString(),
-            // created_at and updated_at will be set by DB defaults/triggers
         };
-        console.log("EmergencyRequestClientContent: Submitting emergency request with data:", insertData); // LOGGING ADDED HERE
+        // ADDED CONSOLE LOG HERE
+        console.log("EmergencyRequestClientContent: Submitting emergency request with data:", insertData);
         const { data, error } = await supabase
           .from('emergency_requests')
           .insert(insertData)
@@ -173,7 +167,6 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile: s
         });
     }
   });
-
 
   const pendingRequests = useMemo(() =>
     existingRequests?.filter(req => req.status === 'pending') || [],
@@ -213,19 +206,14 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile: s
     addEmergencyRequestMutation.mutate(data);
   }
 
-  if (authLoading) {
+  if (isLoadingAuth && !profile) { // Check isLoadingAuth from useAuth()
     return (
       <div className="flex items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
       </div>
     );
   }
-
-  if (!user || !profile) { // Use context profile as primary check
-     router.replace("/login"); 
-     return null;
-  }
-
+  
   const showSummaryCard = (!isLoadingExistingRequests && (pendingRequests.length > 0 || approvedOutstandingRequests.length > 0)) || isExistingRequestsError;
   const showFormCard = !isTotalSavingsError;
 
@@ -322,7 +310,7 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile: s
                     <FormItem>
                       <FormLabel>Amount Requested ({CURRENCY_SYMBOL})</FormLabel>
                       <FormControl>
-                        <Input type="number" placeholder="e.g., 5000" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || undefined)} disabled={form.formState.isSubmitting || isLoadingTotalSavings || totalFamilySavings === undefined} />
+                        <Input type="number" placeholder="e.g., 5000" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || undefined)} disabled={form.formState.isSubmitting || isLoadingTotalSavings || totalFamilySavings === undefined || addEmergencyRequestMutation.isPending} />
                       </FormControl>
                       <FormDescription>
                         Enter the total amount you require.
@@ -412,5 +400,6 @@ export function EmergencyRequestClientContent({ initialUserId, initialProfile: s
     </div>
   );
 }
+
 
     
