@@ -57,23 +57,23 @@ export async function updateSession(request: NextRequest) {
 
   const publicPaths = ['/login', '/signup', '/auth/callback', '/awaiting-approval'];
   const isPublicPath = publicPaths.some(path => request.nextUrl.pathname.startsWith(path));
-
-  if (!user && !isPublicPath) {
-    // No user, and it's not a public path, redirect to login
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    console.log(`Middleware: No user found on protected path ${request.nextUrl.pathname}. Redirecting to /login.`);
-    return NextResponse.redirect(url);
-  }
+  console.log(user,"in middileare")
+  // if (!user && !isPublicPath) {
+  //   // No user, and it's not a public path, redirect to login
+  //   const url = request.nextUrl.clone();
+  //   url.pathname = '/login';
+  //   console.log(`Middleware: No user found on protected path ${request.nextUrl.pathname}. Redirecting to /login.`);
+  //   return NextResponse.redirect(url);
+  // }
 
   // If user is logged in but trying to access login/signup, redirect them to dashboard
   // This prevents logged-in users from seeing auth pages unnecessarily.
-  if (user && (request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/signup'))) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/'; // Redirect to dashboard or home
-    console.log(`Middleware: Authenticated user tried to access ${request.nextUrl.pathname}. Redirecting to /.`);
-    return NextResponse.redirect(url);
-  }
+  // if (user && (request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/signup'))) {
+  //   const url = request.nextUrl.clone();
+  //   url.pathname = '/'; // Redirect to dashboard or home
+  //   console.log(`Middleware: Authenticated user tried to access ${request.nextUrl.pathname}. Redirecting to /.`);
+  //   return NextResponse.redirect(url);
+  // }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.
   // If you're creating a new response object with NextResponse.next() make sure to:

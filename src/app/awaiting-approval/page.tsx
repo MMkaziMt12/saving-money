@@ -2,41 +2,47 @@
 "use client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/hooks/useAuth"; // Using the new hook
 import { APP_NAME } from "@/lib/constants";
-import { Hourglass, LogOut } from "lucide-react";
-import { useAuth } from "@/hooks/useAuth"; // Updated import
+import { Hourglass, LogOut, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export default function AwaitingApprovalPage() {
-  const { user, profile, signOutUser, isLoadingAuth, isApproved } = useAuth(); // Using new hook
+  const { user, profile, signOutUser, isLoadingAuth, isApproved, isAuthenticated } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoadingAuth) { // Check after auth state is resolved
-      if (user && isApproved) {
-        router.replace("/"); // Already approved, redirect to dashboard
-      } else if (!user) {
-        router.replace("/login"); // Not logged in, redirect to login
+    if (!isLoadingAuth) { 
+      if (isAuthenticated) { // isAuthenticated implies user, profile, and approved are all true
+        console.log("AwaitingApprovalPage: User is authenticated and approved, redirecting to /");
+        router.replace("/"); 
+      } else if (!user) { // No user session at all
+        console.log("AwaitingApprovalPage: No user session, redirecting to /login");
+        router.replace("/login"); 
       }
+      // If user exists, but not approved, they should stay on this page.
     }
-  }, [isLoadingAuth, user, isApproved, router]);
+  }, [isLoadingAuth, user, isAuthenticated, router]);
 
 
   const handleLogout = async () => {
     await signOutUser();
-    // router.push("/login"); // The onAuthStateChange will redirect via AppLayout
+    // The onAuthStateChange listener (managed by AuthProvider/authStore) should trigger a redirect to /login
   };
 
-  if (isLoadingAuth || (!user && typeof window !== 'undefined')) {
+  // Show loader while auth state is being determined,
+  // or if user is somehow on this page but should be redirected away quickly.
+  if (isLoadingAuth || (!isLoadingAuth && isAuthenticated) || (!isLoadingAuth && !user)) {
      return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-        <Hourglass className="h-12 w-12 animate-spin text-primary mb-4" />
+        <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
         <p className="text-muted-foreground">Loading user status...</p>
       </div>
     );
   }
 
+  // At this point, isLoadingAuth is false, user exists, but isApproved is false.
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md text-center shadow-xl">

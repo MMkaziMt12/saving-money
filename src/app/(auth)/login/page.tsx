@@ -7,10 +7,10 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, useEffect } from "react";
 import { createClient } from '@/lib/supabase/client';
-// Removed useAuth import as profile fetching after login is handled by authStore
 import { Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth"; // Using the new hook
 
 const GoogleIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
@@ -29,6 +29,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const { isAuthenticated, isLoadingAuth } = useAuth(); // Use the new hook
+
+  useEffect(() => {
+    if (!isLoadingAuth && isAuthenticated) {
+      router.replace("/"); // If already authenticated and auth check done, redirect
+    }
+  }, [isAuthenticated, isLoadingAuth, router]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -50,10 +57,9 @@ export default function LoginPage() {
         title: "Login Successful",
         description: "Welcome back!",
       });
-      // AuthStore's onAuthStateChange listener will pick up the SIGNED_IN event,
-      // fetch the profile, and AppLayout will redirect to '/' or '/awaiting-approval'.
-      // No need to manually fetch profile or push here if AppLayout handles it.
-      router.push("/"); // This might be redundant if AppLayout redirects.
+      // The AuthProvider's onAuthStateChange listener will pick up the SIGNED_IN event,
+      // fetch the profile, and the (app)/layout.tsx guard will handle redirection.
+      // router.push("/"); // This redirect might be premature, let layout handle it.
     }
     setIsLoading(false);
   };
@@ -76,8 +82,17 @@ export default function LoginPage() {
       setIsGoogleLoading(false);
     }
     // On success, Supabase redirects to Google, then back to your app.
-    // The authStore's onAuthStateChange will handle the session.
+    // The AuthProvider's onAuthStateChange will handle the session.
   };
+
+  if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
+    // Show loader if auth is still loading or if user is already authenticated (will be redirected)
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

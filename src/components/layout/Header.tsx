@@ -12,17 +12,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { APP_NAME } from "@/lib/constants";
-import { useAuth } from "@/hooks/useAuth"; // Updated import
+import { useAuth } from "@/hooks/useAuth"; // Using the new hook
 import { useRouter } from "next/navigation";
-import { LayoutDashboard, LogOut, UserCircle, Users, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, LogOut, UserCircle, Users, Sun, Moon, Loader2 } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationsDisplay } from "./NotificationsDisplay";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
 export function Header() {
-  const { user, profile, signOutUser, isAdmin } = useAuth(); // Using new hook
+  const { user, profile, signOutUser, isAdmin, isLoadingAuth } = useAuth();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -31,7 +30,8 @@ export function Header() {
 
   const handleLogout = async () => {
     await signOutUser();
-    router.push("/login");
+    // The onAuthStateChange listener in AuthProvider/authStore will handle redirecting after state clear
+    // router.push("/login"); // This might be redundant or cause issues if listener also redirects
   };
 
   const getInitials = (name: string | undefined | null): string => {
@@ -65,13 +65,20 @@ export function Header() {
             {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
           </Button>
         )}
-        {user && <NotificationsDisplay />}
-        {user && profile ? (
+        
+        {/* Conditionally render NotificationsDisplay only if user is authenticated and not loading */}
+        {!isLoadingAuth && user && <NotificationsDisplay />}
+        
+        {isLoadingAuth && (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        )}
+
+        {!isLoadingAuth && user && profile ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-9 w-9 border border-primary/50">
-                  <AvatarImage src={profile.avatar_url || undefined} alt={profile.full_name || "User"} data-ai-hint="person portrait" />
+                  <AvatarImage src={profile.avatar_url || undefined} alt={profile.full_name || "User"} data-ai-hint={profile.avatar_url ? "person portrait" : "profile placeholder"} />
                   <AvatarFallback>{getInitials(profile.full_name)}</AvatarFallback>
                 </Avatar>
               </Button>
@@ -107,6 +114,9 @@ export function Header() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        ) : !isLoadingAuth && !user ? (
+          // Optionally show a Login button if not authenticated and auth check is complete
+          <Button onClick={() => router.push("/login")} variant="outline">Login</Button>
         ) : null }
       </div>
     </header>

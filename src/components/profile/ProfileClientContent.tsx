@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/hooks/useAuth"; // Updated import
+import { useAuth } from "@/contexts/AuthContext";
 import { format, parseISO } from 'date-fns';
 import { Camera, Edit3, Mail, Phone, User, Shield, CalendarDays, Loader2, Save, RefreshCw, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -17,7 +17,7 @@ import type { Profile } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 // Removed fetchUserProfileFromServer import as profile comes from useAuth or a specific query if needed for refresh
-import { useAuthStore } from "@/stores/authStore"; // For directly calling profile update action
+// import { useAuthStore } from "@/stores/authStore"; // For directly calling profile update action
 
 interface ProfileClientContentProps {
   initialProfile: Profile | null; // Passed from server component
@@ -101,8 +101,8 @@ export function ProfileClientContent({ initialProfile: ssrProfile }: ProfileClie
     onSuccess: (updatedProfileData) => {
       if (updatedProfileData) {
         // Update the Zustand store
-        useAuthStore.getState().setProfile(updatedProfileData);
-        useAuthStore.getState().setUser({ ...user!, profile: updatedProfileData } as any); // Update user in store too
+        // useAuthStore.getState().setProfile(updatedProfileData);
+        // useAuthStore.getState().setUser({ ...user!, profile: updatedProfileData } as any); // Update user in store too
         
         toast({ title: "Profile Updated", description: "Your profile information has been saved." });
         setIsEditing(false);

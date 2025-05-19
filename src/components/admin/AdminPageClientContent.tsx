@@ -10,49 +10,63 @@ import { NotificationSenderTab } from "@/components/admin/tabs/NotificationSende
 import { useEffect } from "react";
 import { Users, ListChecks, ShieldAlert, BellRing, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/hooks/useAuth"; // Updated import
 import { useToast } from "@/hooks/use-toast";
 import type { Profile } from "@/types";
 import { useAdminPanelStore } from "@/stores/adminPanelStore"; 
+import { useAuth } from "@/hooks/useAuth"; // Using the new hook
 
 interface AdminPageClientContentProps {
   initialProfile: Profile | null; // Admin's profile passed from server
+  // initialTab: string; // Passed from server
 }
 
 export function AdminPageClientContent({ initialProfile: serverProfile }: AdminPageClientContentProps) {
-  const { user: authUser, profile: authProfileFromStore, isAdmin, isLoadingAuth, isApproved } = useAuth(); // Using new hook
+  const { user: authUserFromHook, profile: authProfileFromHook, isAdmin, isLoadingAuth, isApproved } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   
   const storeActiveTab = useAdminPanelStore(state => state.activeTab);
-  const storeSetInitialTab = useAdminPanelStore(state => state.setInitialTab);
+  const storeSetInitialTab = useAdminPanelStore(state => state.setInitialTab); // Use the action to set initial tab
   const storeSetActiveTab = useAdminPanelStore(state => state.setActiveTab);
 
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams(); // Use on client-side
   const tabFromQuery = searchParams.get("tab");
 
   useEffect(() => {
+    // Set initial tab from query params once client-side searchParams are available
     storeSetInitialTab(tabFromQuery || "users");
   }, [storeSetInitialTab, tabFromQuery]);
   
-  const currentProfile = !isLoadingAuth && authProfileFromStore ? authProfileFromStore : serverProfile;
-  // isAdmin and isApproved from useAuth are derived from the store and should be preferred once auth is loaded.
+  // Prioritize live auth profile from hook, fallback to server-passed if auth is loading
+  const currentAdminProfile = !isLoadingAuth && authProfileFromHook ? authProfileFromHook : serverProfile;
+
+  // The isAdmin and isApproved from useAuth hook are derived from the context state,
+  // which should be updated based on server-passed initialProfile and subsequent client-side fetches.
 
   useEffect(() => {
-    if (!isLoadingAuth) { 
-      if (!authUser || !isApproved) { // Use derived isApproved from store
+    // This effect runs on the client after AuthProvider has initialized
+    if (!isLoadingAuth) { // Only run checks once auth state is determined
+      if (!authUserFromHook || !currentAdminProfile) { // User not logged in or admin profile not available
+        toast({ title: "Access Denied", description: "You must be logged in as an admin.", variant: "destructive" });
         router.replace("/login"); 
         return;
       }
-      if (!isAdmin) { // Use derived isAdmin from store
+      if (!currentAdminProfile.is_approved) {
+        toast({ title: "Access Denied", description: "Your admin account is not yet approved.", variant: "destructive" });
+        router.replace("/awaiting-approval");
+        return;
+      }
+      if (currentAdminProfile.role !== 'admin') { // Also checking role from potentially server-passed profile initially
         toast({ title: "Access Denied", description: "You do not have permission to view this page.", variant: "destructive" });
         router.replace("/");
         return;
       }
     }
-  }, [authUser, isAdmin, isLoadingAuth, isApproved, router, toast]);
+  }, [authUserFromHook, currentAdminProfile, isLoadingAuth, router, toast]); // Added currentAdminProfile
 
-  if (isLoadingAuth || (!isAdmin && !isLoadingAuth && !authUser)) { 
+  // If auth is loading, or if it's done loading but critical admin profile is missing, show loader.
+  // The SSR part (AdminPageSSR) should have already done a preliminary redirect if absolutely no auth user.
+  if (isLoadingAuth || (!isLoadingAuth && (!currentAdminProfile || currentAdminProfile.role !== 'admin'))) { 
     return (
       <div className="flex items-center justify-center h-screen py-10">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -61,14 +75,6 @@ export function AdminPageClientContent({ initialProfile: serverProfile }: AdminP
     );
   }
   
-  if (!isAdmin && authUser) { 
-     return (
-      <div className="flex items-center justify-center h-screen py-10">
-        <p className="text-lg text-destructive">Access Denied. You are not an administrator.</p>
-      </div>
-    );
-  }
-
   const handleTabChange = (value: string) => {
     storeSetActiveTab(value); 
     router.push(`/admin?tab=${value}`, { scroll: false }); 

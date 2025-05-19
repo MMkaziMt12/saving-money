@@ -1,11 +1,11 @@
 
-import { createClient as createClientComponentClient } from "@/lib/supabase/client";
 import type { Profile } from "@/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient as createClientComponentClient } from "@/lib/supabase/client"; // For client-side fallback
 
 // This function can be called from server or client.
 // If supabaseClient is provided (server context), it uses that.
-// Otherwise (client context, e.g., from AuthContext), it creates a new client-side client.
+// Otherwise (client context), it creates a new client-side client.
 export async function fetchUserProfileFromServer(
   userId: string,
   supabaseClient?: SupabaseClient // Optional: if not provided, creates a client-side instance
@@ -15,10 +15,13 @@ export async function fetchUserProfileFromServer(
     return null;
   }
 
-  const supabase = supabaseClient || createClientComponentClient();
+  const supabase = supabaseClient || createClientComponentClient(); // Use provided or create new client
   const contextType = supabaseClient ? "server-provided" : "new client-side";
+  let operationType = "fetchUserProfileFromServer";
+  operationType = supabaseClient ? "fetchUserProfileFromServer (SSR)" : "fetchUserProfileFromServer (Client)";
 
-  console.log(`API: Attempting to fetch profile from ${contextType} client for user: ${userId}`);
+
+  console.log(`API: ${operationType} - Attempting to fetch profile for user: ${userId} (Using ${contextType} client)`);
   try {
     const { data, error, status } = await supabase
       .from("profiles")
@@ -29,26 +32,23 @@ export async function fetchUserProfileFromServer(
       .single<Profile>();
 
     if (error) {
-      // Don't throw if it's a "0 rows" error, just return null
-      if (error.code === 'PGRST116') {
-          console.warn(`API: No profile found for user ${userId} (PGRST116). Context: ${contextType}`);
+      if (error.code === 'PGRST116') { // "single" query returned 0 rows
+          console.warn(`API: ${operationType} - No profile found for user ${userId} (PGRST116). Context: ${contextType}`);
           return null;
       }
       const errorMessage = error.message || `Supabase error (Code: ${error.code || status})`;
-      console.error(`API: Error fetching profile for ${userId}. Status: ${status}. Context: ${contextType}`, JSON.stringify(error, null, 2));
-      throw new Error(errorMessage);
+      console.error(`API: ${operationType} - Error fetching profile for ${userId}. Status: ${status}. Context: ${contextType}`, JSON.stringify(error, null, 2));
+      throw new Error(errorMessage); // Re-throw to be caught by TanStack Query or calling function
     }
     
     if (data) {
-      console.log(`API: Profile successfully fetched for ${userId}. Context: ${contextType}`);
+      console.log(`API: ${operationType} - Profile successfully fetched for ${userId}. Context: ${contextType}`);
     } else {
-       console.warn(`API: No profile data returned for ${userId}, though no explicit error. Status: ${status}. Context: ${contextType}`);
+       console.warn(`API: ${operationType} - No profile data returned for ${userId}, though no explicit error. Status: ${status}. Context: ${contextType}`);
     }
     return data;
   } catch (err: any) {
-    console.error(`API: Unexpected error in fetchUserProfileFromServer for ${userId}. Context: ${contextType}`, err);
-    throw err;
+    console.error(`API: ${operationType} - Unexpected error in fetchUserProfileFromServer for ${userId}. Context: ${contextType}`, err);
+    throw err; // Re-throw for TanStack Query or calling function
   }
 }
-
-    

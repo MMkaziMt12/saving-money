@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, useEffect } from "react";
 import { createClient } from '@/lib/supabase/client';
 import { Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth"; // Using new hook
 
 const GoogleIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
@@ -30,6 +31,13 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const { isAuthenticated, isLoadingAuth } = useAuth(); // Using new hook
+
+  useEffect(() => {
+    if (!isLoadingAuth && isAuthenticated) {
+      router.replace("/"); // If already authenticated and auth check done, redirect
+    }
+  }, [isAuthenticated, isLoadingAuth, router]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -41,8 +49,9 @@ export default function SignupPage() {
       password,
       options: {
         data: {
-          full_name: fullName,
+          full_name: fullName, // This will be in new.raw_user_meta_data for the trigger
           phone: phone, 
+          // email: email, // No need to pass email here, it's already part of auth.users
         },
       },
     });
@@ -58,9 +67,8 @@ export default function SignupPage() {
         title: "Account Created!",
         description: "Please check your email for verification if required. Your account is pending admin approval.",
       });
-      // The authStore's onAuthStateChange and AppLayout will handle redirection
-      // to /awaiting-approval or / if already approved.
-      // router.push("/awaiting-approval"); // May be redundant
+      // AuthProvider's onAuthStateChange will handle post-signup flow (profile creation via trigger, then state update)
+      // and (app)/layout.tsx guard will redirect to /awaiting-approval or / as appropriate.
     } else {
        toast({
         title: "Signup Incomplete",
@@ -74,6 +82,8 @@ export default function SignupPage() {
   const handleGoogleSignUp = async () => {
     setIsGoogleLoading(true);
     const supabase = createClient();
+    // For Google sign-up, metadata (like full_name) is typically handled by Supabase populating raw_user_meta_data
+    // which our handle_new_user trigger will use.
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -89,8 +99,16 @@ export default function SignupPage() {
       setIsGoogleLoading(false);
     }
     // On success, Supabase redirects to Google, then back to your app.
-    // The authStore's onAuthStateChange will handle the session and profile creation.
+    // The AuthProvider's onAuthStateChange will handle the session and profile creation.
   };
+
+  if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

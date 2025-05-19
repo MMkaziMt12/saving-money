@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import type { Database } from '@/types/supabase';
 
 export async function createClient() {
-  const cookieStore = cookies(); // Await is not needed here as cookies() itself is not async directly in Next 13+ App Router context for server components.
+  const cookieStore = await cookies(); // Await is not needed here as cookies() itself is not async directly in Next 13+ App Router context for server components.
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

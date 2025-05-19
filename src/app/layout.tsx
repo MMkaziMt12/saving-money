@@ -2,7 +2,7 @@
 import type {Metadata} from 'next';
 import {Geist, Geist_Mono} from 'next/font/google';
 import './globals.css';
-// AuthProvider is removed from here, it will be in (app)/layout.tsx
+// AuthProvider is removed from root layout, now lives in (app)/layout.tsx
 import { Toaster } from "@/components/ui/toaster";
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
@@ -48,5 +48,3 @@ export default function RootLayout({
     </html>
   );
 }
-
-    
