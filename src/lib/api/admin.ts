@@ -8,7 +8,7 @@ import { MONTHLY_CONTRIBUTION_AMOUNT } from "@/lib/constants";
 import type { Tables } from "@/types/supabase"; // Assuming Tables type is available
 
 // For UserManagementTab
-export async function fetchAdminUsers(supabase: SupabaseClient): Promise<Profile[]> {
+export async function fetchAdminUsers(supabase: SupabaseClient): Promise<Pick<Profile, 'id' | 'full_name' | 'email' | 'phone' | 'avatar_url' | 'role' | 'is_approved' | 'created_at' | 'updated_at' | 'is_active'>[]> {
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active')
@@ -20,12 +20,12 @@ export async function fetchAdminUsers(supabase: SupabaseClient): Promise<Profile
   return data || [];
 }
 
-export async function updateUserProfileAdmin(supabase: SupabaseClient, userId: string, updates: Partial<Profile>): Promise<Profile> {
+export async function updateUserProfileAdmin(supabase: SupabaseClient, userId: string, updates: Partial<Pick<Profile, 'full_name' | 'phone' | 'avatar_url' | 'role' | 'is_approved' | 'is_active'>>): Promise<Profile> {
   const { data, error } = await supabase
     .from('profiles')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', userId)
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active')
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active, last_login') // Ensure last_login is selected if used
     .single();
   if (error) {
     console.error("API: Error updating user profile (admin):", JSON.stringify(error, null, 2));
@@ -81,7 +81,13 @@ export async function fetchAdminContributions(supabase: SupabaseClient): Promise
   }
   const typedData = rawContributions as RawAdminContribution[] | null;
   return typedData?.map(c => ({
-    ...c,
+    id: c.id,
+    payment_date: c.payment_date,
+    month: c.month,
+    year: c.year,
+    amount: c.amount,
+    user_id: c.user_id,
+    recorded_by_admin_id: c.recorded_by_admin_id,
     user_name: c.profile_user?.full_name,
     recorded_by_admin_name: c.profile_admin?.full_name,
   })) || [];
@@ -100,7 +106,7 @@ export async function addContributionsAdmin(supabase: SupabaseClient, { formData
   for (let i = 0; i < formData.numberOfMonths; i++) {
     contributionsToInsert.push({
       user_id: formData.userId,
-      amount: MONTHLY_CONTRIBUTION_AMOUNT,
+      amount: MONTHLY_CONTRIBUTION_AMOUNT, // Standard amount per month
       payment_date: formData.paymentDate.toISOString(),
       month: currentMonth,
       year: currentYear,
@@ -117,6 +123,7 @@ export async function addContributionsAdmin(supabase: SupabaseClient, { formData
     .insert(contributionsToInsert)
     .select('id')
     .returns<AddedContributionId[]>();
+
   if (error) {
     console.error("API: Error adding contribution(s) (admin):", JSON.stringify(error, null, 2));
     throw error;
@@ -162,7 +169,19 @@ export async function fetchAdminEmergencyRequests(supabase: SupabaseClient): Pro
   }
   const typedData = rawRequests as RawAdminEmergencyRequest[] | null;
   return typedData?.map(req => ({
-      ...req,
+      id: req.id,
+      user_id: req.user_id,
+      amount_requested: req.amount_requested,
+      reason: req.reason,
+      status: req.status,
+      requested_at: req.requested_at,
+      return_date: req.return_date,
+      amount_returned: req.amount_returned,
+      is_fully_repaid: req.is_fully_repaid,
+      last_return_date: req.last_return_date,
+      admin_notes: req.admin_notes,
+      reviewed_at: req.reviewed_at,
+      reviewed_by_admin_id: req.reviewed_by_admin_id,
       user_name: req.profile_user?.full_name,
       reviewed_by_admin_name: req.profile_admin?.full_name,
   })) || [];
@@ -170,35 +189,43 @@ export async function fetchAdminEmergencyRequests(supabase: SupabaseClient): Pro
 
 export type UpdateRequestPayloadAdmin = {
   requestId: string;
-  status: 'approved' | 'rejected';
+  status: 'approved' | 'rejected'; // This is the expected type from the component
   adminProfileId: string;
 };
 export type UpdatedRequestStatusAdmin = Pick<EmergencyRequest, 'id' | 'status' | 'user_id'>;
 export async function updateEmergencyRequestStatusAdmin(supabase: SupabaseClient, { requestId, status, adminProfileId }: UpdateRequestPayloadAdmin): Promise<UpdatedRequestStatusAdmin> {
+  // Log the status being sent for diagnostics
+  console.log(`API: updateEmergencyRequestStatusAdmin - Attempting to update requestId ${requestId} to status: '${status}' by admin ${adminProfileId}`);
+
+  const updatesToApply: Partial<Tables<'emergency_requests'>> = {
+    status: status,
+    reviewed_by_admin_id: adminProfileId,
+    reviewed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
   const { data, error } = await supabase
     .from('emergency_requests')
-    .update({ 
-      status, 
-      reviewed_by_admin_id: adminProfileId,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString() 
-    })
+    .update(updatesToApply)
     .eq('id', requestId)
     .select('id, status, user_id')
     .single();
+
   if (error) {
-    console.error("API: Error updating emergency request status (admin):", JSON.stringify(error, null, 2));
-    throw error;
+    console.error(`API: Error updating emergency request status (admin) for requestId ${requestId} to status '${status}':`, JSON.stringify(error, null, 2));
+    throw error; // Re-throw the original Supabase error
   }
-  if (!data) throw new Error("API: Failed to update request, no data returned (admin).");
-  return data; 
+  if (!data) throw new Error(`API: Failed to update request (requestId: ${requestId}), no data returned (admin).`);
+  console.log(`API: Successfully updated requestId ${requestId} to status: '${data.status}'`);
+  return data;
 }
+
 
 export type RecordRepaymentPayloadAdmin = {
   requestId: string;
   amountRepaid: number;
   repaymentDate: Date;
-  adminProfileId: string; 
+  adminProfileId: string;
 };
 export type RecordedRepaymentResultAdmin = Pick<EmergencyRequest, 'id' | 'user_id' | 'amount_returned' | 'is_fully_repaid' | 'last_return_date'>;
 export async function recordRepaymentAdmin(supabase: SupabaseClient, { requestId, amountRepaid, repaymentDate }: RecordRepaymentPayloadAdmin): Promise<RecordedRepaymentResultAdmin> {
@@ -207,13 +234,16 @@ export async function recordRepaymentAdmin(supabase: SupabaseClient, { requestId
     .select('amount_requested, amount_returned, user_id')
     .eq('id', requestId)
     .single();
+
   if (fetchError || !existingRequest) {
     console.error("API: Error fetching existing request for repayment (admin):", JSON.stringify(fetchError, null, 2));
     throw fetchError || new Error("API: Could not find existing request to record repayment (admin).");
   }
+
   const currentAmountReturned = existingRequest.amount_returned || 0;
   const newAmountReturned = currentAmountReturned + amountRepaid;
   const isFullyRepaid = newAmountReturned >= (existingRequest.amount_requested || 0);
+
   const { data, error } = await supabase
     .from('emergency_requests')
     .update({
@@ -225,6 +255,7 @@ export async function recordRepaymentAdmin(supabase: SupabaseClient, { requestId
     .eq('id', requestId)
     .select('id, user_id, amount_returned, is_fully_repaid, last_return_date')
     .single();
+
   if (error) {
     console.error("API: Error recording repayment (admin):", JSON.stringify(error, null, 2));
     throw error;
@@ -248,7 +279,7 @@ export async function fetchUsersForNotificationsAdmin(supabase: SupabaseClient):
 }
 
 export type EmergencyRequestForNotificationListAdmin = Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { user_name?: string | null };
-type RawEmergencyRequestForNotificationListAdmin = Pick<EmergencyRequest, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user: { full_name: string | null } | null };
+type RawEmergencyRequestForNotificationListAdmin = Pick<Tables<'emergency_requests'>, 'id' | 'user_id' | 'reason' | 'amount_requested' | 'status' | 'requested_at'> & { profile_user: { full_name: string | null } | null };
 
 export async function fetchAllEmergencyRequestsForNotificationsListAdmin(supabase: SupabaseClient): Promise<EmergencyRequestForNotificationListAdmin[]> {
   const { data: rawRequests, error } = await supabase
@@ -262,22 +293,37 @@ export async function fetchAllEmergencyRequestsForNotificationsListAdmin(supabas
   }
   const typedData = rawRequests as RawEmergencyRequestForNotificationListAdmin[] | null;
   return typedData?.map(req => ({
-    ...req,
-    user_name: req.profile_user?.full_name || req.user_id,
+    id: req.id,
+    user_id: req.user_id,
+    reason: req.reason,
+    amount_requested: req.amount_requested,
+    status: req.status,
+    requested_at: req.requested_at,
+    user_name: req.profile_user?.full_name || undefined, // Ensure it's undefined not null if no name
   })) || [];
 }
 
+
 // For user detail page in admin
 export async function fetchUserProfileForAdmin(supabase: SupabaseClient, userId: string): Promise<Profile | null> {
-  if (!userId) return null;
+  if (!userId || typeof userId !== 'string') {
+     console.warn(`API: fetchUserProfileForAdmin - Invalid or missing userId: ${userId}. Returning null.`);
+     return null;
+  }
   const { data, error } = await supabase
     .from("profiles")
-    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active')
+    .select('id, full_name, email, phone, avatar_url, role, is_approved, created_at, updated_at, is_active, last_login')
     .eq("id", userId)
     .single<Profile>();
+
   if (error) {
-    console.error("API: Error fetching user profile for admin detail page:", JSON.stringify(error, null, 2));
-    throw error;
+    if (error.code === 'PGRST116') { // "single" query did not find a row
+      console.warn(`API: fetchUserProfileForAdmin - No profile found for userId: ${userId}. Returning null.`);
+      return null;
+    }
+    const errorMsg = `API: Error fetching user profile for admin detail (userId: ${userId}): ${error.message} (Code: ${error.code})`;
+    console.error(errorMsg, JSON.stringify(error, null, 2));
+    throw new Error(errorMsg);
   }
   return data;
 }
@@ -289,18 +335,21 @@ type RawUserContributionForAdminDetail = Pick<Tables<'monthly_contributions'>, '
   profile_admin: { full_name: string | null } | null;
 };
 export async function fetchUserContributionsForAdmin(supabase: SupabaseClient, userId: string): Promise<UserContributionForAdminDetail[]> {
-  if (!userId) return [];
+  if (!userId || typeof userId !== 'string') {
+     console.warn(`API: fetchUserContributionsForAdmin - Invalid or missing userId: ${userId}. Returning empty array.`);
+     return [];
+  }
   const { data, error } = await supabase
     .from("monthly_contributions")
     .select(`
-      id, 
-      payment_date, 
-      month, 
-      year, 
-      amount, 
+      id,
+      payment_date,
+      month,
+      year,
+      amount,
       recorded_by_admin_id,
       profile_admin:profiles!monthly_contributions_recorded_by_admin_id_fkey(full_name)
-    `) 
+    `)
     .eq("user_id", userId)
     .order("payment_date", { ascending: false });
 
@@ -317,13 +366,16 @@ export async function fetchUserContributionsForAdmin(supabase: SupabaseClient, u
     year: item.year,
     amount: item.amount,
     recorded_by_admin_id: item.recorded_by_admin_id,
-    recorded_by_admin_name: item.profile_admin?.full_name || undefined,
+    recorded_by_admin_name: item.profile_admin?.full_name || undefined, // Ensure undefined if null for consistency
   })) || [];
 }
 
 export type UserEmergencyRequestForAdminDetail = Pick<EmergencyRequest, 'id' | 'amount_requested' | 'amount_returned' | 'reason' | 'requested_at' | 'return_date' | 'status' | 'is_fully_repaid' | 'last_return_date' | 'admin_notes'>;
 export async function fetchUserEmergencyRequestsForAdminDetail(supabase: SupabaseClient, userId: string): Promise<UserEmergencyRequestForAdminDetail[]> {
-  if (!userId) return [];
+   if (!userId || typeof userId !== 'string') {
+     console.warn(`API: fetchUserEmergencyRequestsForAdminDetail - Invalid or missing userId: ${userId}. Returning empty array.`);
+     return [];
+  }
   const { data, error } = await supabase
     .from("emergency_requests")
     .select("id, amount_requested, amount_returned, reason, requested_at, return_date, status, is_fully_repaid, last_return_date, admin_notes")
@@ -331,8 +383,11 @@ export async function fetchUserEmergencyRequestsForAdminDetail(supabase: Supabas
     .order("requested_at", { ascending: false });
 
   if (error) {
-    console.error("API: Error fetching user emergency requests for admin detail page:", JSON.stringify(error, null, 2));
-    throw error;
+    const errorMsg = `API: Error fetching user emergency requests for admin detail (userId: ${userId}): ${error.message} (Code: ${error.code})`;
+    console.error(errorMsg, JSON.stringify(error, null, 2));
+    throw new Error(errorMsg);
   }
   return data || [];
 }
+
+    
