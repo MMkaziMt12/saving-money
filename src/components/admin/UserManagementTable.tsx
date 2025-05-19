@@ -38,7 +38,7 @@ interface UserManagementTableProps {
   currentAdminId?: string | null; // Pass current admin ID to prevent self-action
 }
 
-type UserActionType = 'approve' | 'reject' | 'makeAdmin' | 'revokeAdmin' | 'deleteProfile';
+type UserActionType = 'approved' | 'reject' | 'makeAdmin' | 'revokeAdmin' | 'deleteProfile';
 
 export const UserManagementTable = React.memo(function UserManagementTable({
     users,
@@ -70,7 +70,7 @@ export const UserManagementTable = React.memo(function UserManagementTable({
     if (!userForConfirmation || !actionTypeForConfirmation) return;
 
     switch (actionTypeForConfirmation) {
-      case 'approve':
+      case 'approved':
         onApproveUser(userForConfirmation.id);
         break;
       case 'reject':
@@ -94,8 +94,8 @@ export const UserManagementTable = React.memo(function UserManagementTable({
     if (!userForConfirmation || !actionTypeForConfirmation) return { title: "", description: "" };
     const userName = userForConfirmation.full_name || userForConfirmation.email || "this user";
     switch (actionTypeForConfirmation) {
-      case 'approve':
-        return { title: "Approve User?", description: `Are you sure you want to approve ${userName}?` };
+      case 'approved':
+        return { title: "Approve User?", description: `Are you sure you want to approved ${userName}?` };
       case 'reject':
         return { title: "Unapprove User?", description: `Are you sure you want to unapprove ${userName}? Their access will be restricted.` };
       case 'makeAdmin':
@@ -174,7 +174,7 @@ export const UserManagementTable = React.memo(function UserManagementTable({
                       </DropdownMenuItem>
 
                       {!user.is_approved && (
-                        <DropdownMenuItem onSelect={() => openConfirmationDialog(user, 'approve')}>
+                        <DropdownMenuItem onSelect={() => openConfirmationDialog(user, 'approved')}>
                           <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" /> Approve User
                         </DropdownMenuItem>
                       )}
@@ -237,7 +237,7 @@ export const UserManagementTable = React.memo(function UserManagementTable({
                 className={buttonVariants({ variant: (actionTypeForConfirmation === 'reject' || actionTypeForConfirmation === 'revokeAdmin' || actionTypeForConfirmation === 'deleteProfile') ? "destructive" : "default" })}
                 onClick={executeUserAction}
               >
-                {actionTypeForConfirmation === 'approve' && 'Approve'}
+                {actionTypeForConfirmation === 'approved' && 'Approve'}
                 {actionTypeForConfirmation === 'reject' && 'Unapprove'}
                 {actionTypeForConfirmation === 'makeAdmin' && 'Make Admin'}
                 {actionTypeForConfirmation === 'revokeAdmin' && 'Revoke Admin'}

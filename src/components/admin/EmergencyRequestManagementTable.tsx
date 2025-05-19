@@ -68,7 +68,7 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
   const [isRepaymentDialogOpen, setIsRepaymentDialogOpen] = useState(false);
   
   const [requestForConfirmation, setRequestForConfirmation] = useState<EmergencyRequest | null>(null);
-  const [confirmationActionType, setConfirmationActionType] = useState<'approve' | 'reject' | null>(null);
+  const [confirmationActionType, setConfirmationActionType] = useState<'approved' | 'reject' | null>(null);
   const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
 
   const repaymentForm = useForm<RepaymentFormValues>({
@@ -98,7 +98,7 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
 
   const handleApproveConfirmation = (request: EmergencyRequest) => {
     setRequestForConfirmation(request);
-    setConfirmationActionType('approve');
+    setConfirmationActionType('approved');
     setIsConfirmationDialogOpen(true);
   };
 
@@ -393,7 +393,7 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {confirmationActionType === 'approve' ? 'Approve Request?' : 'Reject Request?'}
+                {confirmationActionType === 'approved' ? 'Approve Request?' : 'Reject Request?'}
               </AlertDialogTitle>
               <AlertDialogDescription>
                 Are you sure you want to {confirmationActionType} the request from {requestForConfirmation ? getUserName(requestForConfirmation.user_id) : ''} for {CURRENCY_SYMBOL}{requestForConfirmation?.amount_requested.toLocaleString()} (Reason: {requestForConfirmation?.reason.substring(0, 50)}...)?
@@ -405,7 +405,7 @@ export const EmergencyRequestManagementTable = React.memo(function EmergencyRequ
                 className={buttonVariants({ variant: confirmationActionType === 'reject' ? "destructive" : "default" })}
                 onClick={executeConfirmedAction}
               >
-                {confirmationActionType === 'approve' ? 'Approve' : 'Reject'}
+                {confirmationActionType === 'approved' ? 'Approve' : 'Reject'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

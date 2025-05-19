@@ -57,7 +57,7 @@ export default function AwaitingApprovalPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground">
-            Your account has been created successfully. An administrator needs to approve your membership before you can access the app.
+            Your account has been created successfully. An administrator needs to approved your membership before you can access the app.
           </p>
           <p className="text-muted-foreground">
             Please check back later or contact an admin if you have questions.
